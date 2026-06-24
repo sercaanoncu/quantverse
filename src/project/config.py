@@ -104,6 +104,7 @@ class QuantVerseConfig:
         reports = self.section("reports")
         regime = self.section("regime")
         ml = self.section("ml")
+        validation = self.raw.get("validation", {})
 
         return {
             "config_path": str(self.path),
@@ -148,6 +149,9 @@ class QuantVerseConfig:
             "pdf_output_path": reports.get(
                 "pdf_output", "output/pdf/quantverse_analysis_report.pdf"
             ),
+            "html_output_path": reports.get(
+                "html_output", "output/html/quantverse_report.html"
+            ),
             "adaptive_train_window": _as_int(
                 regime.get("adaptive_train_window", 252), "regime.adaptive_train_window"
             ),
@@ -165,6 +169,19 @@ class QuantVerseConfig:
                 ml.get("min_train_size", 504), "ml.min_train_size"
             ),
             "random_seed": _as_int(ml.get("random_seed", 42), "ml.random_seed"),
+            "var_exception_alpha": float(validation.get("var_exception_alpha", 0.05)),
+            "var_exception_lookback": _as_int(
+                validation.get("var_exception_lookback", 252),
+                "validation.var_exception_lookback",
+            ),
+            "bootstrap_samples": _as_int(
+                validation.get("bootstrap_samples", 300),
+                "validation.bootstrap_samples",
+            ),
+            "bootstrap_block_size": _as_int(
+                validation.get("bootstrap_block_size", 21),
+                "validation.bootstrap_block_size",
+            ),
         }
 
     def validate(self) -> None:
@@ -216,6 +233,12 @@ class QuantVerseConfig:
             raise ValueError("backtest windows must be positive")
         if not 0 < kwargs["ml_event_quantile"] < 0.5:
             raise ValueError("ml.event_quantile must be between 0 and 0.5")
+        if not 0 < kwargs["var_exception_alpha"] < 0.5:
+            raise ValueError("validation.var_exception_alpha must be between 0 and 0.5")
+        if kwargs["var_exception_lookback"] <= 0:
+            raise ValueError("validation.var_exception_lookback must be positive")
+        if kwargs["bootstrap_samples"] <= 0 or kwargs["bootstrap_block_size"] <= 0:
+            raise ValueError("bootstrap validation settings must be positive")
 
 
 def load_config(config_path: str | Path | None = None) -> QuantVerseConfig:

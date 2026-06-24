@@ -73,7 +73,21 @@ kaybı ölçer. Günlük VaR/CVaR kısa vadeli kayıp büyüklüğünü gösteri
 VaR/CVaR ise günlük kaybı mekanik olarak `sqrt(252)` ile büyütmek yerine 252 günlük
 bileşik gerçekleşmiş getirilerden empirik hesaplanır.
 
-## 8. ML Downside-Risk Tanısı
+## 8. Hardening ve Sağlamlık Testleri
+
+VaR exception testing, modelin yüzde 5 kuyruk eşiği çizdiği günlerde gerçekleşen
+ihlal oranının gerçekten yaklaşık yüzde 5'e yakın olup olmadığını kontrol eder.
+Kupiec testi ihlal sayısına, Christoffersen testi ihlallerin kümelenip
+kümelenmediğine bakar.
+
+Stres senaryoları, "geçmiş ortalama iyi" sonucunun ani piyasa şokunda ne kadar
+kırılgan olduğunu gösterir. Benchmark comparison, karmaşık optimizasyonun basit
+bir karşılaştırma ölçütüne göre değer ekleyip eklemediğini denetler. Transaction
+cost sensitivity, performansın işlem maliyeti varsayımına ne kadar bağımlı
+olduğunu gösterir. Moving-block bootstrap, finansal zaman serilerinde ardışık
+bağımlılığı tamamen bozmadan Sharpe ve CAGR için örneklem belirsizliği üretir.
+
+## 9. ML Downside-Risk Tanısı
 
 ML modülü getiri tahmini iddiası taşımaz. Amaç, son piyasa durumunun bir sonraki
 gün downside event olasılığı hakkında bilgi taşıyıp taşımadığını time-series split
@@ -87,7 +101,7 @@ Metrikler:
 - Brier: Olasılık kalibrasyon hatası.
 - F1: Pozitif sınıf yakalama dengesi.
 
-## 9. Kullanılmayan veya Sınırlandırılan Yöntemler
+## 10. Kullanılmayan veya Sınırlandırılan Yöntemler
 
 Black-Litterman ana üretimden çıkarılmıştır. Gerekçe: bu modelin bilimsel biçimde
 kullanılması için tarihli, kaynaklandırılmış, büyüklüğü ve güven düzeyi belirtilmiş
@@ -97,7 +111,7 @@ XGBoost ve LightGBM çekirdek bağımlılık değildir. Gerekçe: üretim pipeli
 modellerle eğitilmiş, validasyonu yapılmış ve raporlanan bir tahmin sistemi yoksa
 bağımlılık taşımak projeyi olduğundan fazla gösterir.
 
-## 10. Nihai Okuma
+## 11. Nihai Okuma
 
 QuantVerse çıktıları yatırım kararını otomatikleştirmez. Bilimsel okuma sırası:
 
@@ -105,5 +119,7 @@ QuantVerse çıktıları yatırım kararını otomatikleştirmez. Bilimsel okuma
 2. Risk-free kaynağını ve sinyal ayrımını kontrol et.
 3. Statik portföyleri sadece eğitim dönemi tanısı olarak oku.
 4. Walk-forward tabloyu ve model diagnostics farkını önceliklendir.
-5. Risk ölçülerini, drawdown'u ve maliyetleri birlikte değerlendir.
-6. Kişisel risk profili, vergi, likidite ve uygunluk değerlendirmesini ayrıca yap.
+5. VaR exception, stres, benchmark, maliyet duyarlılığı ve bootstrap tablolarını
+   birlikte değerlendir.
+6. Risk ölçülerini, drawdown'u ve maliyetleri birlikte değerlendir.
+7. Kişisel risk profili, vergi, likidite ve uygunluk değerlendirmesini ayrıca yap.

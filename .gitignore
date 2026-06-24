@@ -32,8 +32,15 @@ env/
 # Generated market data and reports
 data/cache/
 data/raw/
+data/processed/*.parquet
+data/processed/*.pkl
+data/processed/*.pickle
 notebooks/data/
 reports/
+output/pdf/*.pdf
+output/pdf/assets/
+output/html/
+tmp/
 *.html
 
 # OS/editor
@@ -41,12 +48,3 @@ reports/
 Thumbs.db
 .vscode/
 .idea/
-
-# Generated processed data
-data/processed/*.parquet
-data/processed/*.pkl
-data/processed/*.pickle
-
-# Cache / temporary data
-data/cache/
-tmp/

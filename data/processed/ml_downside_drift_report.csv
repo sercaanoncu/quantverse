@@ -1,0 +1,4 @@
+Check,Status,Statistic,p_value,First_Window_Mean,Second_Window_Mean,Interpretation
+prediction_probability_ks,evaluated,0.23742138364779874,3.92839901459879e-16,0.5622133931427068,0.5194445551683073,KS test compares first-half and second-half predicted probability distributions.
+prediction_probability_psi,evaluated,2.5530895132886724,,0.5622133931427068,0.5194445551683073,PSI is a coarse distribution-shift diagnostic; values above 0.25 usually warrant review.
+feature_missingness_drift,not_feasible,,,,,Training features are dropna-cleaned before model evaluation; raw feature missingness by fold is not retained in this lightweight pipeline.

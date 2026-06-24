@@ -1,7 +1,9 @@
 # QuantVerse
 
 QuantVerse, çok varlıklı portföy araştırması, risk analizi, walk-forward backtest,
-downside-risk ML tanısı ve resmi PDF rapor üretimi yapan Python projesidir.
+VaR exception testing, stres senaryosu, benchmark karşılaştırması, işlem maliyeti
+duyarlılığı, downside-risk ML tanısı ve resmi PDF/HTML rapor üretimi yapan Python
+projesidir.
 
 Bu proje yatırım tavsiyesi değildir. Amaç; veri, varsayım, portföy ağırlıkları,
 risk ölçüleri ve model sınırlılıklarını denetlenebilir biçimde raporlamaktır.
@@ -17,9 +19,15 @@ risk ölçüleri ve model sınırlılıklarını denetlenebilir biçimde raporla
 - Her portföy için hangi enstrümandan ne kadar alındığını `portfolio_holdings_long.csv` ve `portfolio_weights_matrix.csv` dosyalarında gösterir.
 - Maliyet dahil walk-forward backtest çalıştırır.
 - VaR, CVaR, drawdown, Calmar, Ulcer Index ve çeşitlendirme metrikleri üretir.
+- Rolling historical VaR exception testing ile ihlal frekansı ve bağımsızlık
+  tanısı üretir.
+- Stilize piyasa şoklarıyla stres senaryosu, iç 60/40 benchmark karşılaştırması,
+  işlem maliyeti duyarlılığı ve moving-block bootstrap sağlamlık çıktıları üretir.
 - Statik optimizasyon ile walk-forward sonuç arasındaki farkı `model_diagnostics.parquet` dosyasında ölçer.
-- Downside-risk için zaman sıralı ML tanısı üretir; bu modül al-sat sinyali değildir.
-- Resmi, Türkçe, metodoloji ve sınırlılık açıklamalı PDF rapor üretir.
+- Downside-risk için zaman sıralı ML tanısı, confusion matrix ve drift raporu üretir;
+  bu modül al-sat sinyali değildir.
+- Resmi, Türkçe, metodoloji ve sınırlılık açıklamalı PDF rapor ve bağımlılıksız
+  statik HTML rapor üretir.
 
 ## Kurulum
 
@@ -45,6 +53,12 @@ PDF üretmeden:
 python scripts/run_full_pipeline.py --config configs/base.yaml --skip-pdf
 ```
 
+HTML rapor üretim pipeline'ı ile otomatik yazılır:
+
+```text
+output/html/quantverse_report.html
+```
+
 Makefile olan ortamlarda:
 
 ```bash
@@ -68,8 +82,16 @@ python -m compileall src scripts
 - `data/processed/risk_metrics.parquet`
 - `data/processed/backtest_summary.parquet`
 - `data/processed/model_diagnostics.parquet`
+- `data/processed/var_exception_tests.csv`
+- `data/processed/stress_scenarios.csv`
+- `data/processed/benchmark_comparison.csv`
+- `data/processed/transaction_cost_sensitivity.csv`
+- `data/processed/statistical_robustness.csv`
 - `data/processed/ml_downside_risk_metrics.csv`
+- `data/processed/ml_downside_confusion_matrix.csv`
+- `data/processed/ml_downside_drift_report.csv`
 - `reports/run_logs/latest_run.log`
+- `output/html/quantverse_report.html`
 - `output/pdf/quantverse_analysis_report.pdf`
 
 ## Metodoloji İlkeleri

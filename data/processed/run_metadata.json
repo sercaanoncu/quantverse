@@ -1,24 +1,24 @@
 {
   "config_path": "C:\\Users\\oncus\\OneDrive\\Desktop\\quantverse\\configs\\base.yaml",
   "prices_shape": [
-    2249,
+    2250,
     37
   ],
   "returns_shape": [
-    2248,
+    2249,
     37
   ],
   "date_range": [
     "2017-11-10",
-    "2026-06-23"
+    "2026-06-24"
   ],
-  "data_as_of": "2026-06-23",
-  "risk_free_rate": 0.03725452760260861,
+  "data_as_of": "2026-06-24",
+  "risk_free_rate": 0.0375864544368274,
   "risk_free_metadata": {
     "source": "yfinance",
     "proxy": "^IRX",
-    "quote_date": "2026-06-18",
-    "quote_percent": 3.725452760260861
+    "quote_date": "2026-06-24",
+    "quote_percent": 3.75864544368274
   },
   "expected_return_shrinkage": 0.5,
   "max_position_weight": 0.25,
@@ -38,7 +38,7 @@
     ],
     "date_range": [
       "2017-11-10",
-      "2026-06-23"
+      "2026-06-24"
     ],
     "included_in_portfolio": false
   },
@@ -51,6 +51,11 @@
   "risk_metric_count": 7,
   "backtest_count": 5,
   "diagnostic_count": 5,
+  "var_exception_rows": 5,
+  "stress_scenario_rows": 7,
+  "benchmark_comparison_rows": 6,
+  "transaction_cost_sensitivity_rows": 20,
+  "statistical_robustness_rows": 5,
   "regime_columns": [
     "Vol_Regime",
     "HMM_Regime",
@@ -66,10 +71,13 @@
       "feature_importance": "reports\\figures\\ml_downside_feature_importance.png",
       "calibration": "reports\\figures\\ml_downside_calibration.png"
     },
-    "roc_auc": 0.5620562832805164,
-    "pr_auc": 0.11645548685925901,
+    "roc_auc": 0.5607584281180431,
+    "pr_auc": 0.11619814669635135,
     "baseline_pr_auc": 0.09512578616352202,
-    "brier": 0.3044226887309387,
-    "f1": 0.128379036578832
-  }
+    "brier": 0.30395490180339374,
+    "f1": 0.12842438638163103,
+    "confusion_matrix": "data/processed/ml_downside_confusion_matrix.csv",
+    "drift_report": "data/processed/ml_downside_drift_report.csv"
+  },
+  "html_report": "output/html/quantverse_report.html"
 }

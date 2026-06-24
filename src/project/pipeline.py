@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from project.backtest import PortfolioBacktester
+from project.backtest.metrics import PerformanceMetrics
 from project.backtest.rebalancing import TransactionCosts
 from project.config import load_config
 from project.covariance.estimators import CovarianceEstimator
@@ -39,6 +40,7 @@ from project.regime import (
     VolatilityRegimeDetector,
 )
 from project.risk import DrawdownAnalyzer, FactorRiskDecomposer, VaRCVaRCalculator
+from project.risk.validation import var_exception_tests
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,11 @@ class PipelineConfig:
     ml_event_lookback: int = 252
     ml_min_train_size: int = 504
     random_seed: int = 42
+    var_exception_alpha: float = 0.05
+    var_exception_lookback: int = 252
+    bootstrap_samples: int = 300
+    bootstrap_block_size: int = 21
+    html_output_path: str = "output/html/quantverse_report.html"
 
     @classmethod
     def from_yaml(
@@ -167,8 +174,28 @@ def run_full_pipeline(config: Optional[PipelineConfig] = None) -> Dict:
     backtests = _write_backtest_artifacts(
         output_dir, returns, class_map, config, risk_free_rate
     )
+    backtest_returns = pd.read_parquet(output_dir / "backtest_returns.parquet")
+    var_exceptions = _write_var_exception_artifacts(
+        output_dir, backtest_returns, config
+    )
     diagnostics = _write_diagnostic_artifacts(
         output_dir, portfolio_summary, backtests, config
+    )
+    stress_scenarios = _write_stress_scenario_artifacts(output_dir, weights, class_map)
+    benchmark_comparison = _write_benchmark_comparison_artifacts(
+        output_dir,
+        returns,
+        backtest_returns,
+        backtests,
+        diagnostics,
+        class_map,
+        risk_free_rate,
+    )
+    transaction_cost_sensitivity = _write_transaction_cost_sensitivity_artifacts(
+        output_dir, returns, class_map, config, risk_free_rate
+    )
+    statistical_robustness = _write_statistical_robustness_artifacts(
+        output_dir, backtest_returns, config, risk_free_rate
     )
     regimes = _write_regime_artifacts(
         output_dir, returns, class_map, config, risk_free_rate
@@ -206,9 +233,15 @@ def run_full_pipeline(config: Optional[PipelineConfig] = None) -> Dict:
         "risk_metric_count": int(len(risk_metrics)),
         "backtest_count": int(len(backtests)),
         "diagnostic_count": int(len(diagnostics)),
+        "var_exception_rows": int(len(var_exceptions)),
+        "stress_scenario_rows": int(len(stress_scenarios)),
+        "benchmark_comparison_rows": int(len(benchmark_comparison)),
+        "transaction_cost_sensitivity_rows": int(len(transaction_cost_sensitivity)),
+        "statistical_robustness_rows": int(len(statistical_robustness)),
         "regime_columns": list(regimes.get("regime_labels", pd.DataFrame()).columns),
         "data_quality_rows": int(len(data_quality)),
         "ml_downside_risk": ml_summary,
+        "html_report": config.html_output_path,
     }
     (output_dir / "run_metadata.json").write_text(
         json.dumps(metadata, indent=2),
@@ -217,6 +250,8 @@ def run_full_pipeline(config: Optional[PipelineConfig] = None) -> Dict:
 
     if config.mirror_notebook_data:
         _mirror_notebook_processed_data(output_dir, Path(config.notebook_output_dir))
+
+    _write_static_html_report(output_dir, Path(config.html_output_path))
 
     logger.info("QuantVerse pipeline complete: %s", metadata)
     return metadata
@@ -766,6 +801,404 @@ def _write_diagnostic_artifacts(
     return diagnostics
 
 
+def _write_var_exception_artifacts(
+    output_dir: Path,
+    backtest_returns: pd.DataFrame,
+    config: PipelineConfig,
+) -> pd.DataFrame:
+    tests = var_exception_tests(
+        backtest_returns,
+        alpha=config.var_exception_alpha,
+        lookback=config.var_exception_lookback,
+    )
+    tests.to_csv(output_dir / "var_exception_tests.csv", index=False)
+    tests.to_parquet(output_dir / "var_exception_tests.parquet")
+    return tests
+
+
+def _write_stress_scenario_artifacts(
+    output_dir: Path,
+    weights: pd.DataFrame,
+    class_map: Dict[str, str],
+) -> pd.DataFrame:
+    scenarios = _stylized_stress_scenarios()
+    strategy_names = [
+        name
+        for name in ["Equal Weight", "HRP", "Inv Volatility"]
+        if name in weights.columns
+    ]
+    rows = []
+    for scenario in scenarios:
+        row = {
+            "Scenario": scenario["name"],
+            "Scenario_Type": "stylized_class_shock",
+            "Description": scenario["description"],
+        }
+        impacts = {}
+        for strategy in strategy_names:
+            impact = _portfolio_class_shock(
+                weights[strategy], class_map, scenario["shocks"]
+            )
+            impacts[strategy] = impact
+            row[f"{strategy}_Impact_%"] = impact * 100
+
+        worst_strategy = min(impacts, key=impacts.get)
+        row["Worst_Affected_Strategy"] = worst_strategy
+        row["Worst_Impact_%"] = impacts[worst_strategy] * 100
+        row["Interpretation"] = (
+            f"{worst_strategy} has the largest stylized one-period loss in this "
+            "scenario; this is a shock sensitivity test, not a historical replay."
+        )
+        rows.append(row)
+
+    stress = pd.DataFrame(rows)
+    stress.to_csv(output_dir / "stress_scenarios.csv", index=False)
+    stress.to_parquet(output_dir / "stress_scenarios.parquet")
+    return stress
+
+
+def _portfolio_class_shock(
+    weights: pd.Series,
+    class_map: Dict[str, str],
+    shocks: Dict[str, float],
+) -> float:
+    total = 0.0
+    for ticker, weight in weights.items():
+        asset_class = class_map.get(ticker, "unknown")
+        total += float(weight) * float(shocks.get(ticker, shocks.get(asset_class, 0.0)))
+    return total
+
+
+def _stylized_stress_scenarios() -> list[Dict]:
+    return [
+        {
+            "name": "COVID crash stylized",
+            "description": "Stylized pandemic-style risk selloff with equity, REIT and crypto pressure.",
+            "shocks": {
+                "us_equity_sectors": -0.30,
+                "international_equity": -0.32,
+                "crypto": -0.45,
+                "commodities": -0.12,
+                "fixed_income": 0.06,
+                "reits": -0.28,
+            },
+        },
+        {
+            "name": "2022 inflation/rate shock stylized",
+            "description": "Stylized inflation and rate shock with bond and growth-asset drawdowns.",
+            "shocks": {
+                "us_equity_sectors": -0.18,
+                "international_equity": -0.22,
+                "crypto": -0.35,
+                "commodities": 0.08,
+                "fixed_income": -0.18,
+                "reits": -0.22,
+            },
+        },
+        {
+            "name": "Global risk-off stylized",
+            "description": "Stylized global de-risking with safe-haven fixed income support.",
+            "shocks": {
+                "us_equity_sectors": -0.20,
+                "international_equity": -0.25,
+                "crypto": -0.40,
+                "commodities": -0.05,
+                "fixed_income": 0.08,
+                "reits": -0.18,
+            },
+        },
+        {
+            "name": "Equity crash stylized",
+            "description": "Stylized equity-led crash with weaker spillover into bonds.",
+            "shocks": {
+                "us_equity_sectors": -0.35,
+                "international_equity": -0.38,
+                "crypto": -0.30,
+                "commodities": -0.10,
+                "fixed_income": 0.03,
+                "reits": -0.30,
+            },
+        },
+        {
+            "name": "Bond yield shock stylized",
+            "description": "Stylized abrupt yield increase hurting duration, REITs and equities.",
+            "shocks": {
+                "us_equity_sectors": -0.12,
+                "international_equity": -0.15,
+                "crypto": -0.18,
+                "commodities": -0.03,
+                "fixed_income": -0.22,
+                "reits": -0.25,
+            },
+        },
+        {
+            "name": "USD strength shock stylized",
+            "description": "Stylized dollar surge pressuring non-US equity, commodities and crypto.",
+            "shocks": {
+                "us_equity_sectors": -0.08,
+                "international_equity": -0.20,
+                "crypto": -0.25,
+                "commodities": -0.15,
+                "fixed_income": 0.02,
+                "reits": -0.08,
+            },
+        },
+        {
+            "name": "Crypto crash stylized",
+            "description": "Stylized crypto-specific crash with limited traditional-asset spillover.",
+            "shocks": {
+                "us_equity_sectors": -0.05,
+                "international_equity": -0.06,
+                "crypto": -0.70,
+                "commodities": 0.00,
+                "fixed_income": 0.02,
+                "reits": -0.04,
+            },
+        },
+    ]
+
+
+def _write_benchmark_comparison_artifacts(
+    output_dir: Path,
+    returns: pd.DataFrame,
+    backtest_returns: pd.DataFrame,
+    backtest_summary: pd.DataFrame,
+    diagnostics: pd.DataFrame,
+    class_map: Dict[str, str],
+    risk_free_rate: float,
+) -> pd.DataFrame:
+    rows = []
+    for strategy in backtest_returns.columns:
+        metrics = (
+            backtest_summary.loc[strategy] if strategy in backtest_summary.index else {}
+        )
+        evidence = _benchmark_evidence_class(strategy, diagnostics)
+        rows.append(
+            {
+                "Name": strategy,
+                "Type": "strategy",
+                "CAGR": float(metrics.get("CAGR", np.nan)),
+                "Volatility": float(metrics.get("Volatility", np.nan)),
+                "Sharpe": float(metrics.get("Sharpe", np.nan)),
+                "Max_Drawdown": float(metrics.get("Max_Drawdown", np.nan)),
+                "Calmar": float(metrics.get("Calmar", np.nan)),
+                "Total_Turnover": float(metrics.get("Total_Turnover", np.nan)),
+                "Total_Cost": float(metrics.get("Total_Cost", np.nan)),
+                "Evidence_Class": evidence,
+            }
+        )
+
+    internal_6040 = _internal_6040_proxy(returns, class_map, backtest_returns.index)
+    if internal_6040 is not None:
+        rows.append(
+            _benchmark_metric_row(
+                "60/40 internal equity/fixed-income proxy",
+                internal_6040,
+                risk_free_rate,
+            )
+        )
+
+    if {"SPY", "AGG"}.issubset(returns.columns):
+        spy_agg = (0.60 * returns["SPY"] + 0.40 * returns["AGG"]).reindex(
+            backtest_returns.index
+        )
+        rows.append(
+            _benchmark_metric_row("60/40 SPY/AGG proxy", spy_agg, risk_free_rate)
+        )
+
+    comparison = pd.DataFrame(rows)
+    comparison.to_csv(output_dir / "benchmark_comparison.csv", index=False)
+    comparison.to_parquet(output_dir / "benchmark_comparison.parquet")
+    return comparison
+
+
+def _internal_6040_proxy(
+    returns: pd.DataFrame,
+    class_map: Dict[str, str],
+    index: pd.Index,
+) -> Optional[pd.Series]:
+    equity = [
+        ticker
+        for ticker, asset_class in class_map.items()
+        if asset_class in {"us_equity_sectors", "international_equity"}
+        and ticker in returns.columns
+    ]
+    bonds = [
+        ticker
+        for ticker, asset_class in class_map.items()
+        if asset_class == "fixed_income" and ticker in returns.columns
+    ]
+    if not equity or not bonds:
+        return None
+    proxy = 0.60 * returns[equity].mean(axis=1) + 0.40 * returns[bonds].mean(axis=1)
+    return proxy.reindex(index).dropna()
+
+
+def _benchmark_metric_row(
+    name: str,
+    returns: pd.Series,
+    risk_free_rate: float,
+) -> Dict:
+    metrics = PerformanceMetrics(returns, risk_free_rate=risk_free_rate).full_report()
+    return {
+        "Name": name,
+        "Type": "benchmark_proxy",
+        "CAGR": metrics["CAGR"],
+        "Volatility": metrics["Annualized Volatility"],
+        "Sharpe": metrics["Sharpe Ratio"],
+        "Max_Drawdown": metrics["Max Drawdown"],
+        "Calmar": metrics["Calmar Ratio"],
+        "Total_Turnover": np.nan,
+        "Total_Cost": np.nan,
+        "Evidence_Class": "Benchmark proxy",
+    }
+
+
+def _benchmark_evidence_class(strategy: str, diagnostics: pd.DataFrame) -> str:
+    name_map = {"Inverse Vol": "Inv Volatility"}
+    diag_name = name_map.get(strategy, strategy)
+    if diag_name in diagnostics.index:
+        return str(diagnostics.loc[diag_name, "Evidence_Tier"])
+    return "Benchmark or auxiliary comparator"
+
+
+def _write_transaction_cost_sensitivity_artifacts(
+    output_dir: Path,
+    returns: pd.DataFrame,
+    class_map: Dict[str, str],
+    config: PipelineConfig,
+    risk_free_rate: float,
+) -> pd.DataFrame:
+    rows = []
+    for bps in [0, 5, 10, 25]:
+        backtester = PortfolioBacktester(
+            returns,
+            class_map,
+            costs=TransactionCosts(proportional=bps / 10000, spread=0.0),
+            risk_free_rate=risk_free_rate,
+            max_position_weight=config.max_position_weight,
+        )
+        results = backtester.run_all_strategies(
+            train_window=config.train_window,
+            rebal_frequency=config.rebal_frequency,
+        )
+        for strategy, result in results.items():
+            metrics = result["metrics"]
+            rows.append(
+                {
+                    "Cost_Bps": bps,
+                    "Strategy": strategy,
+                    "CAGR": metrics["CAGR"],
+                    "Sharpe": metrics["Sharpe Ratio"],
+                    "Max_Drawdown": metrics["Max Drawdown"],
+                    "Total_Cost": result["total_cost"],
+                    "Annualized_Cost_Drag_%": result["annualized_cost_drag_%"],
+                    "Interpretation": _cost_sensitivity_interpretation(bps, strategy),
+                }
+            )
+    sensitivity = pd.DataFrame(rows)
+    sensitivity.to_csv(output_dir / "transaction_cost_sensitivity.csv", index=False)
+    sensitivity.to_parquet(output_dir / "transaction_cost_sensitivity.parquet")
+    return sensitivity
+
+
+def _cost_sensitivity_interpretation(cost_bps: int, strategy: str) -> str:
+    if cost_bps == 0:
+        return "No-cost counterfactual; not a realistic implementation assumption"
+    if cost_bps >= 25:
+        return f"High-cost stress case for {strategy}; conclusions should be robust to fee drag"
+    return f"Moderate transaction-cost case for {strategy}"
+
+
+def _write_statistical_robustness_artifacts(
+    output_dir: Path,
+    backtest_returns: pd.DataFrame,
+    config: PipelineConfig,
+    risk_free_rate: float,
+) -> pd.DataFrame:
+    rows = []
+    rng = np.random.default_rng(config.random_seed)
+    for strategy in backtest_returns.columns:
+        returns = backtest_returns[strategy].dropna()
+        if returns.empty:
+            continue
+        observed = PerformanceMetrics(
+            returns, risk_free_rate=risk_free_rate
+        ).full_report()
+        boot = _block_bootstrap_metrics(
+            returns=returns,
+            risk_free_rate=risk_free_rate,
+            samples=config.bootstrap_samples,
+            block_size=config.bootstrap_block_size,
+            rng=rng,
+        )
+        rows.append(
+            {
+                "Strategy": strategy,
+                "Method": "moving_block_bootstrap",
+                "Samples": config.bootstrap_samples,
+                "Block_Size": config.bootstrap_block_size,
+                "Observed_CAGR": observed["CAGR"],
+                "CAGR_CI_5": np.nanpercentile(boot["CAGR"], 5),
+                "CAGR_CI_95": np.nanpercentile(boot["CAGR"], 95),
+                "Observed_Sharpe": observed["Sharpe Ratio"],
+                "Sharpe_CI_5": np.nanpercentile(boot["Sharpe"], 5),
+                "Sharpe_CI_95": np.nanpercentile(boot["Sharpe"], 95),
+                "Evidence_Strength": _bootstrap_evidence_strength(
+                    np.nanpercentile(boot["Sharpe"], 5),
+                    np.nanpercentile(boot["Sharpe"], 95),
+                ),
+                "Limitations": "Block bootstrap preserves short local dependence but is not a proof of future performance.",
+            }
+        )
+    robustness = pd.DataFrame(rows)
+    robustness.to_csv(output_dir / "statistical_robustness.csv", index=False)
+    robustness.to_parquet(output_dir / "statistical_robustness.parquet")
+    return robustness
+
+
+def _block_bootstrap_metrics(
+    returns: pd.Series,
+    risk_free_rate: float,
+    samples: int,
+    block_size: int,
+    rng: np.random.Generator,
+) -> Dict[str, np.ndarray]:
+    values = returns.to_numpy()
+    n_obs = len(values)
+    cagr = np.full(samples, np.nan)
+    sharpe = np.full(samples, np.nan)
+    if n_obs < 2:
+        return {"CAGR": cagr, "Sharpe": sharpe}
+
+    block_size = min(max(1, block_size), n_obs)
+    n_blocks = int(np.ceil(n_obs / block_size))
+    for sample_idx in range(samples):
+        sampled = []
+        for _ in range(n_blocks):
+            start = int(rng.integers(0, max(1, n_obs - block_size + 1)))
+            sampled.extend(values[start : start + block_size])
+        series = pd.Series(sampled[:n_obs], index=returns.index)
+        metrics = PerformanceMetrics(
+            series, risk_free_rate=risk_free_rate
+        ).full_report()
+        cagr[sample_idx] = metrics["CAGR"]
+        sharpe[sample_idx] = metrics["Sharpe Ratio"]
+    return {"CAGR": cagr, "Sharpe": sharpe}
+
+
+def _bootstrap_evidence_strength(ci_low: float, ci_high: float) -> str:
+    if pd.isna(ci_low) or pd.isna(ci_high):
+        return "inconclusive"
+    if ci_low > 0.5:
+        return "strong_positive"
+    if ci_low > 0:
+        return "moderate_positive"
+    if ci_high < 0:
+        return "negative"
+    return "inconclusive"
+
+
 def _write_regime_artifacts(
     output_dir: Path,
     returns: pd.DataFrame,
@@ -843,6 +1276,14 @@ def _write_ml_artifacts(
             result.predictions.to_parquet(
                 output_dir / "ml_downside_risk_predictions.parquet"
             )
+            confusion = _ml_confusion_matrix_table(result.predictions)
+            confusion.to_csv(
+                output_dir / "ml_downside_confusion_matrix.csv", index=False
+            )
+            confusion.to_parquet(output_dir / "ml_downside_confusion_matrix.parquet")
+            drift = _ml_drift_report(result.predictions)
+            drift.to_csv(output_dir / "ml_downside_drift_report.csv", index=False)
+            drift.to_parquet(output_dir / "ml_downside_drift_report.parquet")
         if not result.feature_importance.empty:
             result.feature_importance.to_parquet(
                 output_dir / "ml_downside_risk_feature_importance.parquet"
@@ -873,6 +1314,11 @@ def _write_ml_artifacts(
             for key in ["ROC_AUC", "PR_AUC", "Baseline_PR_AUC", "Brier", "F1"]:
                 if key in row and pd.notna(row[key]):
                     summary[key.lower()] = float(row[key])
+        if not result.predictions.empty:
+            summary["confusion_matrix"] = (
+                "data/processed/ml_downside_confusion_matrix.csv"
+            )
+            summary["drift_report"] = "data/processed/ml_downside_drift_report.csv"
         return summary
     except Exception as exc:  # pragma: no cover - diagnostic should not halt pipeline
         logger.warning("Downside-risk ML diagnostics skipped: %s", exc)
@@ -880,6 +1326,230 @@ def _write_ml_artifacts(
         status.to_parquet(output_dir / "ml_downside_risk_metrics.parquet")
         status.to_csv(output_dir / "ml_downside_risk_metrics.csv", index=False)
         return {"status": "skipped", "reason": str(exc)}
+
+
+def _ml_confusion_matrix_table(predictions: pd.DataFrame) -> pd.DataFrame:
+    observed = predictions["Observed"].astype(int)
+    predicted = predictions["Prediction"].astype(int)
+    tp = int(((observed == 1) & (predicted == 1)).sum())
+    tn = int(((observed == 0) & (predicted == 0)).sum())
+    fp = int(((observed == 0) & (predicted == 1)).sum())
+    fn = int(((observed == 1) & (predicted == 0)).sum())
+    total = tp + tn + fp + fn
+    precision = tp / (tp + fp) if (tp + fp) else np.nan
+    recall = tp / (tp + fn) if (tp + fn) else np.nan
+    specificity = tn / (tn + fp) if (tn + fp) else np.nan
+    return pd.DataFrame(
+        [
+            {
+                "TN": tn,
+                "FP": fp,
+                "FN": fn,
+                "TP": tp,
+                "Total": total,
+                "Precision": precision,
+                "Recall": recall,
+                "Specificity": specificity,
+                "Interpretation": (
+                    "Diagnostic confusion matrix at 0.50 probability threshold; "
+                    "not a trading rule."
+                ),
+            }
+        ]
+    )
+
+
+def _ml_drift_report(predictions: pd.DataFrame) -> pd.DataFrame:
+    from scipy.stats import ks_2samp
+
+    pred = predictions.sort_index()
+    if len(pred) < 20:
+        return pd.DataFrame(
+            [
+                {
+                    "Check": "prediction_probability_drift",
+                    "Status": "inconclusive",
+                    "Statistic": np.nan,
+                    "p_value": np.nan,
+                    "Interpretation": "Too few prediction rows for drift diagnostics.",
+                }
+            ]
+        )
+
+    split = len(pred) // 2
+    first = pred["Probability"].iloc[:split]
+    second = pred["Probability"].iloc[split:]
+    ks = ks_2samp(first, second)
+    psi = _population_stability_index(first, second)
+    return pd.DataFrame(
+        [
+            {
+                "Check": "prediction_probability_ks",
+                "Status": "evaluated",
+                "Statistic": float(ks.statistic),
+                "p_value": float(ks.pvalue),
+                "First_Window_Mean": float(first.mean()),
+                "Second_Window_Mean": float(second.mean()),
+                "Interpretation": (
+                    "KS test compares first-half and second-half predicted probability distributions."
+                ),
+            },
+            {
+                "Check": "prediction_probability_psi",
+                "Status": "evaluated",
+                "Statistic": psi,
+                "p_value": np.nan,
+                "First_Window_Mean": float(first.mean()),
+                "Second_Window_Mean": float(second.mean()),
+                "Interpretation": (
+                    "PSI is a coarse distribution-shift diagnostic; values above 0.25 "
+                    "usually warrant review."
+                ),
+            },
+            {
+                "Check": "feature_missingness_drift",
+                "Status": "not_feasible",
+                "Statistic": np.nan,
+                "p_value": np.nan,
+                "First_Window_Mean": np.nan,
+                "Second_Window_Mean": np.nan,
+                "Interpretation": (
+                    "Training features are dropna-cleaned before model evaluation; raw "
+                    "feature missingness by fold is not retained in this lightweight pipeline."
+                ),
+            },
+        ]
+    )
+
+
+def _population_stability_index(
+    expected: pd.Series,
+    observed: pd.Series,
+    bins: int = 10,
+) -> float:
+    quantiles = np.unique(np.nanquantile(expected, np.linspace(0, 1, bins + 1)))
+    if len(quantiles) < 3:
+        return float("nan")
+    expected_counts, _ = np.histogram(expected, bins=quantiles)
+    observed_counts, _ = np.histogram(observed, bins=quantiles)
+    expected_pct = expected_counts / max(expected_counts.sum(), 1)
+    observed_pct = observed_counts / max(observed_counts.sum(), 1)
+    eps = 1e-8
+    return float(
+        np.sum(
+            (observed_pct - expected_pct)
+            * np.log((observed_pct + eps) / (expected_pct + eps))
+        )
+    )
+
+
+def _write_static_html_report(output_dir: Path, html_path: Path) -> None:
+    """Write a lightweight static showcase report without extra web dependencies."""
+    html_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path = output_dir / "run_metadata.json"
+    metadata = (
+        json.loads(metadata_path.read_text(encoding="utf-8"))
+        if metadata_path.exists()
+        else {}
+    )
+
+    sections = [
+        ("Run Metadata", pd.DataFrame([metadata]).T.rename(columns={0: "Value"})),
+        ("Decision Summary", _read_json_table(output_dir / "decision_summary.json")),
+        ("Data Quality", _read_table(output_dir / "data_quality_report.csv").head(12)),
+        (
+            "Portfolio Weights",
+            _read_table(output_dir / "portfolio_weights_matrix.csv").head(20),
+        ),
+        ("Backtest", _read_parquet_or_empty(output_dir / "backtest_summary.parquet")),
+        ("Risk Metrics", _read_parquet_or_empty(output_dir / "risk_metrics.parquet")),
+        ("VaR Exception Tests", _read_table(output_dir / "var_exception_tests.csv")),
+        ("Stress Testing", _read_table(output_dir / "stress_scenarios.csv")),
+        ("Benchmark Comparison", _read_table(output_dir / "benchmark_comparison.csv")),
+        (
+            "Transaction Cost Sensitivity",
+            _read_table(output_dir / "transaction_cost_sensitivity.csv").head(20),
+        ),
+        (
+            "Statistical Robustness",
+            _read_table(output_dir / "statistical_robustness.csv"),
+        ),
+        ("ML Diagnostic", _read_table(output_dir / "ml_downside_risk_metrics.csv")),
+        (
+            "ML Confusion Matrix",
+            _read_table(output_dir / "ml_downside_confusion_matrix.csv"),
+        ),
+        ("ML Drift", _read_table(output_dir / "ml_downside_drift_report.csv")),
+    ]
+    nav = "\n".join(
+        f'<a href="#{_html_anchor(title)}">{title}</a>'
+        for title, frame in sections
+        if not frame.empty
+    )
+    body_parts = []
+    for title, frame in sections:
+        if frame.empty:
+            continue
+        body_parts.append(f'<section id="{_html_anchor(title)}"><h2>{title}</h2>')
+        body_parts.append(frame.to_html(index=True, escape=True, border=0))
+        body_parts.append("</section>")
+
+    html = f"""<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuantVerse Research Report</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 0; color: #172532; background: #f6f8fa; }}
+    header {{ background: #102f45; color: white; padding: 28px 36px; }}
+    header p {{ max-width: 980px; line-height: 1.45; }}
+    nav {{ display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 36px; background: white; border-bottom: 1px solid #d8e0e7; }}
+    nav a {{ color: #102f45; text-decoration: none; font-weight: 700; font-size: 13px; }}
+    main {{ padding: 24px 36px 48px; }}
+    section {{ background: white; margin: 0 0 18px; padding: 18px; border: 1px solid #d8e0e7; border-radius: 6px; overflow-x: auto; }}
+    h1, h2 {{ margin-top: 0; }}
+    table {{ border-collapse: collapse; min-width: 760px; font-size: 12px; }}
+    th {{ background: #102f45; color: white; text-align: left; }}
+    th, td {{ padding: 7px 9px; border: 1px solid #d8e0e7; vertical-align: top; }}
+    tr:nth-child(even) td {{ background: #f7f9fb; }}
+    .warning {{ color: #633500; background: #fff4df; padding: 10px 12px; border-left: 4px solid #d8902f; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>QuantVerse Research Report</h1>
+    <p>Research-grade multi-asset portfolio analytics, market-risk validation, stress testing, benchmark comparison and ML diagnostic dashboard. This is not personal investment advice.</p>
+    <p>Data as of: {metadata.get('data_as_of', 'N/A')} | Risk-free source: {metadata.get('risk_free_metadata', {}).get('source', 'N/A')}</p>
+  </header>
+  <nav>{nav}</nav>
+  <main>
+    <p class="warning">Static HTML report generated from local pipeline artifacts. It contains no fabricated screenshots or external claims.</p>
+    {''.join(body_parts)}
+  </main>
+</body>
+</html>
+"""
+    html_path.write_text(html, encoding="utf-8")
+
+
+def _read_table(path: Path) -> pd.DataFrame:
+    return pd.read_csv(path) if path.exists() else pd.DataFrame()
+
+
+def _read_parquet_or_empty(path: Path) -> pd.DataFrame:
+    return pd.read_parquet(path) if path.exists() else pd.DataFrame()
+
+
+def _read_json_table(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return pd.DataFrame([data]).T.rename(columns={0: "Value"})
+
+
+def _html_anchor(title: str) -> str:
+    return title.lower().replace(" ", "-").replace("/", "-")
 
 
 def _mirror_notebook_processed_data(

@@ -16,5 +16,6 @@ bilinen veriyi kullanır. Bu sayede statik optimizasyonun geçmişe aşırı uyu
 ölçülür.
 
 Son çıktı sadece “en iyi portföy” değildir. Çıktı; portföy bileşimleri, ağırlık
-tabloları, risk ölçüleri, maliyet etkisi, model tanı farkı, downside-risk ML tanısı
-ve yatırım tavsiyesi olmadığı açıkça belirtilmiş resmi PDF raporudur.
+tabloları, risk ölçüleri, VaR exception testi, stres senaryosu, benchmark karşılaştırması,
+maliyet duyarlılığı, bootstrap sağlamlık analizi, model tanı farkı, downside-risk
+ML tanısı ve yatırım tavsiyesi olmadığı açıkça belirtilmiş resmi PDF/HTML raporudur.
