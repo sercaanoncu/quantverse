@@ -1,0 +1,142 @@
+# QuantVerse canonical production configuration.
+# This file is the single source of truth for the production pipeline.
+
+project:
+  name: QuantVerse
+  version: "1.0.0"
+  owner: Sercan
+  run_timezone: Europe/Istanbul
+  purpose: "Research-grade multi-asset portfolio analytics and risk reporting"
+
+data:
+  start_date: "2015-01-01"
+  end_date: null
+  frequency: "1d"
+  calendar: business
+  cache_dir: data/cache
+  output_dir: data/processed
+  notebook_output_dir: notebooks/data/processed
+  min_history_pct: 0.70
+  mirror_notebook_data: true
+
+risk_free:
+  mode: market_proxy
+  proxy: "^IRX"
+  fallback_annual_rate: 0.04
+  note: "13-week Treasury bill proxy. Manual override is allowed only through risk_free.manual_annual_rate."
+  manual_annual_rate: null
+
+portfolio:
+  max_position_weight: 0.25
+  min_position_weight: 0.0
+  allow_short: false
+  expected_return_shrinkage: 0.50
+  covariance_method: Ledoit-Wolf
+  primary_selection_rule: walk_forward_oos_sharpe
+
+backtest:
+  train_window: 504
+  rebal_frequency: 63
+  transaction_cost_proportional: 0.0010
+  transaction_cost_spread: 0.0005
+  expanding_window: false
+
+regime:
+  adaptive_train_window: 252
+  adaptive_rebal_frequency: 21
+  n_regimes: 3
+  random_seed: 42
+
+ml:
+  enabled: true
+  n_splits: 5
+  event_quantile: 0.10
+  event_lookback: 252
+  min_train_size: 504
+  random_seed: 42
+
+reports:
+  root_dir: reports
+  tables_dir: reports/tables
+  figures_dir: reports/figures
+  run_logs_dir: reports/run_logs
+  pdf_output: output/pdf/quantverse_analysis_report.pdf
+
+universe:
+  us_equity_sectors:
+    description: "S&P 500 sector ETFs"
+    investable: true
+    tickers:
+      - XLK
+      - XLF
+      - XLE
+      - XLV
+      - XLI
+      - XLC
+      - XLY
+      - XLP
+      - XLRE
+      - XLU
+      - XLB
+
+  international_equity:
+    description: "International equity ETFs"
+    investable: true
+    tickers:
+      - EFA
+      - EEM
+      - VGK
+      - VPL
+      - INDA
+      - FXI
+
+  crypto:
+    description: "Major crypto assets"
+    investable: true
+    tickers:
+      - BTC-USD
+      - ETH-USD
+      - SOL-USD
+      - BNB-USD
+      - ADA-USD
+      - XRP-USD
+
+  commodities:
+    description: "Commodity ETFs"
+    investable: true
+    tickers:
+      - GLD
+      - SLV
+      - USO
+      - UNG
+      - DBA
+      - PPLT
+      - CPER
+
+  fixed_income:
+    description: "Bond ETFs"
+    investable: true
+    tickers:
+      - TLT
+      - IEF
+      - SHY
+      - LQD
+      - HYG
+      - TIP
+      - AGG
+
+  reits:
+    description: "Real estate investment trust ETFs"
+    investable: true
+    tickers:
+      - VNQ
+      - VNQI
+
+  signals:
+    description: "Market context signals; not investable and never allowed in portfolio weights"
+    investable: false
+    tickers:
+      - ^VIX
+      - ^TNX
+      - ^IRX
+      - DX-Y.NYB

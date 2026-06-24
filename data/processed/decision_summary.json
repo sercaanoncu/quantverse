@@ -1,0 +1,13 @@
+{
+  "primary_ranking_metric": "walk_forward_oos_sharpe",
+  "best_oos_strategy": "Equal Weight",
+  "best_oos_sharpe": 0.7975525570578166,
+  "risk_screened_candidate": "HRP",
+  "risk_screened_candidate_tier": "Primary research candidate",
+  "risk_screened_candidate_oos_sharpe": 0.7314867354822792,
+  "risk_screened_candidate_max_drawdown": -0.19967448663090992,
+  "largest_in_sample_gap_strategy": "Max Sharpe",
+  "largest_sharpe_gap": 0.7013464192734414,
+  "decision_rule": "Use walk-forward evidence as the primary decision layer. Static optimization results are training-sample diagnostics, not standalone investment conclusions.",
+  "config_path": "C:\\Users\\oncus\\OneDrive\\Desktop\\quantverse\\configs\\base.yaml"
+}

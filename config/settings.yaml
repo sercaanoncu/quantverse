@@ -1,0 +1,65 @@
+# Legacy compatibility configuration.
+# Canonical production configuration lives in: configs/base.yaml
+# Keep this file only for older notebooks or helper scripts that still call
+# AssetUniverse.from_config("config/settings.yaml").
+
+project:
+  name: QuantVerse
+  version: "1.0.0"
+  canonical_config: configs/base.yaml
+
+universe:
+  us_equity_sectors:
+    description: "S&P 500 sector ETFs"
+    investable: true
+    tickers: [XLK, XLF, XLE, XLV, XLI, XLC, XLY, XLP, XLRE, XLU, XLB]
+
+  international_equity:
+    description: "International equity ETFs"
+    investable: true
+    tickers: [EFA, EEM, VGK, VPL, INDA, FXI]
+
+  crypto:
+    description: "Major crypto assets"
+    investable: true
+    tickers: [BTC-USD, ETH-USD, SOL-USD, BNB-USD, ADA-USD, XRP-USD]
+
+  commodities:
+    description: "Commodity ETFs"
+    investable: true
+    tickers: [GLD, SLV, USO, UNG, DBA, PPLT, CPER]
+
+  fixed_income:
+    description: "Bond ETFs"
+    investable: true
+    tickers: [TLT, IEF, SHY, LQD, HYG, TIP, AGG]
+
+  reits:
+    description: "Real estate investment trust ETFs"
+    investable: true
+    tickers: [VNQ, VNQI]
+
+  signals:
+    description: "Market context signals; not investable"
+    investable: false
+    tickers: [^VIX, ^TNX, ^IRX, DX-Y.NYB]
+
+data:
+  start_date: "2015-01-01"
+  end_date: null
+  risk_free_proxy: "^IRX"
+  cache_dir: data/cache
+  processed_dir: data/processed
+
+portfolio:
+  max_position_weight: 0.25
+  transaction_cost_bps: 10
+  allow_short: false
+
+risk:
+  confidence_levels: [0.95, 0.99]
+  lookback_window: 252
+
+ml:
+  status: "production diagnostic configured in configs/base.yaml"
+  models: [balanced_logistic_regression]

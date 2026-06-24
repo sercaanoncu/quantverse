@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Local virtual environments accidentally placed in the project root
+Lib/
+Scripts/
+share/
+etc/
+.venv/
+venv/
+env/
+
+# Local agent/app state
+.claude/settings.local.json
+.codex/
+.agents/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Generated market data and reports
+data/cache/
+data/raw/
+notebooks/data/
+reports/
+*.html
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

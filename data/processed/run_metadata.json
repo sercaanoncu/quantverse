@@ -1,0 +1,75 @@
+{
+  "config_path": "C:\\Users\\oncus\\OneDrive\\Desktop\\quantverse\\configs\\base.yaml",
+  "prices_shape": [
+    2249,
+    37
+  ],
+  "returns_shape": [
+    2248,
+    37
+  ],
+  "date_range": [
+    "2017-11-10",
+    "2026-06-23"
+  ],
+  "data_as_of": "2026-06-23",
+  "risk_free_rate": 0.03725452760260861,
+  "risk_free_metadata": {
+    "source": "yfinance",
+    "proxy": "^IRX",
+    "quote_date": "2026-06-18",
+    "quote_percent": 3.725452760260861
+  },
+  "expected_return_shrinkage": 0.5,
+  "max_position_weight": 0.25,
+  "train_window": 504,
+  "rebal_frequency": 63,
+  "transaction_cost_proportional": 0.001,
+  "transaction_cost_spread": 0.0005,
+  "primary_selection_rule": "walk_forward_oos_sharpe",
+  "weekend_rows": 0,
+  "signals_in_returns": [],
+  "signal_metadata": {
+    "columns": [
+      "^VIX",
+      "^TNX",
+      "^IRX",
+      "DX-Y.NYB"
+    ],
+    "date_range": [
+      "2017-11-10",
+      "2026-06-23"
+    ],
+    "included_in_portfolio": false
+  },
+  "dropped_assets": [
+    "SOL-USD",
+    "XLC"
+  ],
+  "drop_reason": "Dropped assets failed the minimum history coverage rule; assets are not dropped because realized return was low.",
+  "portfolio_count": 7,
+  "risk_metric_count": 7,
+  "backtest_count": 5,
+  "diagnostic_count": 5,
+  "regime_columns": [
+    "Vol_Regime",
+    "HMM_Regime",
+    "Cluster_Regime"
+  ],
+  "data_quality_rows": 39,
+  "ml_downside_risk": {
+    "status": "evaluated",
+    "reason": null,
+    "model": "balanced_logistic_regression",
+    "event_definition": "next-day equal-weight return below prior rolling 10% quantile",
+    "figures": {
+      "feature_importance": "reports\\figures\\ml_downside_feature_importance.png",
+      "calibration": "reports\\figures\\ml_downside_calibration.png"
+    },
+    "roc_auc": 0.5620562832805164,
+    "pr_auc": 0.11645548685925901,
+    "baseline_pr_auc": 0.09512578616352202,
+    "brier": 0.3044226887309387,
+    "f1": 0.128379036578832
+  }
+}

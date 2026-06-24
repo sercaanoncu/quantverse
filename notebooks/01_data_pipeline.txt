@@ -1,0 +1,253 @@
+# Standard imports
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+import logging
+import sys
+import os
+
+# Add project root to path
+sys.path.insert(0, os.path.abspath('..'))
+
+warnings.filterwarnings('ignore')
+logging.basicConfig(level=logging.INFO)
+
+# Plot settings
+plt.style.use('seaborn-v0_8-whitegrid')
+plt.rcParams['figure.figsize'] = (14, 6)
+plt.rcParams['font.size'] = 12
+sns.set_palette('husl')
+
+print('Setup complete.')
+
+from project.config import load_config
+from project.data_pipeline import AssetUniverse
+
+config = load_config('configs/base.yaml')
+universe = AssetUniverse.from_config(str(config.path))
+print(universe.summary())
+
+# Asset class breakdown
+class_map = universe.get_asset_class_map()
+print(f"\nTotal investable assets: {len(universe.investable_tickers)}")
+print(f"Signal indicators: {len(universe.signal_tickers)}")
+print(f"\nAsset classes: {list(universe.asset_classes.keys())}")
+
+from src.data_pipeline import DataFetcher
+
+fetcher = DataFetcher(
+    universe=universe,
+    start_date='2015-01-01',
+    cache_dir='../data/cache',
+)
+
+# Fetch all prices
+prices = fetcher.fetch_prices()
+print(f"\nPrice matrix shape: {prices.shape}")
+print(f"Date range: {prices.index[0].date()} to {prices.index[-1].date()}")
+print(f"\nAssets downloaded: {list(prices.columns)}")
+
+# Check data coverage per asset
+coverage = prices.notna().sum() / len(prices) * 100
+coverage_df = coverage.to_frame('Coverage %').sort_values('Coverage %')
+coverage_df['Asset Class'] = coverage_df.index.map(class_map)
+
+print("Data Coverage by Asset:")
+print(coverage_df.to_string())
+
+# Visualize data availability
+fig, ax = plt.subplots(figsize=(16, 8))
+availability = prices.notna().astype(int)
+sns.heatmap(
+    availability.T, 
+    cmap='RdYlGn', 
+    cbar_kws={'label': 'Data Available'},
+    yticklabels=True,
+    xticklabels=False,
+    ax=ax
+)
+ax.set_title('Data Availability Matrix', fontsize=16, fontweight='bold')
+ax.set_xlabel('Time')
+ax.set_ylabel('Asset')
+plt.tight_layout()
+plt.show()
+
+from src.data_pipeline import DataProcessor
+
+processor = DataProcessor(prices)
+
+# Run cleaning pipeline
+clean_prices = processor.clean(
+    min_history_pct=0.50,  # Need at least 50% of dates
+    max_gap_days=5,        # Allow up to 5-day gaps
+    fill_method='ffill',   # Forward-fill small gaps
+)
+
+print(f"\nCleaned shape: {clean_prices.shape}")
+print(f"Remaining missing: {clean_prices.isnull().sum().sum()}")
+
+# Cleaning report
+report = processor.get_cleaning_report()
+print("Cleaning Report:")
+print(f"  Original shape: {report['original_shape']}")
+print(f"  Final shape:    {report['final_shape']}")
+print(f"  Date range:     {report['date_range'][0]} to {report['date_range'][1]}")
+if report.get('dropped_low_coverage'):
+    print(f"  Dropped (low coverage): {report['dropped_low_coverage']}")
+print(f"  Assets retained: {len(report['assets_retained'])}")
+
+# Compute all return types
+all_returns = processor.compute_all_returns()
+
+daily_returns = all_returns['daily_simple']
+log_returns = all_returns['daily_log']
+weekly_returns = all_returns['weekly']
+monthly_returns = all_returns['monthly']
+
+print(f"Daily returns shape:   {daily_returns.shape}")
+print(f"Weekly returns shape:  {weekly_returns.shape}")
+print(f"Monthly returns shape: {monthly_returns.shape}")
+
+stats = processor.summary_statistics()
+
+# Display sorted by Sharpe Ratio
+print("Asset Summary Statistics (sorted by Sharpe Ratio):")
+print("=" * 100)
+print(stats.sort_values('Sharpe Ratio', ascending=False).to_string())
+
+# Risk-Return scatter plot
+fig, ax = plt.subplots(figsize=(14, 8))
+
+# Color by asset class
+colors = {
+    'us_equity_sectors': '#2196F3',
+    'international_equity': '#4CAF50',
+    'crypto': '#FF9800',
+    'commodities': '#9C27B0',
+    'fixed_income': '#607D8B',
+    'reits': '#E91E63',
+    'signals': '#999999',
+}
+
+for ticker in stats.index:
+    ac = class_map.get(ticker, 'other')
+    color = colors.get(ac, '#333333')
+    ax.scatter(
+        stats.loc[ticker, 'Ann. Volatility (%)'],
+        stats.loc[ticker, 'Ann. Return (%)'],
+        c=color, s=100, alpha=0.8, edgecolors='white', linewidth=1.5
+    )
+    ax.annotate(
+        ticker, 
+        (stats.loc[ticker, 'Ann. Volatility (%)'], stats.loc[ticker, 'Ann. Return (%)']),
+        fontsize=8, ha='left', va='bottom', alpha=0.8
+    )
+
+# Legend
+for ac_name, color in colors.items():
+    if ac_name != 'signals':
+        ax.scatter([], [], c=color, s=100, label=ac_name.replace('_', ' ').title())
+ax.legend(loc='upper left', framealpha=0.9)
+
+ax.set_xlabel('Annualized Volatility (%)', fontsize=13)
+ax.set_ylabel('Annualized Return (%)', fontsize=13)
+ax.set_title('Risk-Return Profile: Multi-Asset Universe', fontsize=16, fontweight='bold')
+ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+plt.tight_layout()
+plt.show()
+
+# Cumulative returns
+cumulative = (1 + daily_returns).cumprod()
+
+# Plot by asset class
+fig, axes = plt.subplots(2, 3, figsize=(18, 10), sharex=True)
+axes = axes.flatten()
+
+for idx, (ac_name, ac) in enumerate(universe.asset_classes.items()):
+    if ac_name == 'signals' or idx >= 6:
+        continue
+    ax = axes[idx]
+    available = [t for t in ac.tickers if t in cumulative.columns]
+    if available:
+        cumulative[available].plot(ax=ax, alpha=0.8, linewidth=1.2)
+    ax.set_title(ac.description, fontsize=12, fontweight='bold')
+    ax.legend(fontsize=7, loc='upper left')
+    ax.set_ylabel('Cumulative Return')
+
+plt.suptitle('Cumulative Returns by Asset Class', fontsize=16, fontweight='bold', y=1.02)
+plt.tight_layout()
+plt.show()
+
+# Full correlation matrix
+corr = processor.correlation_matrix()
+
+fig, ax = plt.subplots(figsize=(16, 14))
+mask = np.triu(np.ones_like(corr, dtype=bool), k=1)
+sns.heatmap(
+    corr,
+    mask=mask,
+    cmap='RdBu_r',
+    center=0,
+    vmin=-1, vmax=1,
+    annot=True, fmt='.2f', annot_kws={'fontsize': 6},
+    square=True,
+    linewidths=0.5,
+    ax=ax
+)
+ax.set_title('Asset Correlation Matrix', fontsize=16, fontweight='bold')
+plt.tight_layout()
+plt.show()
+
+# Find best diversifiers (lowest average correlation)
+avg_corr = corr.mean().sort_values()
+print("Top Diversifiers (lowest avg correlation):")
+print(avg_corr.head(10).to_string())
+print("\nMost Correlated (highest avg correlation):")
+print(avg_corr.tail(10).to_string())
+
+# Detect outliers using z-score method
+outliers = processor.detect_outliers(threshold=4.0)
+outlier_counts = outliers.sum().sort_values(ascending=False)
+
+print("Outlier counts per asset (|z| > 4):")
+print(outlier_counts[outlier_counts > 0].to_string())
+
+# Drawdown analysis
+drawdowns = processor.compute_drawdown_series()
+
+# Plot drawdowns for major asset classes
+fig, axes = plt.subplots(3, 1, figsize=(16, 12), sharex=True)
+
+# Select representative assets
+groups = {
+    'Equities': ['XLK', 'XLF', 'EEM'],
+    'Crypto': ['BTC-USD', 'ETH-USD'],
+    'Safe Havens': ['GLD', 'TLT', 'AGG'],
+}
+
+for idx, (group_name, tickers) in enumerate(groups.items()):
+    ax = axes[idx]
+    available = [t for t in tickers if t in drawdowns.columns]
+    if available:
+        (drawdowns[available] * 100).plot(ax=ax, alpha=0.8, linewidth=1.2)
+    ax.set_title(f'{group_name} — Drawdowns', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Drawdown (%)')
+    ax.legend(loc='lower left', fontsize=9)
+    ax.fill_between(drawdowns.index, (drawdowns[available].min(axis=1) * 100), alpha=0.1, color='red')
+
+plt.suptitle('Drawdown Analysis by Asset Group', fontsize=16, fontweight='bold', y=1.01)
+plt.tight_layout()
+plt.show()
+
+# Export to parquet
+processor.export_processed(output_dir='../data/processed')
+print('Data exported successfully!')
+
+# Also save the asset class mapping
+import json
+mapping_path = '../data/processed/asset_class_map.json'
+with open(mapping_path, 'w') as f:
+    json.dump(class_map, f, indent=2)
+print(f'Asset class mapping saved to {mapping_path}')
