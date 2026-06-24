@@ -55,12 +55,19 @@ ml:
   min_train_size: 504
   random_seed: 42
 
+validation:
+  var_exception_alpha: 0.05
+  var_exception_lookback: 252
+  bootstrap_samples: 300
+  bootstrap_block_size: 21
+
 reports:
   root_dir: reports
   tables_dir: reports/tables
   figures_dir: reports/figures
   run_logs_dir: reports/run_logs
   pdf_output: output/pdf/quantverse_analysis_report.pdf
+  html_output: output/html/quantverse_report.html
 
 universe:
   us_equity_sectors:

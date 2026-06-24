@@ -31,6 +31,11 @@ Tarih: 2026-06-24
 | `backtest_summary.parquet` | CAGR, volatilite, Sharpe, drawdown, rebalancing ve maliyet özeti. |
 | `model_diagnostics.parquet` | Statik sonuç ile walk-forward sonuç arasındaki farkın tanı tablosu. |
 | `decision_summary.json` | Karar okuma kuralı, en iyi OOS strateji ve risk filtresi sonucu. |
+| `var_exception_tests.csv` / `.parquet` | Rolling historical VaR ihlal sayısı, beklenen ihlal sayısı, Kupiec POF ve Christoffersen bağımsızlık tanısı. |
+| `stress_scenarios.csv` / `.parquet` | Varlık sınıfı bazlı stilize piyasa şoklarının portföy etkileri. |
+| `benchmark_comparison.csv` / `.parquet` | Stratejilerin iç 60/40 proxy dahil basit karşılaştırma ölçütleriyle performans karşılaştırması. |
+| `transaction_cost_sensitivity.csv` / `.parquet` | 0, 5, 10 ve 25 baz puan maliyet varsayımı altında strateji performansı. |
+| `statistical_robustness.csv` / `.parquet` | Moving-block bootstrap ile CAGR ve Sharpe güven aralıkları. |
 
 ## ML ve Rejim Çıktıları
 
@@ -41,6 +46,8 @@ Tarih: 2026-06-24
 | `ml_downside_risk_metrics.csv` | Downside-risk tanı modelinin time-series split metrikleri. |
 | `ml_downside_risk_predictions.parquet` | Downside-risk olay olasılıkları ve gerçekleşen hedef. |
 | `ml_downside_risk_feature_importance.csv` | Lojistik model katsayı önemleri. |
+| `ml_downside_confusion_matrix.csv` / `.parquet` | 0.50 olasılık eşiğinde confusion matrix, precision, recall ve specificity. |
+| `ml_downside_drift_report.csv` / `.parquet` | Tahmin olasılığı dağılım kayması için KS ve PSI tanısı. |
 
 ## Run Metadata
 
@@ -54,4 +61,6 @@ drop edilen varlıklar ve ML tanı özeti gibi izlenebilir çalıştırma bilgis
 - `Weight_Percent`: yüzde ölçeği.
 - `CAGR`, `Volatility`, `Max_Drawdown`: 0-1 ölçeğinde oran.
 - `VaR_5%`, `CVaR_5%`, `Max_DD_%`: yüzde puanı ölçeği.
+- Stres senaryosu `Impact_%` kolonları: yüzde puanı ölçeği.
+- `Cost_Bps`: 1 baz puan = %0,01 işlem maliyeti varsayımıdır.
 - `Sharpe`: risksiz faiz sonrası getiri / volatilite oranı; birimsizdir.

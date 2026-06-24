@@ -20,7 +20,10 @@ biçimde raporlar.
 4. `covariance`, `optimization`, `risk`, `backtest`, `regime` ve `ml` modülleri
    sırasıyla kovaryans, portföy, risk, walk-forward, rejim ve downside-risk
    tanı çıktılarını üretir.
-5. `reporting/pdf_report.py` üretilmiş artefaktlardan resmi PDF raporunu oluşturur.
+5. `pipeline.py` ek validasyon katmanında VaR exception testing, stres senaryosu,
+   benchmark comparison, maliyet duyarlılığı ve bootstrap sağlamlık tablolarını yazar.
+6. `reporting/pdf_report.py` üretilmiş artefaktlardan resmi PDF raporunu oluşturur;
+   pipeline ayrıca bağımlılıksız statik HTML rapor üretir.
 
 ## Veri ve Karar Katmanları
 
@@ -29,6 +32,7 @@ biçimde raporlar.
 - Sunum tabloları: `reports/tables/` altında yazılır.
 - Görseller: `reports/figures/` altında yazılır.
 - PDF: `output/pdf/quantverse_analysis_report.pdf` altında yazılır.
+- HTML: `output/html/quantverse_report.html` altında yazılır.
 - Run log: `reports/run_logs/latest_run.log` altında yazılır.
 
 ## Kritik Tasarım İlkeleri
@@ -40,6 +44,8 @@ biçimde raporlar.
   nedeniyle yapılır.
 - Statik optimizasyon sonucu karar kanıtı değildir. Nihai okuma walk-forward
   kanıtı, drawdown, maliyet ve model tanı farkları üzerinden yapılır.
+- VaR exception, stres, benchmark, maliyet duyarlılığı ve bootstrap çıktıları
+  ana kararın sağlamlık ve kırılganlık denetimidir; gelecek performans garantisi değildir.
 - Black-Litterman ana üretim sonucunda kullanılmaz; tarihli, kaynaklandırılmış
   ve güven düzeyi verilmiş yatırım görüşleri olmadan yalnızca varsayımsal senaryo
   olarak kalabilir.

@@ -1,16 +1,16 @@
 # QuantVerse Final Scorecard
 
-Tarih: 2026-06-24
+Tarih: 2026-06-25
 
 ## Çalıştırma Özeti
 
 - Config: `configs/base.yaml`
-- Veri dönemi: 2017-11-10 - 2026-06-23
-- Veri son tarihi: 2026-06-23
+- Veri dönemi: 2017-11-10 - 2026-06-24
+- Veri son tarihi: 2026-06-24
 - Risk-free kaynak: yfinance `^IRX`
-- Risk-free quote date: 2026-06-18
-- Yıllık risk-free oran: 3.73%
-- Getiri matrisi: 2248 iş günü x 37 yatırım yapılabilir enstrüman
+- Risk-free quote date: 2026-06-24
+- Yıllık risk-free oran: 3.76%
+- Getiri matrisi: 2249 iş günü x 37 yatırım yapılabilir enstrüman
 - Portföy sayısı: 7
 - Walk-forward strateji sayısı: 5
 - Portföy içi sinyal sayısı: 0
@@ -22,76 +22,95 @@ Tarih: 2026-06-24
 
 | Ölçüt | Sonuç |
 |---|---|
-| En yüksek walk-forward Sharpe | Equal Weight, 0.80 |
+| En yüksek walk-forward Sharpe | Equal Weight, 0.79 |
 | Risk filtresi sonrası ana araştırma adayı | HRP |
-| HRP walk-forward Sharpe | 0.73 |
+| HRP walk-forward Sharpe | 0.72 |
 | HRP walk-forward max drawdown | -19.97% |
 | En büyük statik/walk-forward Sharpe farkı | Max Sharpe, 0.70 |
 | Max Sharpe sınıfı | Diagnostic only |
+| İç 60/40 benchmark Sharpe | 0.36 |
 
-## Ağırlık Kontrolleri
+## Yeni Hardening Çıktıları
 
-Tüm portföylerde ağırlık toplamı 1.00 olarak doğrulandı. Maksimum ağırlıklar config
-ile uyumludur:
+| Artefakt | Satır | Amaç |
+|---|---:|---|
+| `var_exception_tests.csv` | 5 | Rolling historical VaR ihlal testi |
+| `stress_scenarios.csv` | 7 | Stilize piyasa şok hassasiyeti |
+| `benchmark_comparison.csv` | 6 | Strateji ve iç benchmark karşılaştırması |
+| `transaction_cost_sensitivity.csv` | 20 | 0/5/10/25 bps maliyet duyarlılığı |
+| `statistical_robustness.csv` | 5 | Moving-block bootstrap güven aralığı |
+| `ml_downside_confusion_matrix.csv` | 1 | ML 0.50 eşik confusion matrix |
+| `ml_downside_drift_report.csv` | 3 | ML tahmin olasılığı drift tanısı |
+| `output/html/quantverse_report.html` | 43,718 byte | Statik HTML rapor |
 
-- Equal Weight: 2.70%
-- Min Variance: 25.00%
-- Max Sharpe: 25.00%
-- HRP: 25.00%
-- Risk Parity: 17.21%
-- Inverse Volatility: 8.39%
-- Minimum CVaR: 25.00%
+## VaR, Stres ve Bootstrap Bulgusu
+
+- VaR exception frekansı beş stratejide de beklenen yüzde 5 kuyruk oranına yakın.
+- Min Variance ve Max Sharpe için Christoffersen bağımsızlık testi ihlal kümelenmesi
+  uyarısı veriyor; bu stratejiler risk yönetiminde daha ihtiyatlı okunmalı.
+- Equal Weight ve HRP bootstrap Sharpe aralıklarında pozitif alt sınır gösteriyor;
+  Inverse Vol, Min Variance ve Max Sharpe için kanıt daha zayıf veya inconclusive.
+- Stres senaryolarında Equal Weight çoğu risk-off şokunda en büyük stilize kaybı
+  alıyor; HRP faiz/tahvil şoku altında daha hassas hale gelebiliyor.
 
 ## ML Downside-Risk Tanısı
 
 | Metrik | Değer | Yorum |
 |---|---:|---|
-| ROC-AUC | 0.562 | Rastgele 0.50 üzerinde, fakat güçlü değil |
+| ROC-AUC | 0.561 | Rastgele 0.50 üzerinde, fakat güçlü değil |
 | PR-AUC | 0.116 | Baseline 0.095 üzerinde, sınırlı bilgi |
 | Brier | 0.304 | Kalibrasyon iyileştirmeye açık |
 | F1 | 0.128 | Nadir olay yakalama zayıf |
+| Precision @0.50 | 10.7% | Çok sayıda false positive var |
+| Recall @0.50 | 64.5% | Downside event yakalama tarafı daha yüksek |
+| PSI drift | 2.553 | Tahmin dağılımı izleme gerektiriyor |
 
-Sonuç: ML bileşeni yatırım sinyali olarak değil, zayıf ama raporlanabilir downside-risk
-tanısı olarak okunmalıdır.
+Sonuç: ML bileşeni yatırım sinyali olarak değil, zayıf ama raporlanabilir
+downside-risk tanısı olarak okunmalıdır.
 
 ## Test ve Doğrulama
 
-- `pytest -q`: 17 passed
+- `python -m black src scripts tests`: başarılı
 - `python -m compileall src scripts`: başarılı
-- `python -W error::FutureWarning scripts/run_full_pipeline.py --config configs/base.yaml`: başarılı
-- PDF text checks: portfolio holdings, data quality, ML downside-risk, yatırım tavsiyesi uyarısı ve aritmetik ortalama tanımı mevcut
-- PDF visual render: sayfa 4, 8 ve 10 görsel olarak kontrol edildi
+- `python -m pytest -q`: 19 passed
+- `python scripts/run_full_pipeline.py --config configs/base.yaml`: başarılı
+- PDF üretimi: `output/pdf/quantverse_analysis_report.pdf`, 15 sayfa, A4
+- PDF görsel render: portföy bileşimi, validasyon, hardening ve risk sayfaları
+  görsel olarak kontrol edildi
+- PDF text checks: VaR Exception Testing, Benchmark Comparison, Transaction Cost
+  Sensitivity, Statistical Robustness, ML Confusion ve yatırım tavsiyesi uyarısı mevcut
+- HTML rapor: `output/html/quantverse_report.html` üretildi
 
 ## Skor
 
 | Alan | Skor | Gerekçe |
 |---|---:|---|
-| Kod çalışabilirliği | 9/10 | Pipeline, test ve PDF üretimi çalışıyor |
-| Finansal tutarlılık | 8/10 | Sinyal ayrımı, risk-free metadata, walk-forward karar kuralı mevcut |
-| İstatistiksel savunulabilirlik | 7/10 | Shrinkage ve walk-forward mevcut; bootstrap/PSR/DSR henüz yok |
-| Risk yönetimi | 7/10 | VaR/CVaR, drawdown, data quality var; exception backtesting ve limit yapısı eksik |
-| Raporlama | 8/10 | PDF kapsamlı ve holdings görünür; HTML/dashboard yok |
-| GitHub/CV hazır olma | 8/10 | README, docs, CI, Dockerfile, Makefile var; yerel `.git` bozuk |
-| Bank-grade üretim | 6/10 | Public veri, bağımsız veri mutabakatı ve kurumsal model approval eksik |
+| Kod çalışabilirliği | 9.0/10 | Test, compile, tam pipeline, PDF ve HTML çalışıyor |
+| Finansal tutarlılık | 8.8/10 | Sinyal ayrımı, risk-free metadata, walk-forward karar kuralı ve benchmark var |
+| İstatistiksel savunulabilirlik | 8.5/10 | Shrinkage, walk-forward, VaR exception ve bootstrap var; PSR/DSR yok |
+| Risk yönetimi | 8.5/10 | VaR/CVaR, exception, stres, drawdown ve maliyet duyarlılığı var; resmi limit sistemi yok |
+| Raporlama | 9.0/10 | PDF holdings, hardening ve ML tanı içeriyor; HTML var |
+| GitHub/CV hazır olma | 8.0/10 | Dokümantasyon güçlü; yerel `.git` bozuk olduğu için commit/branch doğrulanamıyor |
+| Bank-grade üretim | 6.5/10 | Public veri, bağımsız mutabakat, model approval, limit ve execution katmanı eksik |
 
-Genel araştırma/sunum skoru: 8/10.
+Genel araştırma/sunum skoru: 9.0/10.
 
-Kurumsal canlı yatırım sistemi skoru: 6/10.
+Kurumsal canlı yatırım sistemi skoru: 6.5/10.
 
 ## Kalan Riskler
 
 - Public yfinance verisi resmi yatırım verisi değildir.
-- `.git` yerel olarak bozuk; commit ve branch geçmişi doğrulanamıyor.
-- VaR exception testing, stress scenario output ve benchmark-relative hypothesis tests üretim pipeline'ına tam entegre edilmedi.
-- Downside-risk ML sinyali zayıf; model sinyal değil tanı katmanıdır.
-- Streamlit/HTML dashboard henüz yok.
-- Kilitlenmiş dependency lock dosyası yok.
+- `.git` yerel olarak bozuk; branch, tracking ve commit bu çalışma ağacında doğrulanamıyor.
+- ML downside-risk modeli zayıf sinyallidir ve drift izleme gerektirir.
+- Transaction cost modeli gerçek emir defteri, vergi, piyasa etkisi ve likidite
+  kurumasını tam modellemez.
+- VaR exception ve bootstrap geçmiş veri tanısıdır; gelecek performans garantisi değildir.
+- Kurumsal kullanım için bağımsız veri sağlayıcı, model validation imzası, limit
+  dokümanı, execution ölçümü ve canlı monitoring gerekir.
 
 ## Nihai Hüküm
 
-Proje artık veri bilimi yüksek lisans sunumu için savunulabilir, ölçülebilir ve
-raporlanabilir bir araştırma sistemi seviyesine gelmiştir. Ancak kişisel veya
-kurumsal yatırım kararını tek başına otomatikleştirecek “tam bank-grade canlı
-trading sistemi” değildir. Kurumsal kullanım için bağımsız veri sağlayıcı, resmi
-model validasyon imzası, exception testing, stres limitleri, dashboard ve deployment
-izleme katmanı gerekir.
+Proje veri bilimi yüksek lisans sunumu ve GitHub/CV vitrini için artık savunulabilir,
+ölçülebilir ve profesyonel bir araştırma sistemi seviyesindedir. Buna rağmen kişisel
+veya kurumsal yatırım kararını tek başına otomatikleştirecek bank-grade canlı trading
+sistemi değildir.

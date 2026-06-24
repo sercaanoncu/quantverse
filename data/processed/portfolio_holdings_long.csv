@@ -1,260 +1,260 @@
 Portfolio,Ticker,Asset_Class,Weight,Weight_Percent,Included
 Equal Weight,XLK,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLK,us_equity_sectors,0.00000000,0.00000000,False
-Max Sharpe,XLK,us_equity_sectors,0.09416294,9.41629387,True
-HRP,XLK,us_equity_sectors,0.00522957,0.52295727,True
-Risk Parity,XLK,us_equity_sectors,0.01248706,1.24870551,True
-Inv Volatility,XLK,us_equity_sectors,0.01954396,1.95439574,True
+Max Sharpe,XLK,us_equity_sectors,0.09448214,9.44821382,True
+HRP,XLK,us_equity_sectors,0.00523544,0.52354366,True
+Risk Parity,XLK,us_equity_sectors,0.01248545,1.24854530,True
+Inv Volatility,XLK,us_equity_sectors,0.01954767,1.95476690,True
 Min CVaR,XLK,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLF,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLF,us_equity_sectors,0.00000000,0.00000000,False
 Max Sharpe,XLF,us_equity_sectors,0.00000000,0.00000000,False
-HRP,XLF,us_equity_sectors,0.00608414,0.60841352,True
-Risk Parity,XLF,us_equity_sectors,0.01465265,1.46526498,True
-Inv Volatility,XLF,us_equity_sectors,0.02203724,2.20372370,True
+HRP,XLF,us_equity_sectors,0.00608942,0.60894180,True
+Risk Parity,XLF,us_equity_sectors,0.01465137,1.46513699,True
+Inv Volatility,XLF,us_equity_sectors,0.02204205,2.20420495,True
 Min CVaR,XLF,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLE,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLE,us_equity_sectors,0.00000000,0.00000000,False
 Max Sharpe,XLE,us_equity_sectors,0.00000000,0.00000000,False
-HRP,XLE,us_equity_sectors,0.00518714,0.51871413,True
-Risk Parity,XLE,us_equity_sectors,0.01266334,1.26633423,True
-Inv Volatility,XLE,us_equity_sectors,0.01656781,1.65678058,True
+HRP,XLE,us_equity_sectors,0.00519283,0.51928348,True
+Risk Parity,XLE,us_equity_sectors,0.01266083,1.26608328,True
+Inv Volatility,XLE,us_equity_sectors,0.01656890,1.65688954,True
 Min CVaR,XLE,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLV,us_equity_sectors,0.02702703,2.70270270,True
-Min Variance,XLV,us_equity_sectors,0.00767383,0.76738301,True
-Max Sharpe,XLV,us_equity_sectors,0.00303408,0.30340808,True
-HRP,XLV,us_equity_sectors,0.01198922,1.19892240,True
-Risk Parity,XLV,us_equity_sectors,0.02037228,2.03722848,True
-Inv Volatility,XLV,us_equity_sectors,0.02869866,2.86986576,True
+Min Variance,XLV,us_equity_sectors,0.00761098,0.76109815,True
+Max Sharpe,XLV,us_equity_sectors,0.00403624,0.40362369,True
+HRP,XLV,us_equity_sectors,0.01199371,1.19937089,True
+Risk Parity,XLV,us_equity_sectors,0.02037418,2.03741806,True
+Inv Volatility,XLV,us_equity_sectors,0.02870267,2.87026710,True
 Min CVaR,XLV,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLI,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLI,us_equity_sectors,0.00000000,0.00000000,False
 Max Sharpe,XLI,us_equity_sectors,0.00000000,0.00000000,False
-HRP,XLI,us_equity_sectors,0.00458189,0.45818883,True
-Risk Parity,XLI,us_equity_sectors,0.01461698,1.46169758,True
-Inv Volatility,XLI,us_equity_sectors,0.02393584,2.39358393,True
+HRP,XLI,us_equity_sectors,0.00458705,0.45870520,True
+Risk Parity,XLI,us_equity_sectors,0.01461893,1.46189250,True
+Inv Volatility,XLI,us_equity_sectors,0.02393787,2.39378724,True
 Min CVaR,XLI,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLY,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLY,us_equity_sectors,0.00000000,0.00000000,False
 Max Sharpe,XLY,us_equity_sectors,0.00000000,0.00000000,False
-HRP,XLY,us_equity_sectors,0.00687907,0.68790732,True
-Risk Parity,XLY,us_equity_sectors,0.01322625,1.32262522,True
-Inv Volatility,XLY,us_equity_sectors,0.02172100,2.17209990,True
+HRP,XLY,us_equity_sectors,0.00688398,0.68839845,True
+Risk Parity,XLY,us_equity_sectors,0.01322761,1.32276084,True
+Inv Volatility,XLY,us_equity_sectors,0.02172343,2.17234268,True
 Min CVaR,XLY,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLP,us_equity_sectors,0.02702703,2.70270270,True
-Min Variance,XLP,us_equity_sectors,0.03570426,3.57042585,True
-Max Sharpe,XLP,us_equity_sectors,0.06088774,6.08877374,True
-HRP,XLP,us_equity_sectors,0.01389203,1.38920318,True
-Risk Parity,XLP,us_equity_sectors,0.02466214,2.46621371,True
-Inv Volatility,XLP,us_equity_sectors,0.03165629,3.16562932,True
-Min CVaR,XLP,us_equity_sectors,0.03958917,3.95891739,True
+Min Variance,XLP,us_equity_sectors,0.03560304,3.56030422,True
+Max Sharpe,XLP,us_equity_sectors,0.06274967,6.27496732,True
+HRP,XLP,us_equity_sectors,0.01389057,1.38905693,True
+Risk Parity,XLP,us_equity_sectors,0.02466565,2.46656526,True
+Inv Volatility,XLP,us_equity_sectors,0.03165907,3.16590707,True
+Min CVaR,XLP,us_equity_sectors,0.03941726,3.94172567,True
 Equal Weight,XLRE,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLRE,us_equity_sectors,0.00000000,0.00000000,False
 Max Sharpe,XLRE,us_equity_sectors,0.00000000,0.00000000,False
-HRP,XLRE,us_equity_sectors,0.00759153,0.75915282,True
-Risk Parity,XLRE,us_equity_sectors,0.01464477,1.46447693,True
-Inv Volatility,XLRE,us_equity_sectors,0.02360351,2.36035073,True
+HRP,XLRE,us_equity_sectors,0.00759728,0.75972765,True
+Risk Parity,XLRE,us_equity_sectors,0.01464295,1.46429470,True
+Inv Volatility,XLRE,us_equity_sectors,0.02360865,2.36086524,True
 Min CVaR,XLRE,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLU,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLU,us_equity_sectors,0.00000000,0.00000000,False
 Max Sharpe,XLU,us_equity_sectors,0.00000000,0.00000000,False
-HRP,XLU,us_equity_sectors,0.00833406,0.83340570,True
-Risk Parity,XLU,us_equity_sectors,0.01936635,1.93663494,True
-Inv Volatility,XLU,us_equity_sectors,0.02506778,2.50677817,True
+HRP,XLU,us_equity_sectors,0.00833807,0.83380710,True
+Risk Parity,XLU,us_equity_sectors,0.01936878,1.93687801,True
+Inv Volatility,XLU,us_equity_sectors,0.02507024,2.50702438,True
 Min CVaR,XLU,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLB,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLB,us_equity_sectors,0.00000000,0.00000000,False
 Max Sharpe,XLB,us_equity_sectors,0.00000000,0.00000000,False
-HRP,XLB,us_equity_sectors,0.00443968,0.44396760,True
-Risk Parity,XLB,us_equity_sectors,0.01342997,1.34299667,True
-Inv Volatility,XLB,us_equity_sectors,0.02331894,2.33189379,True
+HRP,XLB,us_equity_sectors,0.00444554,0.44455428,True
+Risk Parity,XLB,us_equity_sectors,0.01343067,1.34306697,True
+Inv Volatility,XLB,us_equity_sectors,0.02332359,2.33235884,True
 Min CVaR,XLB,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,EFA,international_equity,0.02702703,2.70270270,True
 Min Variance,EFA,international_equity,0.00000000,0.00000000,False
 Max Sharpe,EFA,international_equity,0.00000000,0.00000000,False
-HRP,EFA,international_equity,0.00499068,0.49906822,True
-Risk Parity,EFA,international_equity,0.01516914,1.51691423,True
-Inv Volatility,EFA,international_equity,0.02784492,2.78449208,True
+HRP,EFA,international_equity,0.00499658,0.49965818,True
+Risk Parity,EFA,international_equity,0.01516814,1.51681381,True
+Inv Volatility,EFA,international_equity,0.02785109,2.78510928,True
 Min CVaR,EFA,international_equity,0.00000000,0.00000000,False
 Equal Weight,EEM,international_equity,0.02702703,2.70270270,True
 Min Variance,EEM,international_equity,0.00000000,0.00000000,False
 Max Sharpe,EEM,international_equity,0.00000000,0.00000000,False
-HRP,EEM,international_equity,0.00655262,0.65526157,True
-Risk Parity,EEM,international_equity,0.01394794,1.39479429,True
-Inv Volatility,EEM,international_equity,0.02364700,2.36470050,True
+HRP,EEM,international_equity,0.00655789,0.65578934,True
+Risk Parity,EEM,international_equity,0.01394796,1.39479568,True
+Inv Volatility,EEM,international_equity,0.02365244,2.36524396,True
 Min CVaR,EEM,international_equity,0.00000000,0.00000000,False
 Equal Weight,VGK,international_equity,0.02702703,2.70270270,True
 Min Variance,VGK,international_equity,0.00000000,0.00000000,False
 Max Sharpe,VGK,international_equity,0.00000000,0.00000000,False
-HRP,VGK,international_equity,0.00455205,0.45520485,True
-Risk Parity,VGK,international_equity,0.01426049,1.42604855,True
-Inv Volatility,VGK,international_equity,0.02586862,2.58686191,True
+HRP,VGK,international_equity,0.00455809,0.45580932,True
+Risk Parity,VGK,international_equity,0.01425948,1.42594801,True
+Inv Volatility,VGK,international_equity,0.02587429,2.58742930,True
 Min CVaR,VGK,international_equity,0.00000000,0.00000000,False
 Equal Weight,VPL,international_equity,0.02702703,2.70270270,True
 Min Variance,VPL,international_equity,0.00000000,0.00000000,False
 Max Sharpe,VPL,international_equity,0.00000000,0.00000000,False
-HRP,VPL,international_equity,0.00750348,0.75034812,True
-Risk Parity,VPL,international_equity,0.01547686,1.54768638,True
-Inv Volatility,VPL,international_equity,0.02708794,2.70879358,True
+HRP,VPL,international_equity,0.00750800,0.75079975,True
+Risk Parity,VPL,international_equity,0.01547791,1.54779057,True
+Inv Volatility,VPL,international_equity,0.02709278,2.70927809,True
 Min CVaR,VPL,international_equity,0.00000000,0.00000000,False
 Equal Weight,INDA,international_equity,0.02702703,2.70270270,True
 Min Variance,INDA,international_equity,0.00000000,0.00000000,False
 Max Sharpe,INDA,international_equity,0.00000000,0.00000000,False
-HRP,INDA,international_equity,0.00829729,0.82972855,True
-Risk Parity,INDA,international_equity,0.01693871,1.69387105,True
-Inv Volatility,INDA,international_equity,0.02321550,2.32154957,True
+HRP,INDA,international_equity,0.00829979,0.82997921,True
+Risk Parity,INDA,international_equity,0.01694133,1.69413274,True
+Inv Volatility,INDA,international_equity,0.02321759,2.32175923,True
 Min CVaR,INDA,international_equity,0.00000000,0.00000000,False
 Equal Weight,FXI,international_equity,0.02702703,2.70270270,True
 Min Variance,FXI,international_equity,0.00000000,0.00000000,False
 Max Sharpe,FXI,international_equity,0.00000000,0.00000000,False
-HRP,FXI,international_equity,0.00518529,0.51852943,True
-Risk Parity,FXI,international_equity,0.01401307,1.40130707,True
-Inv Volatility,FXI,international_equity,0.01774452,1.77445155,True
+HRP,FXI,international_equity,0.00519079,0.51907907,True
+Risk Parity,FXI,international_equity,0.01401007,1.40100697,True
+Inv Volatility,FXI,international_equity,0.01774617,1.77461663,True
 Min CVaR,FXI,international_equity,0.00000000,0.00000000,False
 Equal Weight,BTC-USD,crypto,0.02702703,2.70270270,True
 Min Variance,BTC-USD,crypto,0.00000000,0.00000000,False
 Max Sharpe,BTC-USD,crypto,0.00000000,0.00000000,False
-HRP,BTC-USD,crypto,0.00405798,0.40579800,True
-Risk Parity,BTC-USD,crypto,0.00744958,0.74495823,True
-Inv Volatility,BTC-USD,crypto,0.00797703,0.79770257,True
+HRP,BTC-USD,crypto,0.00406362,0.40636202,True
+Risk Parity,BTC-USD,crypto,0.00744802,0.74480152,True
+Inv Volatility,BTC-USD,crypto,0.00797797,0.79779721,True
 Min CVaR,BTC-USD,crypto,0.00000000,0.00000000,False
 Equal Weight,ETH-USD,crypto,0.02702703,2.70270270,True
 Min Variance,ETH-USD,crypto,0.00000000,0.00000000,False
 Max Sharpe,ETH-USD,crypto,0.00000000,0.00000000,False
-HRP,ETH-USD,crypto,0.00380224,0.38022407,True
-Risk Parity,ETH-USD,crypto,0.00537841,0.53784094,True
-Inv Volatility,ETH-USD,crypto,0.00613108,0.61310811,True
+HRP,ETH-USD,crypto,0.00380780,0.38077951,True
+Risk Parity,ETH-USD,crypto,0.00537750,0.53775020,True
+Inv Volatility,ETH-USD,crypto,0.00613199,0.61319926,True
 Min CVaR,ETH-USD,crypto,0.00000000,0.00000000,False
 Equal Weight,BNB-USD,crypto,0.02702703,2.70270270,True
 Min Variance,BNB-USD,crypto,0.00000000,0.00000000,False
-Max Sharpe,BNB-USD,crypto,0.04179544,4.17954355,True
-HRP,BNB-USD,crypto,0.00289432,0.28943177,True
-Risk Parity,BNB-USD,crypto,0.00577269,0.57726899,True
-Inv Volatility,BNB-USD,crypto,0.00557027,0.55702670,True
+Max Sharpe,BNB-USD,crypto,0.04225556,4.22555589,True
+HRP,BNB-USD,crypto,0.00290079,0.29007930,True
+Risk Parity,BNB-USD,crypto,0.00577170,0.57716960,True
+Inv Volatility,BNB-USD,crypto,0.00557121,0.55712078,True
 Min CVaR,BNB-USD,crypto,0.00000000,0.00000000,False
 Equal Weight,ADA-USD,crypto,0.02702703,2.70270270,True
 Min Variance,ADA-USD,crypto,0.00000000,0.00000000,False
 Max Sharpe,ADA-USD,crypto,0.00000000,0.00000000,False
-HRP,ADA-USD,crypto,0.00244296,0.24429592,True
-Risk Parity,ADA-USD,crypto,0.00428791,0.42879119,True
-Inv Volatility,ADA-USD,crypto,0.00408716,0.40871644,True
+HRP,ADA-USD,crypto,0.00244997,0.24499697,True
+Risk Parity,ADA-USD,crypto,0.00428717,0.42871659,True
+Inv Volatility,ADA-USD,crypto,0.00408788,0.40878818,True
 Min CVaR,ADA-USD,crypto,0.00000000,0.00000000,False
 Equal Weight,XRP-USD,crypto,0.02702703,2.70270270,True
 Min Variance,XRP-USD,crypto,0.00000000,0.00000000,False
-Max Sharpe,XRP-USD,crypto,0.00399598,0.39959798,True
-HRP,XRP-USD,crypto,0.00264560,0.26456039,True
-Risk Parity,XRP-USD,crypto,0.00517984,0.51798434,True
-Inv Volatility,XRP-USD,crypto,0.00467601,0.46760140,True
+Max Sharpe,XRP-USD,crypto,0.00396751,0.39675061,True
+HRP,XRP-USD,crypto,0.00265259,0.26525916,True
+Risk Parity,XRP-USD,crypto,0.00517890,0.51788952,True
+Inv Volatility,XRP-USD,crypto,0.00467681,0.46768083,True
 Min CVaR,XRP-USD,crypto,0.00000000,0.00000000,False
 Equal Weight,GLD,commodities,0.02702703,2.70270270,True
-Min Variance,GLD,commodities,0.00012849,0.01284919,True
-Max Sharpe,GLD,commodities,0.15471493,15.47149304,True
-HRP,GLD,commodities,0.03372866,3.37286566,True
-Risk Parity,GLD,commodities,0.02978071,2.97807058,True
-Inv Volatility,GLD,commodities,0.02967091,2.96709142,True
-Min CVaR,GLD,commodities,0.00000000,0.00000013,False
+Min Variance,GLD,commodities,0.00050150,0.05014968,True
+Max Sharpe,GLD,commodities,0.14965889,14.96588912,True
+HRP,GLD,commodities,0.03357832,3.35783193,True
+Risk Parity,GLD,commodities,0.02975536,2.97553588,True
+Inv Volatility,GLD,commodities,0.02962597,2.96259712,True
+Min CVaR,GLD,commodities,0.00000000,0.00000000,False
 Equal Weight,SLV,commodities,0.02702703,2.70270270,True
 Min Variance,SLV,commodities,0.00000000,0.00000000,False
 Max Sharpe,SLV,commodities,0.00000000,0.00000000,False
-HRP,SLV,commodities,0.01012200,1.01220050,True
-Risk Parity,SLV,commodities,0.01330955,1.33095452,True
-Inv Volatility,SLV,commodities,0.01542984,1.54298379,True
+HRP,SLV,commodities,0.01008843,1.00884309,True
+Risk Parity,SLV,commodities,0.01329786,1.32978558,True
+Inv Volatility,SLV,commodities,0.01539394,1.53939366,True
 Min CVaR,SLV,commodities,0.00000000,0.00000000,False
 Equal Weight,USO,commodities,0.02702703,2.70270270,True
-Min Variance,USO,commodities,0.00276247,0.27624675,True
-Max Sharpe,USO,commodities,0.00187654,0.18765447,True
-HRP,USO,commodities,0.00561245,0.56124543,True
-Risk Parity,USO,commodities,0.01755717,1.75571664,True
-Inv Volatility,USO,commodities,0.01292743,1.29274327,True
+Min Variance,USO,commodities,0.00284887,0.28488709,True
+Max Sharpe,USO,commodities,0.00026477,0.02647665,True
+HRP,USO,commodities,0.00561579,0.56157883,True
+Risk Parity,USO,commodities,0.01754566,1.75456618,True
+Inv Volatility,USO,commodities,0.01292120,1.29212007,True
 Min CVaR,USO,commodities,0.00000000,0.00000000,False
 Equal Weight,UNG,commodities,0.02702703,2.70270270,True
-Min Variance,UNG,commodities,0.00343652,0.34365201,True
+Min Variance,UNG,commodities,0.00341248,0.34124843,True
 Max Sharpe,UNG,commodities,0.00000000,0.00000000,False
-HRP,UNG,commodities,0.00673721,0.67372093,True
-Risk Parity,UNG,commodities,0.01789923,1.78992308,True
-Inv Volatility,UNG,commodities,0.00915841,0.91584101,True
-Min CVaR,UNG,commodities,0.00084328,0.08432798,True
+HRP,UNG,commodities,0.00674405,0.67440525,True
+Risk Parity,UNG,commodities,0.01790283,1.79028302,True
+Inv Volatility,UNG,commodities,0.00915985,0.91598485,True
+Min CVaR,UNG,commodities,0.00085715,0.08571502,True
 Equal Weight,DBA,commodities,0.02702703,2.70270270,True
-Min Variance,DBA,commodities,0.10584474,10.58447379,True
-Max Sharpe,DBA,commodities,0.10999774,10.99977436,True
-HRP,DBA,commodities,0.07764948,7.76494783,True
-Risk Parity,DBA,commodities,0.04898673,4.89867290,True
-Inv Volatility,DBA,commodities,0.03585251,3.58525089,True
-Min CVaR,DBA,commodities,0.13082207,13.08220722,True
+Min Variance,DBA,commodities,0.10582422,10.58242172,True
+Max Sharpe,DBA,commodities,0.11040059,11.04005864,True
+HRP,DBA,commodities,0.07766334,7.76633360,True
+Risk Parity,DBA,commodities,0.04898443,4.89844253,True
+Inv Volatility,DBA,commodities,0.03586051,3.58605073,True
+Min CVaR,DBA,commodities,0.13091056,13.09105565,True
 Equal Weight,PPLT,commodities,0.02702703,2.70270270,True
 Min Variance,PPLT,commodities,0.00000000,0.00000000,False
 Max Sharpe,PPLT,commodities,0.00000000,0.00000000,False
-HRP,PPLT,commodities,0.01214424,1.21442423,True
-Risk Parity,PPLT,commodities,0.01386494,1.38649399,True
-Inv Volatility,PPLT,commodities,0.01689566,1.68956561,True
+HRP,PPLT,commodities,0.01210639,1.21063862,True
+Risk Parity,PPLT,commodities,0.01385637,1.38563733,True
+Inv Volatility,PPLT,commodities,0.01687508,1.68750768,True
 Min CVaR,PPLT,commodities,0.00000000,0.00000000,False
 Equal Weight,CPER,commodities,0.02702703,2.70270270,True
 Min Variance,CPER,commodities,0.00000000,0.00000000,False
 Max Sharpe,CPER,commodities,0.00000000,0.00000000,False
-HRP,CPER,commodities,0.01676992,1.67699233,True
-Risk Parity,CPER,commodities,0.01752113,1.75211326,True
-Inv Volatility,CPER,commodities,0.02068741,2.06874076,True
+HRP,CPER,commodities,0.01676019,1.67601941,True
+Risk Parity,CPER,commodities,0.01751350,1.75135048,True
+Inv Volatility,CPER,commodities,0.02067817,2.06781679,True
 Min CVaR,CPER,commodities,0.00000000,0.00000000,False
 Equal Weight,TLT,fixed_income,0.02702703,2.70270270,True
 Min Variance,TLT,fixed_income,0.00000000,0.00000000,False
 Max Sharpe,TLT,fixed_income,0.00000000,0.00000000,False
-HRP,TLT,fixed_income,0.02367893,2.36789326,True
-Risk Parity,TLT,fixed_income,0.05662158,5.66215784,True
-Inv Volatility,TLT,fixed_income,0.03181806,3.18180553,True
+HRP,TLT,fixed_income,0.02367120,2.36712011,True
+Risk Parity,TLT,fixed_income,0.05664345,5.66434493,True
+Inv Volatility,TLT,fixed_income,0.03181267,3.18126715,True
 Min CVaR,TLT,fixed_income,0.00000000,0.00000000,False
 Equal Weight,IEF,fixed_income,0.02702703,2.70270270,True
-Min Variance,IEF,fixed_income,0.14033670,14.03366992,True
-Max Sharpe,IEF,fixed_income,0.07395587,7.39558667,True
-HRP,IEF,fixed_income,0.07744829,7.74482937,True
-Risk Parity,IEF,fixed_income,0.09042424,9.04242410,True
-Inv Volatility,IEF,fixed_income,0.05749164,5.74916375,True
-Min CVaR,IEF,fixed_income,0.03314783,3.31478318,True
+Min Variance,IEF,fixed_income,0.14016292,14.01629207,True
+Max Sharpe,IEF,fixed_income,0.07569638,7.56963798,True
+HRP,IEF,fixed_income,0.07744660,7.74465988,True
+Risk Parity,IEF,fixed_income,0.09044871,9.04487081,True
+Inv Volatility,IEF,fixed_income,0.05748855,5.74885499,True
+Min CVaR,IEF,fixed_income,0.03331022,3.33102169,True
 Equal Weight,SHY,fixed_income,0.02702703,2.70270270,True
 Min Variance,SHY,fixed_income,0.25000000,25.00000000,True
 Max Sharpe,SHY,fixed_income,0.25000000,25.00000000,True
 HRP,SHY,fixed_income,0.25000000,25.00000000,True
-Risk Parity,SHY,fixed_income,0.17208599,17.20859931,True
-Inv Volatility,SHY,fixed_income,0.08393920,8.39392014,True
+Risk Parity,SHY,fixed_income,0.17208947,17.20894691,True
+Inv Volatility,SHY,fixed_income,0.08395741,8.39574076,True
 Min CVaR,SHY,fixed_income,0.25000000,25.00000000,True
 Equal Weight,LQD,fixed_income,0.02702703,2.70270270,True
 Min Variance,LQD,fixed_income,0.00000000,0.00000000,False
 Max Sharpe,LQD,fixed_income,0.00000000,0.00000000,False
-HRP,LQD,fixed_income,0.05295187,5.29518707,True
-Risk Parity,LQD,fixed_income,0.03902308,3.90230801,True
-Inv Volatility,LQD,fixed_income,0.04791135,4.79113514,True
+HRP,LQD,fixed_income,0.05295640,5.29564011,True
+Risk Parity,LQD,fixed_income,0.03902419,3.90241882,True
+Inv Volatility,LQD,fixed_income,0.04791784,4.79178356,True
 Min CVaR,LQD,fixed_income,0.00000000,0.00000000,False
 Equal Weight,HYG,fixed_income,0.02702703,2.70270270,True
-Min Variance,HYG,fixed_income,0.10868364,10.86836382,True
+Min Variance,HYG,fixed_income,0.10881623,10.88162325,True
 Max Sharpe,HYG,fixed_income,0.00000000,0.00000000,False
-HRP,HYG,fixed_income,0.02428117,2.42811750,True
-Risk Parity,HYG,fixed_income,0.03272759,3.27275880,True
-Inv Volatility,HYG,fixed_income,0.04995777,4.99577682,True
-Min CVaR,HYG,fixed_income,0.04559764,4.55976409,True
+HRP,HYG,fixed_income,0.02428236,2.42823552,True
+Risk Parity,HYG,fixed_income,0.03272504,3.27250371,True
+Inv Volatility,HYG,fixed_income,0.04996936,4.99693626,True
+Min CVaR,HYG,fixed_income,0.04550482,4.55048197,True
 Equal Weight,TIP,fixed_income,0.02702703,2.70270270,True
-Min Variance,TIP,fixed_income,0.17872135,17.87213467,True
-Max Sharpe,TIP,fixed_income,0.16237290,16.23729022,True
-HRP,TIP,fixed_income,0.17273184,17.27318364,True
-Risk Parity,TIP,fixed_income,0.07322079,7.32207939,True
-Inv Volatility,TIP,fixed_income,0.06190133,6.19013291,True
+Min Variance,TIP,fixed_income,0.17860061,17.86006073,True
+Max Sharpe,TIP,fixed_income,0.16391450,16.39144995,True
+HRP,TIP,fixed_income,0.17284400,17.28440009,True
+Risk Parity,TIP,fixed_income,0.07322939,7.32293942,True
+Inv Volatility,TIP,fixed_income,0.06190879,6.19087888,True
 Min CVaR,TIP,fixed_income,0.25000000,25.00000000,True
 Equal Weight,AGG,fixed_income,0.02702703,2.70270270,True
-Min Variance,AGG,fixed_income,0.16670801,16.67080099,True
-Max Sharpe,AGG,fixed_income,0.04320584,4.32058403,True
-HRP,AGG,fixed_income,0.09121218,9.12121787,True
-Risk Parity,AGG,fixed_income,0.06801330,6.80133005,True
-Inv Volatility,AGG,fixed_income,0.06334062,6.33406168,True
+Min Variance,AGG,fixed_income,0.16661915,16.66191467,True
+Max Sharpe,AGG,fixed_income,0.04257376,4.25737633,True
+HRP,AGG,fixed_income,0.09119790,9.11979003,True
+Risk Parity,AGG,fixed_income,0.06802264,6.80226443,True
+Inv Volatility,AGG,fixed_income,0.06334319,6.33431947,True
 Min CVaR,AGG,fixed_income,0.25000000,25.00000000,True
 Equal Weight,VNQ,reits,0.02702703,2.70270270,True
 Min Variance,VNQ,reits,0.00000000,0.00000000,False
 Max Sharpe,VNQ,reits,0.00000000,0.00000000,False
-HRP,VNQ,reits,0.00850654,0.85065443,True
-Risk Parity,VNQ,reits,0.01399688,1.39968771,True
-Inv Volatility,VNQ,reits,0.02334107,2.33410726,True
+HRP,VNQ,reits,0.00851049,0.85104875,True
+Risk Parity,VNQ,reits,0.01399401,1.39940129,True
+Inv Volatility,VNQ,reits,0.02334428,2.33442825,True
 Min CVaR,VNQ,reits,0.00000000,0.00000000,False
 Equal Weight,VNQI,reits,0.02702703,2.70270270,True
 Min Variance,VNQI,reits,0.00000000,0.00000000,False
 Max Sharpe,VNQI,reits,0.00000000,0.00000000,False
-HRP,VNQI,reits,0.00929236,0.92923628,True
-Risk Parity,VNQI,reits,0.01697066,1.69706632,True
-Inv Volatility,VNQI,reits,0.02967574,2.96757402,True
+HRP,VNQI,reits,0.00929473,0.92947347,True
+Risk Parity,VNQI,reits,0.01697252,1.69725158,True
+Inv Volatility,VNQI,reits,0.02967883,2.96788308,True
 Min CVaR,VNQI,reits,0.00000000,0.00000000,False

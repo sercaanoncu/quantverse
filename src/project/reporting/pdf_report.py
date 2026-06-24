@@ -147,6 +147,18 @@ class InvestmentPDFReport:
         )
         story.append(PageBreak())
         story.extend(
+            self._hardening_section(
+                data,
+                styles,
+                Paragraph,
+                Spacer,
+                Table,
+                TableStyle,
+                colors,
+            )
+        )
+        story.append(PageBreak())
+        story.extend(
             self._risk_section(
                 data,
                 charts,
@@ -189,7 +201,14 @@ class InvestmentPDFReport:
             "expected_returns": "expected_returns.parquet",
             "market_signals": "market_signals.parquet",
             "data_quality": "data_quality_report.parquet",
+            "var_exception_tests": "var_exception_tests.parquet",
+            "stress_scenarios": "stress_scenarios.parquet",
+            "benchmark_comparison": "benchmark_comparison.parquet",
+            "transaction_cost_sensitivity": "transaction_cost_sensitivity.parquet",
+            "statistical_robustness": "statistical_robustness.parquet",
             "ml_downside_risk_metrics": "ml_downside_risk_metrics.parquet",
+            "ml_downside_confusion_matrix": "ml_downside_confusion_matrix.parquet",
+            "ml_downside_drift_report": "ml_downside_drift_report.parquet",
             "ml_downside_risk_feature_importance": "ml_downside_risk_feature_importance.parquet",
             "regime_labels": "regime_labels.parquet",
             "adaptive_returns": "adaptive_returns.parquet",
@@ -446,37 +465,38 @@ class InvestmentPDFReport:
 
     def _primer_section(self, styles, Paragraph, Spacer, ListFlowable, ListItem):
         bullets = [
-            "1 + 1 = 2 ifadesi iki adet birimin bir araya geldiğinde iki birim oluşturduğunu söyler. Portföyde de iki ayrı ağırlık toplandığında toplam sermaye payını verir.",
-            "Yüzde, bir büyüklüğün 100 eşit parçaya bölünmüş halidir. %25 ağırlık, her 100 TL'nin 25 TL'sinin ilgili varlığa ayrılmasıdır.",
-            "Getiri, bugün sahip olunan değerin önceki değere göre ne kadar arttığını veya azaldığını ölçer.",
-            "Risk, tek başına kaybetme ihtimali değildir; sonucun beklenenden ne kadar sapabileceğini ve kötü senaryoda kaybın ne kadar büyüyebileceğini kapsar.",
-            "Portföy, birden fazla varlığın aynı sermaye içinde birlikte tutulmasıdır. Amaç tek varlığın hatasına bağımlılığı azaltmaktır.",
+            "Birincil kanıt katmanı walk-forward sonuçlardır; statik optimizasyon eğitim dönemi tanısı olarak okunur.",
+            "Risk değerlendirmesi yalnızca Sharpe oranına indirgenmez; maksimum düşüş, VaR exception testleri, stres senaryoları ve maliyet duyarlılığı birlikte değerlendirilir.",
+            "Beklenen getiri tahmini gürültülüdür; bu nedenle yüksek in-sample sonuçlar otomatik olarak yatırım sinyali sayılmaz.",
+            "ML downside-risk modeli al-sat sinyali değildir; olasılık kalibrasyonu ve sınıflandırma gücü zayıfsa bu durum raporda saklanmaz.",
+            "Public veri sağlayıcı araştırma için uygundur; kurumsal üretim için bağımsız veri mutabakatı ve model validasyon süreci gerekir.",
         ]
         return [
-            Paragraph("2. Temel Kavramlar: En Baştan Başlayarak", styles["h1"]),
+            Paragraph("2. Kanıt Hiyerarşisi ve Araştırma Protokolü", styles["h1"]),
             Paragraph(
-                "Bu bölüm bilerek en basit seviyeden başlar. Okuyucu finans, matematik "
-                "ve istatistik biliyor olsa bile raporun terminolojisinin aynı anlamda "
-                "okunması için kavramlar resmi biçimde tanımlanır.",
+                "Bu rapor, model sonuçlarını performans vitrini olarak değil, denetlenebilir "
+                "araştırma kanıtı olarak sunar. Öncelik sırası; veri kalitesi, yatırım "
+                "yapılabilir evren ayrımı, walk-forward doğrulama, risk ölçümü, stres "
+                "duyarlılığı, maliyet etkisi ve model yönetişimi şeklindedir.",
                 styles["body"],
             ),
             self._bullet_list(ListFlowable, ListItem, Paragraph, styles, bullets),
             Spacer(1, 6),
-            Paragraph("Portföy Ağırlığı Ne Demektir?", styles["h2"]),
+            Paragraph("Karar Kuralı", styles["h2"]),
             Paragraph(
-                "Bir portföyde her varlığın bir ağırlığı vardır. Ağırlıklar toplandığında "
-                "1 olmalıdır. 1 burada sermayenin tamamıdır. Örneğin 0,25 + 0,25 + "
-                "0,50 = 1 ise sermayenin %25'i birinci varlıkta, %25'i ikinci varlıkta, "
-                "%50'si üçüncü varlıktadır. Bu projede uzun yönlü portföyler kullanılır; "
-                "yani negatif ağırlık veya kaldıraç üretim raporunun ana varsayımı değildir.",
+                "Equal Weight en yüksek walk-forward Sharpe değerini üretebilir; bu, basit "
+                "benchmark'ın dönemde güçlü çalıştığını gösterir. HRP ise daha dengeli "
+                "risk filtresi, daha sınırlı model varsayımı ve kabul edilebilir drawdown "
+                "profili nedeniyle ana araştırma adayı olabilir. Max Sharpe, beklenen getiri "
+                "tahminine yüksek duyarlılığı nedeniyle yalnızca tanısal katmanda tutulur.",
                 styles["body"],
             ),
-            Paragraph("Bilimsel Okuma Kuralı", styles["h2"]),
+            Paragraph("Üretime Geçiş Ön Koşulları", styles["h2"]),
             Paragraph(
-                "Bir sayı tek başına sonuç değildir. Sayının nasıl üretildiği, hangi "
-                "varsayımı kullandığı, hangi veri döneminde hesaplandığı ve başka bir "
-                "testte aynı davranışı gösterip göstermediği birlikte değerlendirilir. "
-                "Bu nedenle raporda hem statik sonuç hem de walk-forward doğrulama vardır.",
+                "Kurumsal canlı kullanım için public veri yerine mutabakatlı piyasa verisi, "
+                "resmi limitler, VaR exception izleme, model onay süreci, erişim kontrolü "
+                "ve operasyonel izleme gereklidir. Bu sürüm araştırma ve sunum amaçlı "
+                "profesyonel karar destek paketidir.",
                 styles["body"],
             ),
         ]
@@ -946,6 +966,93 @@ class InvestmentPDFReport:
             ),
         ]
 
+    def _hardening_section(
+        self,
+        data,
+        styles,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        colors,
+    ):
+        story = [
+            Paragraph(
+                "9. Hardening: VaR Exception Testing, Stres, Benchmark ve Sağlamlık",
+                styles["h1"],
+            ),
+            Paragraph(
+                "Bu bölüm, modelin yalnızca güzel görünen tek bir geçmiş sonuç üretip "
+                "üretmediğini değil; risk ihlali, şok senaryosu, basit benchmark, işlem "
+                "maliyeti ve örneklem belirsizliği altında ne kadar savunulabilir kaldığını "
+                "test eder. Buradaki bulgular yatırım talimatı değil, araştırma kanıtının "
+                "kalitesini sınıflandıran denetim çıktılarıdır.",
+                styles["body"],
+            ),
+            Paragraph("VaR Exception Testing", styles["h2"]),
+            self._table(
+                Table,
+                TableStyle,
+                colors,
+                self._var_exception_rows(data),
+                [2.6, 1.5, 1.9, 1.6, 1.8, 1.8, 4.3],
+            ),
+            Spacer(1, 6),
+            Paragraph("Stres Senaryoları", styles["h2"]),
+            self._table(
+                Table,
+                TableStyle,
+                colors,
+                self._stress_rows(data),
+                [3.8, 1.6, 1.4, 1.6, 2.0, 5.1],
+            ),
+            Spacer(1, 6),
+            Paragraph("Benchmark Comparison", styles["h2"]),
+            self._table(
+                Table,
+                TableStyle,
+                colors,
+                self._benchmark_rows(data),
+                [3.1, 1.8, 1.7, 1.4, 1.8, 5.7],
+            ),
+            Spacer(1, 6),
+            Paragraph("Transaction Cost Sensitivity", styles["h2"]),
+            self._table(
+                Table,
+                TableStyle,
+                colors,
+                self._cost_sensitivity_rows(data),
+                [1.8, 1.8, 1.8, 1.9, 1.8, 1.8, 1.9],
+            ),
+            Spacer(1, 6),
+            Paragraph("Statistical Robustness", styles["h2"]),
+            self._table(
+                Table,
+                TableStyle,
+                colors,
+                self._robustness_rows(data),
+                [2.7, 2.0, 2.7, 2.0, 2.7, 3.4],
+            ),
+            Spacer(1, 6),
+            Paragraph("ML Confusion ve Drift Kontrolü", styles["h2"]),
+            self._table(
+                Table,
+                TableStyle,
+                colors,
+                self._ml_hardening_rows(data),
+                [3.4, 4.0, 8.1],
+            ),
+            Spacer(1, 6),
+            Paragraph(
+                "Önemli sınır: Stres tabloları tarihsel krizin birebir yeniden oynatımı "
+                "değildir; varlık sınıfı bazlı stilize şoklardır. Bootstrap güven aralıkları "
+                "geleceği ispatlamaz; yalnızca gözlenen Sharpe ve CAGR değerlerinin örneklem "
+                "oynaklığına ne kadar duyarlı olduğunu gösterir.",
+                styles["note"],
+            ),
+        ]
+        return story
+
     def _risk_section(
         self,
         data,
@@ -993,7 +1100,7 @@ class InvestmentPDFReport:
                 ]
             )
         return [
-            Paragraph("9. Risk, Geriye Dönük Test ve Sermaye Eğrileri", styles["h1"]),
+            Paragraph("10. Risk, Geriye Dönük Test ve Sermaye Eğrileri", styles["h1"]),
             Paragraph(
                 "Getiri tek başına yeterli değildir. Aynı getiriye sahip iki stratejiden "
                 "biri daha düşük düşüş, daha düşük kuyruk kaybı ve daha düşük işlem maliyeti "
@@ -1045,7 +1152,7 @@ class InvestmentPDFReport:
         ]
         return [
             Paragraph(
-                "10. Model Yönetişimi: Çıkarılanlar, Korunanlar ve Sınırlar",
+                "11. Model Yönetişimi: Çıkarılanlar, Korunanlar ve Sınırlar",
                 styles["h1"],
             ),
             Paragraph("Çıkarılan veya devre dışı bırakılanlar", styles["h2"]),
@@ -1075,7 +1182,7 @@ class InvestmentPDFReport:
             "Engle, R. (1982). Autoregressive Conditional Heteroscedasticity; zamanla değişen volatilite literatürü.",
         ]
         return [
-            Paragraph("11. Kaynak Niteliğindeki Yöntemsel Dayanaklar", styles["h1"]),
+            Paragraph("12. Kaynak Niteliğindeki Yöntemsel Dayanaklar", styles["h1"]),
             Paragraph(
                 "Aşağıdaki liste raporda kullanılan yöntem ailelerinin akademik dayanaklarını "
                 "gösterir. Bu liste, piyasa verisinin geleceği kesin olarak tahmin edebileceği "
@@ -1249,6 +1356,250 @@ class InvestmentPDFReport:
             value_text = f"{float(value):.3f}" if pd.notna(value) else "N/A"
             rows.append([name, value_text, comparison, comment, status])
         return rows
+
+    def _var_exception_rows(self, data: Dict) -> List[List[str]]:
+        rows = [
+            [
+                "Strateji",
+                "Gözlem",
+                "İhlal/Bekl.",
+                "İhlal oranı",
+                "Kupiec p",
+                "Ind. p",
+                "Sonuç",
+            ]
+        ]
+        tests = data.get("var_exception_tests")
+        if tests is None or tests.empty:
+            rows.append(["N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "Tablo üretilmedi"])
+            return rows
+
+        for _, row in tests.head(5).iterrows():
+            kupiec = str(row.get("Kupiec_Result", "N/A")).replace(" at 5%", "")
+            christoffersen = str(row.get("Christoffersen_Result", "N/A")).replace(
+                " at 5%", ""
+            )
+            rows.append(
+                [
+                    row.get("Strategy", "N/A"),
+                    self._format_int(row.get("Observations")),
+                    (
+                        f"{self._format_int(row.get('Exceptions'))}/"
+                        f"{self._format_float(row.get('Expected_Exceptions'), 1)}"
+                    ),
+                    self._format_decimal_pct(row.get("Exception_Rate"), 2),
+                    self._format_p_value(row.get("Kupiec_p_value")),
+                    self._format_p_value(row.get("Christoffersen_p_value")),
+                    f"Kupiec: {kupiec}; bağımsızlık: {christoffersen}",
+                ]
+            )
+        return rows
+
+    def _stress_rows(self, data: Dict) -> List[List[str]]:
+        rows = [["Senaryo", "Equal W.", "HRP", "Inv Vol", "En kötü", "Yorum"]]
+        stress = data.get("stress_scenarios")
+        if stress is None or stress.empty:
+            rows.append(["N/A", "N/A", "N/A", "N/A", "N/A", "Tablo üretilmedi"])
+            return rows
+
+        for _, row in stress.head(7).iterrows():
+            rows.append(
+                [
+                    row.get("Scenario", "N/A"),
+                    self._format_point_pct(row.get("Equal Weight_Impact_%"), 1),
+                    self._format_point_pct(row.get("HRP_Impact_%"), 1),
+                    self._format_point_pct(row.get("Inv Volatility_Impact_%"), 1),
+                    (
+                        f"{row.get('Worst_Affected_Strategy', 'N/A')} "
+                        f"({self._format_point_pct(row.get('Worst_Impact_%'), 1)})"
+                    ),
+                    "Stilize tek dönem şoku; tarihsel tekrar veya tahmin değildir.",
+                ]
+            )
+        return rows
+
+    def _benchmark_rows(self, data: Dict) -> List[List[str]]:
+        rows = [["Ad", "Tür", "CAGR", "Sharpe", "Max DD", "Kanıt"]]
+        comparison = data.get("benchmark_comparison")
+        if comparison is None or comparison.empty:
+            rows.append(["N/A", "N/A", "N/A", "N/A", "N/A", "Tablo üretilmedi"])
+            return rows
+
+        for _, row in comparison.head(6).iterrows():
+            rows.append(
+                [
+                    row.get("Name", "N/A"),
+                    row.get("Type", "N/A"),
+                    self._format_decimal_pct(row.get("CAGR"), 2),
+                    self._format_float(row.get("Sharpe"), 2),
+                    self._format_decimal_pct(row.get("Max_Drawdown"), 2),
+                    row.get("Evidence_Class", "N/A"),
+                ]
+            )
+        return rows
+
+    def _cost_sensitivity_rows(self, data: Dict) -> List[List[str]]:
+        rows = [
+            [
+                "Maliyet bp",
+                "EW Sharpe",
+                "HRP Sharpe",
+                "InvVol Sharpe",
+                "EW CAGR",
+                "HRP CAGR",
+                "InvVol CAGR",
+            ]
+        ]
+        sensitivity = data.get("transaction_cost_sensitivity")
+        if sensitivity is None or sensitivity.empty:
+            rows.append(["N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "Tablo üretilmedi"])
+            return rows
+
+        strategy_labels = [
+            ("Equal Weight", "EW"),
+            ("HRP", "HRP"),
+            ("Inverse Vol", "InvVol"),
+        ]
+        for cost_bps in sorted(sensitivity["Cost_Bps"].dropna().unique()):
+            subset = sensitivity[sensitivity["Cost_Bps"].eq(cost_bps)].set_index(
+                "Strategy"
+            )
+            sharpe_values = []
+            cagr_values = []
+            for strategy, _ in strategy_labels:
+                if strategy in subset.index:
+                    row = subset.loc[strategy]
+                    sharpe_values.append(self._format_float(row.get("Sharpe"), 2))
+                    cagr_values.append(self._format_decimal_pct(row.get("CAGR"), 2))
+                else:
+                    sharpe_values.append("N/A")
+                    cagr_values.append("N/A")
+            rows.append([self._format_int(cost_bps), *sharpe_values, *cagr_values])
+        return rows
+
+    def _robustness_rows(self, data: Dict) -> List[List[str]]:
+        rows = [
+            [
+                "Strateji",
+                "Gözlenen Sharpe",
+                "Sharpe 5%-95%",
+                "Gözlenen CAGR",
+                "CAGR 5%-95%",
+                "Kanıt",
+            ]
+        ]
+        robustness = data.get("statistical_robustness")
+        if robustness is None or robustness.empty:
+            rows.append(["N/A", "N/A", "N/A", "N/A", "N/A", "Tablo üretilmedi"])
+            return rows
+
+        for _, row in robustness.head(5).iterrows():
+            rows.append(
+                [
+                    row.get("Strategy", "N/A"),
+                    self._format_float(row.get("Observed_Sharpe"), 2),
+                    (
+                        f"{self._format_float(row.get('Sharpe_CI_5'), 2)} - "
+                        f"{self._format_float(row.get('Sharpe_CI_95'), 2)}"
+                    ),
+                    self._format_decimal_pct(row.get("Observed_CAGR"), 2),
+                    (
+                        f"{self._format_decimal_pct(row.get('CAGR_CI_5'), 2)} - "
+                        f"{self._format_decimal_pct(row.get('CAGR_CI_95'), 2)}"
+                    ),
+                    row.get("Evidence_Strength", "N/A"),
+                ]
+            )
+        return rows
+
+    def _ml_hardening_rows(self, data: Dict) -> List[List[str]]:
+        rows = [["Tanı", "Değer", "Yorum"]]
+        confusion = data.get("ml_downside_confusion_matrix")
+        if confusion is not None and not confusion.empty:
+            row = confusion.iloc[0]
+            rows.append(
+                [
+                    "Confusion @0.50",
+                    (
+                        f"TN={self._format_int(row.get('TN'))}, "
+                        f"FP={self._format_int(row.get('FP'))}, "
+                        f"FN={self._format_int(row.get('FN'))}, "
+                        f"TP={self._format_int(row.get('TP'))}"
+                    ),
+                    (
+                        f"Precision {self._format_decimal_pct(row.get('Precision'), 1)}, "
+                        f"recall {self._format_decimal_pct(row.get('Recall'), 1)}, "
+                        "al-sat kuralı değildir."
+                    ),
+                ]
+            )
+        else:
+            rows.append(["Confusion @0.50", "N/A", "Tablo üretilmedi"])
+
+        drift = data.get("ml_downside_drift_report")
+        if drift is not None and not drift.empty:
+            for check_name in [
+                "prediction_probability_ks",
+                "prediction_probability_psi",
+            ]:
+                selected = drift[drift["Check"].astype(str).eq(check_name)]
+                if selected.empty:
+                    continue
+                row = selected.iloc[0]
+                value = self._format_float(row.get("Statistic"), 3)
+                p_value = self._format_p_value(row.get("p_value"))
+                label = "KS drift" if check_name.endswith("_ks") else "PSI drift"
+                rows.append(
+                    [
+                        label,
+                        f"stat={value}; p={p_value}",
+                        row.get("Interpretation", "Dağılım kayması tanısı."),
+                    ]
+                )
+        return rows
+
+    def _format_int(self, value) -> str:
+        try:
+            if pd.isna(value):
+                return "N/A"
+            return f"{int(round(float(value)))}"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def _format_float(self, value, decimals: int = 2) -> str:
+        try:
+            if pd.isna(value):
+                return "N/A"
+            return f"{float(value):.{decimals}f}"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def _format_decimal_pct(self, value, decimals: int = 2) -> str:
+        try:
+            if pd.isna(value):
+                return "N/A"
+            return f"{float(value):.{decimals}%}"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def _format_point_pct(self, value, decimals: int = 1) -> str:
+        try:
+            if pd.isna(value):
+                return "N/A"
+            return f"{float(value):.{decimals}f}%"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def _format_p_value(self, value) -> str:
+        try:
+            if pd.isna(value):
+                return "N/A"
+            value = float(value)
+            if value < 0.001:
+                return "<0.001"
+            return f"{value:.3f}"
+        except (TypeError, ValueError):
+            return "N/A"
 
     def _asset_class_label(self, asset_class: str) -> str:
         labels = {

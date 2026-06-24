@@ -33,6 +33,11 @@ Tarih: 2026-06-24
 - [ ] 252 günlük empirik VaR/CVaR raporlanıyor mu?
 - [ ] Max drawdown, Calmar ve Ulcer Index raporlanıyor mu?
 - [ ] Risk-free oranının kaynağı metadata'da açık mı?
+- [ ] `var_exception_tests.csv` ihlal sayısı, beklenen ihlal sayısı, Kupiec ve Christoffersen sonuçlarını içeriyor mu?
+- [ ] `stress_scenarios.csv` stilize senaryoların portföy etkilerini gösteriyor mu?
+- [ ] `benchmark_comparison.csv` stratejileri basit benchmark ile karşılaştırıyor mu?
+- [ ] `transaction_cost_sensitivity.csv` 0/5/10/25 baz puan maliyet varsayımlarını içeriyor mu?
+- [ ] `statistical_robustness.csv` bootstrap güven aralıklarını raporluyor mu?
 
 ## ML Kontrolleri
 
@@ -40,15 +45,18 @@ Tarih: 2026-06-24
 - [ ] Target threshold geçmiş pencere ile mi hesaplanıyor?
 - [ ] TimeSeriesSplit kullanılıyor mu?
 - [ ] ROC-AUC, PR-AUC, Brier ve F1 raporlanıyor mu?
+- [ ] Confusion matrix ve drift raporu üretiliyor mu?
 - [ ] Model zayıfsa çıktı saklanmadan “diagnostic” olarak mı gösteriliyor?
 
 ## Raporlama Kontrolleri
 
 - [ ] PDF yeniden üretildi mi?
 - [ ] PDF'de portföy bileşim tablosu okunabilir mi?
+- [ ] PDF'de VaR exception, stres, benchmark, maliyet duyarlılığı ve bootstrap bölümü var mı?
 - [ ] Veri son tarihi PDF'de görünüyor mu?
 - [ ] Yatırım tavsiyesi olmadığı açıkça yazıyor mu?
 - [ ] “Neyi neden kullandık, neyi neden kullanmadık” sorusu cevaplanıyor mu?
+- [ ] `output/html/quantverse_report.html` yeniden üretildi mi?
 
 ## Geçiş Kriteri
 

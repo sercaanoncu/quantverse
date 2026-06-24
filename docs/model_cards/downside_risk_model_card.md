@@ -41,6 +41,15 @@ Zaman sırasını bozmayan TimeSeriesSplit kullanılır. Her fold için:
 
 raporlanır.
 
+Ek üretim tanıları:
+
+- `ml_downside_confusion_matrix.csv`: 0.50 olasılık eşiğinde TN, FP, FN, TP,
+  precision, recall ve specificity.
+- `ml_downside_drift_report.csv`: Tahmin olasılığı dağılımı için ilk yarı/ikinci
+  yarı KS testi ve PSI drift tanısı.
+- `ml_downside_risk_feature_importance.csv`: Standardize edilmiş lojistik model
+  katsayılarına göre göreli özellik yönü ve büyüklüğü.
+
 ## Kullanım
 
 Uygun kullanım: risk komitesi veya araştırmacının “piyasa koşulları son dönemde
@@ -59,5 +68,7 @@ kararı vermek, kişisel yatırım tavsiyesi oluşturmak.
 ## İzleme
 
 Her pipeline çalıştırmasında `ml_downside_risk_metrics.csv`, tahmin tablosu,
-feature importance ve kalibrasyon figürü kontrol edilmelidir. PR-AUC baseline'a
-yakınsa model sadece zayıf tanı olarak okunmalıdır.
+feature importance, confusion matrix, drift raporu ve kalibrasyon figürü kontrol
+edilmelidir. PR-AUC baseline'a yakınsa model sadece zayıf tanı olarak okunmalıdır.
+PSI yüksek veya KS testi anlamlıysa model çıktısı "dağılım kayması incelemesi
+gerekir" notuyla kullanılmalıdır.

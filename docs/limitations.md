@@ -25,10 +25,21 @@ pipeline statik sonucu değil walk-forward tanıyı önceliklendirir.
 Backtest gerçek emir defteri, piyasa etkisi, vergi, fon kapanması, short borrow,
 limit emir davranışı ve kriz dönemindeki likidite kurumasını tam modellemez.
 
+## Validasyon ve Stres Testi Sınırı
+
+VaR exception testing, stres senaryosu, benchmark karşılaştırması, maliyet duyarlılığı
+ve bootstrap çıktıları araştırma kanıtını güçlendirir; fakat gelecekteki piyasa
+sonucunu garanti etmez. Stres senaryoları stilizedir; resmi limit sistemi için
+yönetim onaylı senaryo kütüphanesi ve bağımsız veri mutabakatı gerekir.
+
 ## ML Sınırı
 
 Downside-risk modeli tanısaldır. Modelin ROC-AUC veya PR-AUC değerleri zayıfsa bu
 durum modelin sınırlı bilgi taşıdığı anlamına gelir; sonuç saklanmaz.
+
+Confusion matrix 0.50 olasılık eşiğinde raporlanır; bu eşik al-sat talimatı veya
+optimum karar eşiği değildir. Drift raporu dağılım kaymasını işaret eder; nedenini
+tek başına açıklamaz.
 
 ## Git Sınırı
 
