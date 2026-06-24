@@ -41,3 +41,12 @@ reports/
 Thumbs.db
 .vscode/
 .idea/
+
+# Generated processed data
+data/processed/*.parquet
+data/processed/*.pkl
+data/processed/*.pickle
+
+# Cache / temporary data
+data/cache/
+tmp/
