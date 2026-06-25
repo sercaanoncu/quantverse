@@ -31,7 +31,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "black>=23.0.0",
+    "pre-commit>=3.5.0",
     "pytest>=7.4.0",
+    "ruff>=0.5.0",
 ]
 notebook = [
     "jupyter>=1.0.0",
@@ -59,3 +61,25 @@ pythonpath = ["src"]
 
 [tool.black]
 line-length = 88
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+exclude = [
+    ".git",
+    ".pytest_cache",
+    "Lib",
+    "Scripts",
+    "share",
+    "etc",
+    "notebooks",
+    "reports",
+    "data",
+    "output",
+    "tmp",
+    "src/project.egg-info",
+    "src/quantverse.egg-info",
+]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

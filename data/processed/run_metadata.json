@@ -1,5 +1,5 @@
 {
-  "config_path": "C:\\Users\\oncus\\OneDrive\\Desktop\\quantverse\\configs\\base.yaml",
+  "config_path": "configs/base.yaml",
   "prices_shape": [
     2250,
     37
@@ -13,12 +13,12 @@
     "2026-06-24"
   ],
   "data_as_of": "2026-06-24",
-  "risk_free_rate": 0.0375864544368274,
+  "risk_free_rate": 0.03725452760260861,
   "risk_free_metadata": {
     "source": "yfinance",
     "proxy": "^IRX",
-    "quote_date": "2026-06-24",
-    "quote_percent": 3.75864544368274
+    "quote_date": "2026-06-18",
+    "quote_percent": 3.725452760260861
   },
   "expected_return_shrinkage": 0.5,
   "max_position_weight": 0.25,
@@ -56,6 +56,61 @@
   "benchmark_comparison_rows": 6,
   "transaction_cost_sensitivity_rows": 20,
   "statistical_robustness_rows": 5,
+  "challenger_rows": 12,
+  "research_alpha_rows": 12,
+  "model_league_rows": 7,
+  "promotion_gate_rows": 12,
+  "annual_return_champion": {
+    "benchmark": "Equal Weight",
+    "primary_metric": "out_of_sample_CAGR",
+    "secondary_metrics": [
+      "Sharpe",
+      "Sortino",
+      "Calmar",
+      "Max_Drawdown",
+      "Volatility",
+      "Turnover",
+      "Transaction_Cost_Drag",
+      "Hit_Rate_By_Rebalance"
+    ],
+    "best_cagr_model": "Asset-Class Momentum Rotation",
+    "best_cagr": 0.3527069208679259,
+    "best_risk_adjusted_model": "Asset-Class Momentum Rotation",
+    "best_sharpe": 0.95373824448172,
+    "equal_weight_cagr": 0.18240411807742074,
+    "equal_weight_sharpe": 0.7923511587178995,
+    "challengers_beating_equal_weight_cagr": [
+      "Asset-Class Momentum Rotation",
+      "Dual Momentum Absolute",
+      "Cross-Asset Relative Momentum"
+    ],
+    "annual_return_challenger_wins": false,
+    "replace_equal_weight_champion": false,
+    "decision": "Asset-Class Momentum Rotation beats Equal Weight on raw OOS CAGR, but robustness or cost checks are not strong enough for champion status.",
+    "champion_diagnostics": {
+      "candidate": "Asset-Class Momentum Rotation",
+      "cagr_bootstrap_ci_positive": false,
+      "sharpe_bootstrap_ci_positive": false,
+      "cost_25bps_survives": true,
+      "cost_50bps_survives": true,
+      "subperiod_wins": 1,
+      "subperiod_count": 4,
+      "rolling_1y_positive_share": 0.6941097724230254,
+      "rolling_3y_positive_share": 0.9747474747474747,
+      "drawdown_penalty_vs_equal_weight": -0.06533433142495593
+    },
+    "protocol": {
+      "train_window": 504,
+      "rebal_frequency": 63,
+      "max_weight": 0.25,
+      "transaction_cost_proportional": 0.001,
+      "transaction_cost_spread": 0.0005,
+      "no_look_ahead_rule": "Each rebalance uses returns strictly before the traded day.",
+      "selection_warning": "Any exploratory winner must be re-tested on future unseen data."
+    },
+    "lstm_not_included_reason": "LSTM is excluded because this sprint requires a defensible benchmark comparison; the available sample is small for sequence models and a proper chronological retraining design would add complexity without clear evidence it improves over simple momentum.",
+    "black_litterman_lite_status": "Skipped in this production path; a neutral-prior momentum-view variant would be too close to the implemented momentum challengers without a defensible external prior."
+  },
   "regime_columns": [
     "Vol_Regime",
     "HMM_Regime",

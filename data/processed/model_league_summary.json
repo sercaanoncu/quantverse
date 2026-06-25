@@ -1,0 +1,86 @@
+[
+  {
+    "League": "Broad Default Champion",
+    "Strategy": "Equal Weight",
+    "Primary_Metric": "Robust default portfolio",
+    "CAGR": 0.18240411807742074,
+    "Sharpe": 0.7923511587178995,
+    "Max_Drawdown": -0.3142091778531464,
+    "Evidence_Class": "Diagnostic only",
+    "Final_Label": "Broad Default Champion",
+    "Decision_Rule": "Replace Equal Weight only after CAGR, Sharpe, cost, subperiod, rolling and drawdown gates pass.",
+    "Reason": "Asset-Class Momentum Rotation beats Equal Weight on raw OOS CAGR, but robustness or cost checks are not strong enough for champion status."
+  },
+  {
+    "League": "Annual Return Challenger",
+    "Strategy": "Asset-Class Momentum Rotation",
+    "Primary_Metric": "Highest OOS CAGR after costs",
+    "CAGR": 0.3527069208679259,
+    "Sharpe": 0.95373824448172,
+    "Max_Drawdown": -0.3795435092781023,
+    "Evidence_Class": "Weak evidence",
+    "Final_Label": "Research Candidate",
+    "Decision_Rule": "Uses same walk-forward protocol and cost assumptions as Equal Weight.",
+    "Reason": "Annual-return status is separate from broad default champion status."
+  },
+  {
+    "League": "Risk-Adjusted Champion",
+    "Strategy": "Asset-Class Momentum Rotation",
+    "Primary_Metric": "Highest OOS Sharpe point estimate",
+    "CAGR": 0.3527069208679259,
+    "Sharpe": 0.95373824448172,
+    "Max_Drawdown": -0.3795435092781023,
+    "Evidence_Class": "Weak evidence",
+    "Final_Label": "Research Candidate",
+    "Decision_Rule": "Promotion requires bootstrap Sharpe significance and cost/subperiod support.",
+    "Reason": "Point-estimate Sharpe is reported but not overclaimed."
+  },
+  {
+    "League": "Defensive / Drawdown Champion",
+    "Strategy": "Signal-Aware HRP Lite",
+    "Primary_Metric": "Least severe max drawdown",
+    "CAGR": 0.07512084827670185,
+    "Sharpe": 0.4435081627949288,
+    "Max_Drawdown": -0.17577942971726612,
+    "Evidence_Class": "Diagnostic only",
+    "Final_Label": "Defensive / Risk-Reduction Candidate",
+    "Decision_Rule": "Defensive status is evaluated separately from CAGR leadership.",
+    "Reason": "Drawdown leadership can be valuable even when CAGR is lower."
+  },
+  {
+    "League": "Research Candidate",
+    "Strategy": "Asset-Class Momentum Rotation, Dual Momentum Absolute, Cross-Asset Relative Momentum",
+    "Primary_Metric": "League membership",
+    "CAGR": NaN,
+    "Sharpe": NaN,
+    "Max_Drawdown": NaN,
+    "Evidence_Class": "Diagnostic only",
+    "Final_Label": "Diagnostic Only",
+    "Decision_Rule": "Strategies are grouped by evidence and promotion status.",
+    "Reason": "This row is a membership summary, not a new backtest."
+  },
+  {
+    "League": "Diagnostic Only",
+    "Strategy": "Time-Series Momentum, Regime-Aware Allocation, Momentum Tilt 6M/12M, Volatility-Scaled Momentum, Risk-Managed Equal Weight, Trend-Following MA",
+    "Primary_Metric": "League membership",
+    "CAGR": NaN,
+    "Sharpe": NaN,
+    "Max_Drawdown": NaN,
+    "Evidence_Class": "Diagnostic only",
+    "Final_Label": "Diagnostic Only",
+    "Decision_Rule": "Strategies are grouped by evidence and promotion status.",
+    "Reason": "This row is a membership summary, not a new backtest."
+  },
+  {
+    "League": "Rejected",
+    "Strategy": "Shrunk Max Sharpe Nested",
+    "Primary_Metric": "League membership",
+    "CAGR": 0.032913997503006165,
+    "Sharpe": 0.06890777685010421,
+    "Max_Drawdown": -0.46604110729586967,
+    "Evidence_Class": "Rejected: overfit risk",
+    "Final_Label": "Rejected",
+    "Decision_Rule": "Strategies are grouped by evidence and promotion status.",
+    "Reason": "This row is a membership summary, not a new backtest."
+  }
+]

@@ -127,6 +127,18 @@ class InvestmentPDFReport:
         )
         story.append(PageBreak())
         story.extend(
+            self._challenger_section(
+                data,
+                styles,
+                Paragraph,
+                Spacer,
+                Table,
+                TableStyle,
+                colors,
+            )
+        )
+        story.append(PageBreak())
+        story.extend(
             self._holdings_section(
                 data, styles, Paragraph, Spacer, Table, TableStyle, colors, PageBreak
             )
@@ -206,6 +218,15 @@ class InvestmentPDFReport:
             "benchmark_comparison": "benchmark_comparison.parquet",
             "transaction_cost_sensitivity": "transaction_cost_sensitivity.parquet",
             "statistical_robustness": "statistical_robustness.parquet",
+            "equal_weight_diagnostic": "equal_weight_diagnostic.csv",
+            "challenger_backtest_summary": "challenger_backtest_summary.csv",
+            "challenger_vs_equal_weight": "challenger_vs_equal_weight.csv",
+            "research_alpha_leaderboard": "research_alpha_leaderboard.csv",
+            "model_league_summary": "model_league_summary.csv",
+            "model_promotion_gate": "model_promotion_gate.csv",
+            "model_overfit_diagnostics": "model_overfit_diagnostics.csv",
+            "covariance_model_comparison": "covariance_model_comparison.csv",
+            "champion_selection_summary": "champion_selection_summary.json",
             "ml_downside_risk_metrics": "ml_downside_risk_metrics.parquet",
             "ml_downside_confusion_matrix": "ml_downside_confusion_matrix.parquet",
             "ml_downside_drift_report": "ml_downside_drift_report.parquet",
@@ -221,6 +242,8 @@ class InvestmentPDFReport:
                 continue
             if filename.endswith(".json"):
                 data[key] = json.loads(path.read_text(encoding="utf-8"))
+            elif filename.endswith(".csv"):
+                data[key] = pd.read_csv(path)
             else:
                 data[key] = pd.read_parquet(path)
 
@@ -792,6 +815,142 @@ class InvestmentPDFReport:
             Image(
                 str(charts["weights"]), width=15.5 * cm_to_pt(), height=7.4 * cm_to_pt()
             ),
+        ]
+
+    def _challenger_section(
+        self,
+        data,
+        styles,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        colors,
+    ):
+        summary = data.get("challenger_backtest_summary")
+        research_alpha = data.get("research_alpha_leaderboard")
+        league = data.get("model_league_summary")
+        promotion = data.get("model_promotion_gate")
+        vs_equal = data.get("challenger_vs_equal_weight")
+        champion = data.get("champion_selection_summary", {})
+        diagnostic = data.get("equal_weight_diagnostic")
+        display_source = (
+            research_alpha
+            if research_alpha is not None and not research_alpha.empty
+            else summary
+        )
+        if display_source is None or display_source.empty:
+            return [
+                Paragraph("6A. Annual Return Champion-Challenger Review", styles["h1"]),
+                Paragraph(
+                    "Return-seeking challenger artifacts were not available for this run.",
+                    styles["warning"],
+                ),
+            ]
+
+        display = display_source.sort_values("CAGR", ascending=False).head(8)
+        rows = [
+            [
+                "Strategy",
+                "League",
+                "CAGR",
+                "Sharpe",
+                "Max DD",
+                "Evidence",
+            ]
+        ]
+        for _, row in display.iterrows():
+            rows.append(
+                [
+                    row.get("Strategy", "N/A"),
+                    row.get("Final_Label", row.get("League", "N/A")),
+                    self._format_decimal_pct(row.get("CAGR"), 2),
+                    self._format_float(row.get("Sharpe"), 2),
+                    self._format_decimal_pct(row.get("Max_Drawdown"), 2),
+                    row.get("Evidence_Class", "N/A"),
+                ]
+            )
+
+        league_rows = [["League", "Strategy", "Reason"]]
+        if league is not None and not league.empty:
+            for _, row in league.head(7).iterrows():
+                league_rows.append(
+                    [
+                        row.get("League", "N/A"),
+                        row.get("Strategy", "N/A"),
+                        row.get("Reason", "N/A"),
+                    ]
+                )
+
+        gate_rows = [["Strategy", "Promotion", "Reason"]]
+        if promotion is not None and not promotion.empty:
+            for _, row in promotion.head(6).iterrows():
+                gate_rows.append(
+                    [
+                        row.get("Strategy", "N/A"),
+                        row.get("Promotion_Decision", "N/A"),
+                        row.get("Reason", "N/A"),
+                    ]
+                )
+
+        vs_rows = [["Strategy", "CAGR diff", "Sharpe diff", "Hit rate"]]
+        if vs_equal is not None and not vs_equal.empty:
+            for _, row in vs_equal.head(8).iterrows():
+                vs_rows.append(
+                    [
+                        row.get("Strategy", "N/A"),
+                        self._format_decimal_pct(row.get("CAGR_Diff"), 2),
+                        self._format_float(row.get("Sharpe_Diff"), 2),
+                        self._format_decimal_pct(row.get("Hit_Rate_By_Rebalance"), 1),
+                    ]
+                )
+
+        diag_text = "Equal Weight diagnostic artifacts were not available."
+        if diagnostic is not None and not diagnostic.empty:
+            noisy = diagnostic[
+                diagnostic["Diagnostic"].astype(str).eq("noisy_expected_returns")
+            ]
+            if not noisy.empty:
+                diag_text = str(noisy.iloc[0].get("Interpretation", diag_text))
+
+        decision = champion.get(
+            "decision",
+            "No champion decision summary was available.",
+        )
+        best_cagr = champion.get("best_cagr_model", "N/A")
+        best_sharpe = champion.get("best_risk_adjusted_model", "N/A")
+        replace = champion.get("replace_equal_weight_champion", False)
+
+        return [
+            Paragraph("6A. Annual Return Champion-Challenger Review", styles["h1"]),
+            Paragraph(
+                "This section tests return-seeking challengers against Equal Weight "
+                "under the same asset universe, date range, rebalance calendar, "
+                "train window and transaction-cost assumptions. The primary metric is "
+                "out-of-sample CAGR; Sharpe and drawdown are secondary controls.",
+                styles["body"],
+            ),
+            Paragraph(
+                f"Best CAGR model: {best_cagr}. Best risk-adjusted model by Sharpe: "
+                f"{best_sharpe}. Replace Equal Weight champion: {replace}.",
+                styles["note"],
+            ),
+            self._table(
+                Table, TableStyle, colors, rows, [3.1, 3.2, 1.5, 1.4, 1.6, 3.2]
+            ),
+            Spacer(1, 7),
+            Paragraph("Model league summary", styles["h2"]),
+            self._table(Table, TableStyle, colors, league_rows, [3.4, 3.6, 8.0]),
+            Spacer(1, 7),
+            Paragraph("Promotion gate", styles["h2"]),
+            self._table(Table, TableStyle, colors, gate_rows, [3.5, 4.1, 7.4]),
+            Spacer(1, 7),
+            Paragraph("Challenger vs Equal Weight", styles["h2"]),
+            self._table(Table, TableStyle, colors, vs_rows, [4.4, 2.4, 2.1, 2.3]),
+            Spacer(1, 7),
+            Paragraph("Diagnostic conclusion", styles["h2"]),
+            Paragraph(diag_text, styles["body"]),
+            Paragraph(decision, styles["warning"]),
         ]
 
     def _holdings_section(

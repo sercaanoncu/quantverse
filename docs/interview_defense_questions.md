@@ -1,86 +1,155 @@
-# QuantVerse Savunma Soruları ve Cevapları
+# QuantVerse Interview Defense Questions
 
-Tarih: 2026-06-24
+Date: 2026-06-25
 
-## 1. Proje tek cümlede ne yapıyor?
+This document is written for data science, quantitative finance, portfolio
+research, bank risk analytics and model validation interviews. The tone is
+deliberately honest: a model is defended only when the evidence supports it.
 
-QuantVerse, çok varlıklı piyasa verisini temizleyip portföy ağırlıkları, walk-forward
-performans, piyasa riski, ML downside-risk tanısı ve resmi rapor üreten araştırma
-amaçlı bir quantitative finance karar destek sistemidir.
+## 1. Why is Equal Weight still hard to beat?
 
-## 2. Bu proje yatırım tavsiyesi mi?
+Equal Weight is hard to beat because it has almost no expected-return estimation
+error. Financial returns are noisy, and small estimation errors can be amplified
+by optimizers into unstable weights. Equal Weight is therefore not a toy baseline.
+It is the minimum-complexity benchmark that an active model must beat after
+costs, turnover and walk-forward validation.
 
-Hayır. Proje geçmiş veriye dayalı araştırma ve risk tanısı üretir. Kişisel risk
-profili, vergi, likidite, yatırım ufku ve uygunluk değerlendirmesi olmadan al-sat
-talimatı vermez.
+## 2. Why can HRP be preferred despite not having the highest Sharpe?
 
-## 3. Neden düşük getirili varlıkları otomatik silmediniz?
+HRP can be preferred when the objective is stability, diversification and
+drawdown control rather than maximum point-estimate Sharpe. HRP avoids direct
+covariance inversion and can reduce concentration risk. In QuantVerse, HRP is
+best defended as a risk-allocation candidate, not as a guaranteed CAGR engine.
 
-Düşük geçmiş getiri, gelecekte düşük getiri olacağını ispatlamaz. Bu nedenle varlık
-dışlama gerekçesi getiri değil, veri kalitesi ve kapsama yeterliliğidir.
+## 3. Why is Max Sharpe diagnostic only?
 
-## 4. VIX, faiz ve DXY neden portföy ağırlığı almıyor?
+Max Sharpe is highly sensitive to expected-return estimation error. If the
+estimated mean return vector changes slightly, the optimizer can change weights
+substantially. QuantVerse keeps Max Sharpe as a diagnostic stress point: it shows
+how fragile expected-return optimization can be, but it is not promoted unless
+nested out-of-sample validation supports it.
 
-Bu seriler yatırım yapılabilir ETF gibi doğrudan portföy enstrümanı değildir; piyasa
-bağlamı ve risk-free proxy için sinyal olarak kullanılır. Sinyalin portföy varlığı
-gibi ağırlık alması metodolojik hata olurdu.
+## 4. Why is yfinance acceptable for research but not production?
 
-## 5. Statik optimizasyon neden ana karar değil?
+yfinance is acceptable for methodology research because it is accessible and
+lets the project test reproducible data, portfolio and validation logic. It is
+not production-grade because it lacks contractual data quality, vendor support,
+official correction workflow, independent reconciliation and institutional SLA.
+Production risk systems require controlled data lineage.
 
-Statik optimizasyon aynı veride hem öğrenir hem değerlendirilirse geçmişe aşırı
-uyum riski doğar. Bu nedenle ana karar katmanı walk-forward sonuç, drawdown, maliyet
-ve model diagnostics farkıdır.
+## 5. Why does VaR exception testing matter?
 
-## 6. Neden Ledoit-Wolf kovaryans kullandınız?
+VaR is meaningful only if realized breaches are monitored. A 5% VaR should be
+breached at roughly the expected frequency under stable assumptions. Exception
+testing checks whether the model is calibrated and whether breaches cluster
+during stress. Clustering is important because risk models often fail exactly
+when they are most needed.
 
-Finansal zaman serilerinde örnek kovaryans gürültülü ve kararsız olabilir. Ledoit-Wolf
-shrinkage, kovaryans matrisini daha iyi koşullu hale getirerek optimizasyonun uç
-ağırlıklara savrulmasını azaltır.
+## 6. Why do bootstrap confidence intervals matter?
 
-## 7. VaR ve CVaR neyi ölçüyor?
+Point estimates such as CAGR and Sharpe can be noisy. Moving-block bootstrap
+preserves some time-series dependence and gives an interval around the observed
+difference versus a benchmark. It does not prove future performance, but it
+prevents treating one historical point estimate as certainty.
 
-VaR belirli güven seviyesinde kayıp eşiğini, CVaR ise bu eşiğin ötesindeki ortalama
-kaybı ölçer. CVaR, kuyruk kaybının büyüklüğünü gösterdiği için tek başına VaR'dan
-daha açıklayıcıdır.
+## 7. Why is ML diagnostic and not a trading signal?
 
-## 8. VaR exception testing neden eklendi?
+The current ML layer evaluates downside-risk diagnostics. It is not used to
+predict daily returns or set portfolio weights. That is deliberate: weak ROC-AUC,
+PR-AUC or drift behavior should not become an automated trading rule. The
+defensible next step is an overlay such as meta-labeling, rebalance veto or risk
+exposure adjustment, not blind return prediction.
 
-VaR eşiği çizmek tek başına yeterli değildir. Exception testing, gerçekleşen ihlal
-sayısının beklenen ihlal sayısına yakın olup olmadığını ve ihlallerin kümelenip
-kümelenmediğini test eder.
+## 8. How did you avoid look-ahead bias?
 
-## 9. Stres senaryoları tarihsel krizleri birebir mi tekrar ediyor?
+The research layer uses walk-forward evaluation. At each rebalance, weights are
+computed from data strictly before the traded day. Market signals are kept out of
+the investable return matrix. Hyperparameter selection, where used, is nested
+inside the training window. The project also separates static optimizer
+diagnostics from out-of-sample portfolio evidence.
 
-Hayır. Bu sprintteki stresler stilize varlık sınıfı şoklarıdır. Amaç krizi birebir
-yeniden oynatmak değil, portföylerin COVID benzeri risk-off, faiz şoku, USD şoku
-ve kripto çöküşü gibi sınıf bazlı şoklara hassasiyetini görmektir.
+## 9. What would break in a live trading environment?
 
-## 10. Benchmark comparison neden gerekli?
+Public data quality, missing or revised prices, corporate actions, execution,
+slippage, market impact, tax lots, liquidity, cash management, broker failures,
+monitoring, access control, incident handling and audit trail would all need a
+production design. QuantVerse is a research system, not an execution management
+system.
 
-Karmaşık modelin değeri basit benchmark'a karşı ölçülmezse modelin gerçekten bilgi
-ekleyip eklemediği anlaşılamaz. Equal Weight ve iç 60/40 proxy bu nedenle korunur.
+## 10. What would be needed for institutional model approval?
 
-## 11. Transaction-cost sensitivity neyi gösteriyor?
+Institutional approval would require data lineage, independent reconciliation,
+documented assumptions, challenger models, sensitivity analysis, model owner and
+approver roles, validation sign-off, model registry, monitoring thresholds,
+exception workflow, access control, audit trail and periodic review.
 
-Sonucun yalnızca düşük işlem maliyeti varsayımı altında mı ayakta kaldığını test
-eder. 0, 5, 10 ve 25 baz puan maliyet seviyelerinde CAGR, Sharpe ve drawdown yeniden
-hesaplanır.
+## 11. What is the strongest part of this project?
 
-## 12. Bootstrap güven aralığı neyi kanıtlar?
+The strongest part is its research discipline. It separates benchmark, alpha,
+risk, validation and governance layers; reports portfolio weights transparently;
+keeps ML diagnostic; and refuses to overstate a strategy that fails robustness
+checks.
 
-Geleceği kanıtlamaz. Moving-block bootstrap, gözlenen CAGR ve Sharpe değerlerinin
-örneklem oynaklığına ne kadar duyarlı olduğunu gösterir ve zaman serisi bağımlılığını
-tamamen yok etmemek için blok yapısı kullanır.
+## 12. What is the weakest part of this project?
 
-## 13. ML modeli neden zayıf olsa bile raporlanıyor?
+The weakest part is production readiness. It lacks institutional data feeds,
+execution, formal model approval, live monitoring, access control, audit trail
+and clean-repo CI in the old local folder. Those are required for production but
+not for a research/CV project.
 
-Model bir al-sat sinyali değil, downside-risk tanısıdır. PR-AUC baseline'a yakınsa
-bu zayıflık saklanmaz; raporda modelin sınırlı bilgi taşıdığı açıkça belirtilir.
+## 13. How would you extend this for a Turkish bank risk team?
 
-## 14. Proje yüksek lisans sunumu için yeterli mi, kurumsal canlı yatırım için yeterli mi?
+I would add TRY curves, BIST instruments, Turkish sovereign and corporate fixed
+income, FX liquidity assumptions, local holiday calendars, BRSA/CMB reporting
+views, TRY rate and FX stress scenarios, bank-specific limits, and a formal
+validation pack with model owner and approver roles.
 
-Yüksek lisans sunumu için savunulabilir düzeydedir; çünkü veri kalitesi, portföy
-ağırlıkları, walk-forward kanıt, risk, stres, maliyet, bootstrap, ML tanı ve rapor
-izlenebilir biçimde üretilir. Kurumsal canlı yatırım için yeterli değildir; bağımsız
-veri mutabakatı, model approval, limit yönetimi, execution ölçümü ve canlı izleme
-gerekir.
+## 14. How would Bloomberg or Refinitiv improve the project?
+
+Bloomberg or Refinitiv would improve data lineage, point-in-time consistency,
+instrument metadata, corporate action handling, yield curves, benchmark indices
+and auditability. The methodology would still need validation, but the data
+governance layer would be materially stronger.
+
+## 15. What does this project prove about your data science / risk analytics skills?
+
+It proves that I can build an end-to-end research pipeline, manage data quality,
+separate signals from investable assets, build transparent portfolios, run
+walk-forward validation, test risk models, use ML conservatively, document
+limitations and produce reviewer-ready reports without fabricating performance.
+
+## 16. Why does QuantVerse use model leagues instead of one best model?
+
+One model cannot be best for every objective. Equal Weight can be the broad
+default, Asset-Class Momentum Rotation can be the annual-return challenger, HRP
+can be defensive, and ML can be diagnostic. The league system prevents an
+incorrect claim that the highest-CAGR model is automatically the best portfolio.
+
+## 17. Why is Asset-Class Momentum Rotation treated as a challenger?
+
+Asset-class rotation is a defensible alpha family because it uses broad
+cross-asset trends rather than fragile single-asset forecasts. If it has the
+highest walk-forward CAGR and survives cost and bootstrap CAGR checks, it can be
+an annual-return challenger. It still does not replace Equal Weight as broad
+default unless broader robustness gates pass.
+
+## 18. Why not add LSTM, Transformer, reinforcement learning or LLM allocation?
+
+Those methods are research-stage in this setting unless validation is extremely
+strict. The current project does not have enough evidence to claim they improve
+net portfolio decisions after costs. Adding them for appearance would increase
+overfit risk and weaken credibility.
+
+## 19. How does the promotion gate reduce overclaiming?
+
+The promotion gate requires more than one attractive metric. It checks Equal
+Weight comparison, 25 bps and 50 bps cost robustness, bootstrap significance,
+subperiod behavior, drawdown penalty, turnover level and overfit flags. A model
+can remain a useful research candidate without being promoted.
+
+## 20. What is the final honest headline?
+
+QuantVerse is a research-grade multi-asset portfolio analytics system where
+Equal Weight remains the hard benchmark, risk-controlled momentum is tested as
+an alpha challenger, risk-allocation methods are evaluated defensively, and ML is
+kept diagnostic until stronger validation supports a trading overlay.
