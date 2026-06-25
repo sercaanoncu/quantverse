@@ -1,7 +1,7 @@
 Portfolio,Ticker,Asset_Class,Weight,Weight_Percent,Included
 Equal Weight,XLK,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLK,us_equity_sectors,0.00000000,0.00000000,False
-Max Sharpe,XLK,us_equity_sectors,0.09448214,9.44821382,True
+Max Sharpe,XLK,us_equity_sectors,0.09314541,9.31454091,True
 HRP,XLK,us_equity_sectors,0.00523544,0.52354366,True
 Risk Parity,XLK,us_equity_sectors,0.01248545,1.24854530,True
 Inv Volatility,XLK,us_equity_sectors,0.01954767,1.95476690,True
@@ -22,7 +22,7 @@ Inv Volatility,XLE,us_equity_sectors,0.01656890,1.65688954,True
 Min CVaR,XLE,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLV,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLV,us_equity_sectors,0.00761098,0.76109815,True
-Max Sharpe,XLV,us_equity_sectors,0.00403624,0.40362369,True
+Max Sharpe,XLV,us_equity_sectors,0.00447138,0.44713793,True
 HRP,XLV,us_equity_sectors,0.01199371,1.19937089,True
 Risk Parity,XLV,us_equity_sectors,0.02037418,2.03741806,True
 Inv Volatility,XLV,us_equity_sectors,0.02870267,2.87026710,True
@@ -43,7 +43,7 @@ Inv Volatility,XLY,us_equity_sectors,0.02172343,2.17234268,True
 Min CVaR,XLY,us_equity_sectors,0.00000000,0.00000000,False
 Equal Weight,XLP,us_equity_sectors,0.02702703,2.70270270,True
 Min Variance,XLP,us_equity_sectors,0.03560304,3.56030422,True
-Max Sharpe,XLP,us_equity_sectors,0.06274967,6.27496732,True
+Max Sharpe,XLP,us_equity_sectors,0.06259757,6.25975747,True
 HRP,XLP,us_equity_sectors,0.01389057,1.38905693,True
 Risk Parity,XLP,us_equity_sectors,0.02466565,2.46656526,True
 Inv Volatility,XLP,us_equity_sectors,0.03165907,3.16590707,True
@@ -127,7 +127,7 @@ Inv Volatility,ETH-USD,crypto,0.00613199,0.61319926,True
 Min CVaR,ETH-USD,crypto,0.00000000,0.00000000,False
 Equal Weight,BNB-USD,crypto,0.02702703,2.70270270,True
 Min Variance,BNB-USD,crypto,0.00000000,0.00000000,False
-Max Sharpe,BNB-USD,crypto,0.04225556,4.22555589,True
+Max Sharpe,BNB-USD,crypto,0.04168117,4.16811679,True
 HRP,BNB-USD,crypto,0.00290079,0.29007930,True
 Risk Parity,BNB-USD,crypto,0.00577170,0.57716960,True
 Inv Volatility,BNB-USD,crypto,0.00557121,0.55712078,True
@@ -141,14 +141,14 @@ Inv Volatility,ADA-USD,crypto,0.00408788,0.40878818,True
 Min CVaR,ADA-USD,crypto,0.00000000,0.00000000,False
 Equal Weight,XRP-USD,crypto,0.02702703,2.70270270,True
 Min Variance,XRP-USD,crypto,0.00000000,0.00000000,False
-Max Sharpe,XRP-USD,crypto,0.00396751,0.39675061,True
+Max Sharpe,XRP-USD,crypto,0.00390720,0.39072034,True
 HRP,XRP-USD,crypto,0.00265259,0.26525916,True
 Risk Parity,XRP-USD,crypto,0.00517890,0.51788952,True
 Inv Volatility,XRP-USD,crypto,0.00467681,0.46768083,True
 Min CVaR,XRP-USD,crypto,0.00000000,0.00000000,False
 Equal Weight,GLD,commodities,0.02702703,2.70270270,True
 Min Variance,GLD,commodities,0.00050150,0.05014968,True
-Max Sharpe,GLD,commodities,0.14965889,14.96588912,True
+Max Sharpe,GLD,commodities,0.14775087,14.77508692,True
 HRP,GLD,commodities,0.03357832,3.35783193,True
 Risk Parity,GLD,commodities,0.02975536,2.97553588,True
 Inv Volatility,GLD,commodities,0.02962597,2.96259712,True
@@ -162,7 +162,7 @@ Inv Volatility,SLV,commodities,0.01539394,1.53939366,True
 Min CVaR,SLV,commodities,0.00000000,0.00000000,False
 Equal Weight,USO,commodities,0.02702703,2.70270270,True
 Min Variance,USO,commodities,0.00284887,0.28488709,True
-Max Sharpe,USO,commodities,0.00026477,0.02647665,True
+Max Sharpe,USO,commodities,0.00035151,0.03515107,True
 HRP,USO,commodities,0.00561579,0.56157883,True
 Risk Parity,USO,commodities,0.01754566,1.75456618,True
 Inv Volatility,USO,commodities,0.01292120,1.29212007,True
@@ -176,7 +176,7 @@ Inv Volatility,UNG,commodities,0.00915985,0.91598485,True
 Min CVaR,UNG,commodities,0.00085715,0.08571502,True
 Equal Weight,DBA,commodities,0.02702703,2.70270270,True
 Min Variance,DBA,commodities,0.10582422,10.58242172,True
-Max Sharpe,DBA,commodities,0.11040059,11.04005864,True
+Max Sharpe,DBA,commodities,0.11047081,11.04708078,True
 HRP,DBA,commodities,0.07766334,7.76633360,True
 Risk Parity,DBA,commodities,0.04898443,4.89844253,True
 Inv Volatility,DBA,commodities,0.03586051,3.58605073,True
@@ -204,7 +204,7 @@ Inv Volatility,TLT,fixed_income,0.03181267,3.18126715,True
 Min CVaR,TLT,fixed_income,0.00000000,0.00000000,False
 Equal Weight,IEF,fixed_income,0.02702703,2.70270270,True
 Min Variance,IEF,fixed_income,0.14016292,14.01629207,True
-Max Sharpe,IEF,fixed_income,0.07569638,7.56963798,True
+Max Sharpe,IEF,fixed_income,0.07667053,7.66705343,True
 HRP,IEF,fixed_income,0.07744660,7.74465988,True
 Risk Parity,IEF,fixed_income,0.09044871,9.04487081,True
 Inv Volatility,IEF,fixed_income,0.05748855,5.74885499,True
@@ -232,14 +232,14 @@ Inv Volatility,HYG,fixed_income,0.04996936,4.99693626,True
 Min CVaR,HYG,fixed_income,0.04550482,4.55048197,True
 Equal Weight,TIP,fixed_income,0.02702703,2.70270270,True
 Min Variance,TIP,fixed_income,0.17860061,17.86006073,True
-Max Sharpe,TIP,fixed_income,0.16391450,16.39144995,True
+Max Sharpe,TIP,fixed_income,0.16434389,16.43438933,True
 HRP,TIP,fixed_income,0.17284400,17.28440009,True
 Risk Parity,TIP,fixed_income,0.07322939,7.32293942,True
 Inv Volatility,TIP,fixed_income,0.06190879,6.19087888,True
 Min CVaR,TIP,fixed_income,0.25000000,25.00000000,True
 Equal Weight,AGG,fixed_income,0.02702703,2.70270270,True
 Min Variance,AGG,fixed_income,0.16661915,16.66191467,True
-Max Sharpe,AGG,fixed_income,0.04257376,4.25737633,True
+Max Sharpe,AGG,fixed_income,0.04460965,4.46096502,True
 HRP,AGG,fixed_income,0.09119790,9.11979003,True
 Risk Parity,AGG,fixed_income,0.06802264,6.80226443,True
 Inv Volatility,AGG,fixed_income,0.06334319,6.33431947,True

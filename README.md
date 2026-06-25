@@ -1,140 +1,232 @@
 # QuantVerse
 
-QuantVerse, çok varlıklı portföy araştırması, risk analizi, walk-forward backtest,
-VaR exception testing, stres senaryosu, benchmark karşılaştırması, işlem maliyeti
-duyarlılığı, downside-risk ML tanısı ve resmi PDF/HTML rapor üretimi yapan Python
-projesidir.
+QuantVerse is a multi-asset portfolio research, market-risk validation and
+reporting project. It cleans market data, separates investable instruments from
+context signals, builds transparent portfolio weights, runs walk-forward
+backtests, reports risk diagnostics, and generates formal PDF/HTML outputs.
 
-Bu proje yatırım tavsiyesi değildir. Amaç; veri, varsayım, portföy ağırlıkları,
-risk ölçüleri ve model sınırlılıklarını denetlenebilir biçimde raporlamaktır.
+This project is not investment advice. It is a research and decision-support
+pipeline for explaining data, assumptions, portfolio weights, risk metrics,
+validation results and model limitations.
 
-## Ne Yapar?
+## What It Does
 
-- Canonical üretim konfigürasyonunu `configs/base.yaml` dosyasından okur.
-- ETF, kripto, emtia, tahvil ve REIT evrenini indirir ve iş günü getiri matrisi üretir.
-- `^VIX`, `^TNX`, `^IRX` ve `DX-Y.NYB` gibi serileri portföyden ayırır; bunlar sinyaldir.
-- Risk-free oranını mümkün olduğunda `^IRX` piyasa proxy'sinden alır; fallback kullanılırsa metadata'da açıkça yazar.
-- Ledoit-Wolf kovaryans, Mean-Variance, HRP, Risk Parity, Inverse Volatility ve Minimum CVaR portföyleri üretir.
-- Düşük geçmiş getiri nedeniyle varlık silmez; veri kalitesi nedeniyle dışarıda kalanları `data_quality_report.csv` dosyasında açıklar.
-- Her portföy için hangi enstrümandan ne kadar alındığını `portfolio_holdings_long.csv` ve `portfolio_weights_matrix.csv` dosyalarında gösterir.
-- Maliyet dahil walk-forward backtest çalıştırır.
-- VaR, CVaR, drawdown, Calmar, Ulcer Index ve çeşitlendirme metrikleri üretir.
-- Rolling historical VaR exception testing ile ihlal frekansı ve bağımsızlık
-  tanısı üretir.
-- Stilize piyasa şoklarıyla stres senaryosu, iç 60/40 benchmark karşılaştırması,
-  işlem maliyeti duyarlılığı ve moving-block bootstrap sağlamlık çıktıları üretir.
-- Statik optimizasyon ile walk-forward sonuç arasındaki farkı `model_diagnostics.parquet` dosyasında ölçer.
-- Downside-risk için zaman sıralı ML tanısı, confusion matrix ve drift raporu üretir;
-  bu modül al-sat sinyali değildir.
-- Resmi, Türkçe, metodoloji ve sınırlılık açıklamalı PDF rapor ve bağımlılıksız
-  statik HTML rapor üretir.
+- Reads the canonical production configuration from `configs/base.yaml`.
+- Builds a multi-asset universe across ETFs, crypto, commodities, bonds and REITs.
+- Keeps `^VIX`, `^TNX`, `^IRX` and `DX-Y.NYB` out of portfolio weights; these are
+  context/risk signals, not investable portfolio assets.
+- Uses `^IRX` as the risk-free proxy when available and records fallback metadata
+  when provider data is unavailable.
+- Produces Equal Weight, Min Variance, Max Sharpe, HRP, Risk Parity, Inverse
+  Volatility and Min CVaR portfolios.
+- Does not remove an asset only because its historical return was low; exclusions
+  are based on data coverage and investability.
+- Shows portfolio composition through `portfolio_weights_matrix.csv` and
+  `portfolio_holdings_long.csv`.
+- Runs walk-forward backtests with transaction costs.
+- Adds a research-grounded champion-challenger layer that tests Equal Weight,
+  risk-controlled momentum, trend-following, asset-class rotation, risk-managed
+  Equal Weight, Signal-Aware HRP Lite and nested shrinkage challengers under the
+  same no-look-ahead walk-forward protocol.
+- Separates model leagues: broad default champion, annual-return challenger,
+  risk-adjusted champion, defensive/drawdown candidate, research candidate,
+  diagnostic-only model and rejected model.
+- Produces VaR/CVaR, drawdown, Calmar, Ulcer Index and diversification metrics.
+- Adds VaR exception testing, stylized stress scenarios, benchmark comparison,
+  transaction-cost sensitivity and moving-block bootstrap robustness outputs.
+- Keeps the ML downside-risk model as a diagnostic layer, not a trading signal.
+- Generates formal PDF and static HTML research reports.
 
-## Kurulum
+## Install
 
-```powershell
-python -m pip install -e ".[dev,notebook]"
-```
-
-Sadece üretim pipeline'ı için:
+Production pipeline only:
 
 ```powershell
 python -m pip install -e .
 ```
 
-## Çalıştırma
+Development, test, lint and pre-commit tools:
+
+```powershell
+python -m pip install -e ".[dev]"
+```
+
+Notebook dependencies if needed:
+
+```powershell
+python -m pip install -e ".[dev,notebook]"
+```
+
+## Public Import Surface
+
+The professional public namespace is `quantverse`. The older `project` namespace
+is preserved for backward compatibility.
+
+```python
+from quantverse.pipeline import PipelineConfig, run_full_pipeline
+from quantverse.risk.validation import var_exception_tests
+from quantverse.reporting.pdf_report import generate_pdf_report
+```
+
+## Run
 
 ```powershell
 python scripts/run_full_pipeline.py --config configs/base.yaml
 ```
 
-PDF üretmeden:
+Without regenerating the PDF:
 
 ```powershell
 python scripts/run_full_pipeline.py --config configs/base.yaml --skip-pdf
 ```
 
-HTML rapor üretim pipeline'ı ile otomatik yazılır:
-
-```text
-output/html/quantverse_report.html
-```
-
-Makefile olan ortamlarda:
+Makefile targets:
 
 ```bash
+make test
+make lint
+make format
 make smoke
 make report
 ```
 
-## Test
+## Validation
+
+Current full local validation gate:
 
 ```powershell
+python -m black --check src scripts tests
+python -m ruff check src scripts tests
 python -m pytest -q
 python -m compileall src scripts
+python scripts/run_full_pipeline.py --config configs/base.yaml
 ```
 
-## Ana Çıktılar
+Expected pytest result after the research architecture sprint:
+
+```text
+65 passed
+```
+
+## Main Outputs
 
 - `data/processed/run_metadata.json`
 - `data/processed/data_quality_report.csv`
 - `data/processed/portfolio_holdings_long.csv`
 - `data/processed/portfolio_weights_matrix.csv`
-- `data/processed/risk_metrics.parquet`
-- `data/processed/backtest_summary.parquet`
-- `data/processed/model_diagnostics.parquet`
 - `data/processed/var_exception_tests.csv`
 - `data/processed/stress_scenarios.csv`
 - `data/processed/benchmark_comparison.csv`
 - `data/processed/transaction_cost_sensitivity.csv`
 - `data/processed/statistical_robustness.csv`
+- `data/processed/equal_weight_diagnostic.csv`
+- `data/processed/challenger_backtest_summary.csv`
+- `data/processed/challenger_returns.csv`
+- `data/processed/challenger_weights.csv`
+- `data/processed/challenger_turnover.csv`
+- `data/processed/challenger_vs_equal_weight.csv`
+- `data/processed/challenger_subperiod_analysis.csv`
+- `data/processed/challenger_rolling_relative_performance.csv`
+- `data/processed/challenger_cost_robustness.csv`
+- `data/processed/challenger_bootstrap_vs_equal_weight.csv`
+- `data/processed/asset_class_momentum_metric_recompute_check.csv`
+- `data/processed/asset_class_momentum_weight_audit.csv`
+- `data/processed/champion_selection_summary.json`
+- `data/processed/research_alpha_leaderboard.csv`
+- `data/processed/research_alpha_returns.csv`
+- `data/processed/research_alpha_weights.csv`
+- `data/processed/research_alpha_turnover.csv`
+- `data/processed/research_alpha_vs_equal_weight.csv`
+- `data/processed/model_league_summary.csv`
+- `data/processed/model_league_summary.json`
+- `data/processed/model_promotion_gate.csv`
+- `data/processed/model_overfit_diagnostics.csv`
+- `data/processed/covariance_model_comparison.csv`
 - `data/processed/ml_downside_risk_metrics.csv`
 - `data/processed/ml_downside_confusion_matrix.csv`
 - `data/processed/ml_downside_drift_report.csv`
-- `reports/run_logs/latest_run.log`
 - `output/html/quantverse_report.html`
 - `output/pdf/quantverse_analysis_report.pdf`
 
-## Metodoloji İlkeleri
+Heavy generated artefacts are reproducible and should not be treated as source
+files. For clean-repo transfer, use:
 
-Statik optimizasyon sonucu tek başına karar kanıtı değildir. Karar okumasında
-walk-forward sonuç, drawdown, maliyet, risk metrikleri ve model tanı farkı önceliklidir.
+- `docs/audit/QUALITY_SPRINT_TRANSFER_MANIFEST.md`
+- `tools/migration/copy_quality_sprint_to_clean_repo.ps1`
 
-Black-Litterman ana üretim raporunda kullanılmaz; çünkü tarihli, kaynaklandırılmış
-ve güven düzeyi belirtilmiş yatırım görüşleri olmadan bilimsel kanıt üretmez.
+## Methodology Principles
 
-XGBoost ve LightGBM çekirdek bağımlılık değildir; üretim pipeline'ında doğrulanmış
-bir getiri tahmin sistemi olmadığı sürece projeyi olduğundan büyük göstermek doğru değildir.
+Static optimization is not treated as final decision evidence. Walk-forward
+results, drawdown, costs, risk metrics, benchmark comparison and diagnostic
+stability are more important than a single in-sample Sharpe number.
 
-## Proje Yapısı
+The return-seeking challenger layer separates "highest-CAGR research candidate"
+from "broad champion replacement." In the current evidence layer,
+Asset-Class Momentum Rotation has the highest OOS CAGR point estimate, but Equal
+Weight remains the benchmark and broad default champion because the challenger
+has higher drawdown, weaker subperiod consistency and bootstrap intervals that
+cross zero.
+
+The project is structured as benchmark + alpha challenger + risk engine +
+validation engine + governance. Risk-controlled momentum and trend models are
+treated as alpha challengers. HRP, Risk Parity, CVaR and shrinkage methods are
+treated primarily as robust risk-allocation engines. ML remains diagnostic or an
+overlay candidate, not a blind daily-return prediction machine.
+
+Black-Litterman is not used in the production report unless dated, sourced and
+confidence-scored views are available. XGBoost and LightGBM are not claimed as
+core production dependencies unless a validated forecasting use case exists.
+LSTM, Transformer, reinforcement-learning and LLM allocation agents are not
+implemented as production allocation engines because the current data and
+validation design do not justify them.
+
+## Project Structure
 
 ```text
-configs/base.yaml                 canonical üretim konfigürasyonu
-src/project/config.py             config yükleme ve validasyon
-src/project/pipeline.py           uçtan uca üretim pipeline'ı
-src/project/data_pipeline/        evren, veri indirme, temizleme
-src/project/optimization/         portföy optimizasyonları
-src/project/risk/                 VaR, CVaR, drawdown ve risk katkısı
-src/project/backtest/             walk-forward backtest
-src/project/ml/                   downside-risk tanı modeli
-src/project/reporting/            PDF rapor ve dashboard verisi
-docs/                             metodoloji, validasyon ve yönetişim
-tests/                            kritik invariant testleri
+configs/base.yaml                 canonical production configuration
+src/quantverse/                   public namespace wrapper
+src/project/config.py             config loading and validation
+src/project/pipeline.py           end-to-end production pipeline
+src/project/data_pipeline/        universe, fetch, clean and returns
+src/project/optimization/         portfolio optimizers
+src/project/risk/                 VaR, CVaR, drawdown and validation
+src/project/backtest/             walk-forward backtests
+src/project/ml/                   downside-risk diagnostic model
+src/project/research/             champion-challenger research layer
+src/project/reporting/            PDF/HTML reporting
+docs/                             methodology, research, audit, validation and governance
+tests/                            deterministic contract tests
+tools/migration/                  local-only clean-repo transfer helper
 ```
 
-## Dokümantasyon
+## Key Documentation
 
-- `docs/architecture.md`
-- `docs/data_dictionary.md`
-- `docs/methodology.md`
+- `docs/reproducibility.md`
+- `docs/testing_strategy.md`
+- `docs/audit/FINAL_SCORECARD.md`
+- `docs/audit/QUANTVERSE_AUDIT.md`
+- `docs/audit/EVIDENCE_MATRIX.md`
+- `docs/audit/QUALITY_SPRINT_TRANSFER_MANIFEST.md`
+- `docs/research/equal_weight_diagnostic.md`
+- `docs/research/model_selection_protocol.md`
+- `docs/research/annual_return_champion_review.md`
+- `docs/research/asset_class_momentum_forensic_audit.md`
+- `docs/research/research_grounded_quantverse_architecture.md`
+- `docs/research/literature_to_quantverse_implementation_matrix.md`
+- `docs/research/model_league_system.md`
+- `docs/research/risk_covariance_upgrade_plan.md`
+- `docs/research/ml_ai_quantverse_strategy.md`
+- `docs/research/validation_hardening_plan.md`
+- `docs/interview_defense_questions.md`
+- `docs/limitations.md`
 - `docs/model_governance.md`
-- `docs/validation/model_validation_checklist.md`
 - `docs/validation/market_risk_validation_report.md`
 - `docs/model_cards/downside_risk_model_card.md`
-- `docs/limitations.md`
 
-## Sınırlılıklar
+## Limitations
 
-Veri kaynağı public yfinance'tır. Kurumsal yatırım kararı için bağımsız veri
-sağlayıcı mutabakatı gerekir. Backtest geçmiş performansı ölçer, gelecek performansı
-garanti etmez. PDF ve tablolar karar destek çıktısıdır; kişisel yatırım tavsiyesi
-değildir.
+The data source is public yfinance. Institutional investment use requires
+independent vendor reconciliation. Backtests measure historical behavior and do
+not guarantee future performance. The ML layer is diagnostic and weak-signal; it
+is not an automated trading rule. The project is strong as research, GitHub/CV
+and interview evidence, but it is not a complete production trading platform.

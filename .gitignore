@@ -35,6 +35,8 @@ data/raw/
 data/processed/*.parquet
 data/processed/*.pkl
 data/processed/*.pickle
+data/processed/challenger_weights.csv
+data/processed/research_alpha_weights.csv
 notebooks/data/
 reports/
 output/pdf/*.pdf
@@ -48,3 +50,7 @@ tmp/
 Thumbs.db
 .vscode/
 .idea/
+
+# Keep project CLI runner
+!/scripts/
+!/scripts/run_full_pipeline.py

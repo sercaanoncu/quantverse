@@ -39,10 +39,27 @@ from project.regime import (
     HMMRegimeDetector,
     VolatilityRegimeDetector,
 )
+from project.research import ChallengerConfig, run_champion_challenger_research
 from project.risk import DrawdownAnalyzer, FactorRiskDecomposer, VaRCVaRCalculator
 from project.risk.validation import var_exception_tests
 
 logger = logging.getLogger(__name__)
+
+
+def _portable_path(value: Optional[str]) -> Optional[str]:
+    """Return a repository-relative path for metadata without leaking host paths."""
+    if not value:
+        return None
+
+    path = Path(value)
+    try:
+        resolved = path.resolve()
+        root = Path.cwd().resolve()
+        return resolved.relative_to(root).as_posix()
+    except (OSError, ValueError):
+        if path.is_absolute():
+            return path.name
+        return path.as_posix()
 
 
 @dataclass
@@ -197,13 +214,29 @@ def run_full_pipeline(config: Optional[PipelineConfig] = None) -> Dict:
     statistical_robustness = _write_statistical_robustness_artifacts(
         output_dir, backtest_returns, config, risk_free_rate
     )
+    challenger_research = run_champion_challenger_research(
+        output_dir=output_dir,
+        returns=returns,
+        class_map=class_map,
+        config=ChallengerConfig(
+            train_window=config.train_window,
+            rebal_frequency=config.rebal_frequency,
+            max_weight=config.max_position_weight,
+            transaction_cost_proportional=config.transaction_cost_proportional,
+            transaction_cost_spread=config.transaction_cost_spread,
+            risk_free_rate=risk_free_rate,
+            bootstrap_samples=config.bootstrap_samples,
+            bootstrap_block_size=config.bootstrap_block_size,
+            random_seed=config.random_seed,
+        ),
+    )
     regimes = _write_regime_artifacts(
         output_dir, returns, class_map, config, risk_free_rate
     )
     ml_summary = _write_ml_artifacts(output_dir, returns, market_signals, config)
 
     metadata = {
-        "config_path": str(config.config_path) if config.config_path else None,
+        "config_path": _portable_path(config.config_path),
         "prices_shape": list(cleaned.shape),
         "returns_shape": list(returns.shape),
         "date_range": [str(returns.index[0].date()), str(returns.index[-1].date())],
@@ -238,6 +271,11 @@ def run_full_pipeline(config: Optional[PipelineConfig] = None) -> Dict:
         "benchmark_comparison_rows": int(len(benchmark_comparison)),
         "transaction_cost_sensitivity_rows": int(len(transaction_cost_sensitivity)),
         "statistical_robustness_rows": int(len(statistical_robustness)),
+        "challenger_rows": int(len(challenger_research["summary"])),
+        "research_alpha_rows": int(len(challenger_research["research_alpha"])),
+        "model_league_rows": int(len(challenger_research["model_league"])),
+        "promotion_gate_rows": int(len(challenger_research["promotion_gate"])),
+        "annual_return_champion": challenger_research["champion"],
         "regime_columns": list(regimes.get("regime_labels", pd.DataFrame()).columns),
         "data_quality_rows": int(len(data_quality)),
         "ml_downside_risk": ml_summary,
@@ -474,7 +512,59 @@ def _build_covariance_artifacts(
         pickle.dump(cov_results, f)
     lw_daily = cov_results["Ledoit-Wolf"]["covariance"]
     lw_daily.to_parquet(output_dir / "covariance_lw.parquet")
+    _write_covariance_model_comparison(output_dir, cov_results)
     return lw_daily * 252
+
+
+def _write_covariance_model_comparison(
+    output_dir: Path,
+    cov_results: Dict[str, Dict],
+) -> pd.DataFrame:
+    rows = []
+    for name, result in cov_results.items():
+        cov = result["covariance"]
+        corr = result["correlation"]
+        cov_values = cov.to_numpy(dtype=float)
+        corr_values = corr.to_numpy(dtype=float)
+        non_diag_corr = corr_values[~np.eye(corr_values.shape[0], dtype=bool)]
+        condition_number = float(np.linalg.cond(cov_values))
+        if not np.isfinite(condition_number):
+            condition_number = float("nan")
+        rows.append(
+            {
+                "Method": name,
+                "Annualized_Average_Variance": float(np.diag(cov_values).mean() * 252),
+                "Mean_Correlation": float(np.nanmean(non_diag_corr)),
+                "Condition_Number": condition_number,
+                "Shrinkage": result.get("shrinkage", np.nan),
+                "Included_In_Current_Risk_Engine": bool(name == "Ledoit-Wolf"),
+                "Current_Use": (
+                    "Primary covariance input for optimizers."
+                    if name == "Ledoit-Wolf"
+                    else "Research comparison output; not yet a promoted default."
+                ),
+                "Notes": _covariance_method_note(name),
+            }
+        )
+    comparison = pd.DataFrame(rows).sort_values("Method")
+    comparison.to_csv(output_dir / "covariance_model_comparison.csv", index=False)
+    return comparison
+
+
+def _covariance_method_note(name: str) -> str:
+    if name == "Sample":
+        return "Baseline estimator; fragile when the asset count is high relative to observations."
+    if name == "Ledoit-Wolf":
+        return "Linear shrinkage estimator retained as the current robust default."
+    if name.startswith("EWMA"):
+        return "Dynamic estimator that gives more weight to recent observations; useful as a roadmap candidate."
+    if name == "OAS":
+        return "Shrinkage estimator included for covariance quality comparison."
+    if name == "Denoised (RMT)":
+        return "Random-matrix denoising candidate; not promoted without additional validation."
+    if name == "Gerber":
+        return "Robust co-movement statistic candidate; not promoted without further checks."
+    return "Covariance research candidate."
 
 
 def _build_expected_return_artifacts(
@@ -791,7 +881,7 @@ def _write_diagnostic_artifacts(
                 "Static optimization results are training-sample diagnostics, not "
                 "standalone investment conclusions."
             ),
-            "config_path": config.config_path,
+            "config_path": _portable_path(config.config_path),
         }
         (output_dir / "decision_summary.json").write_text(
             json.dumps(summary, indent=2),
@@ -1473,6 +1563,42 @@ def _write_static_html_report(output_dir: Path, html_path: Path) -> None:
         (
             "Statistical Robustness",
             _read_table(output_dir / "statistical_robustness.csv"),
+        ),
+        (
+            "Equal Weight Diagnostic",
+            _read_table(output_dir / "equal_weight_diagnostic.csv").head(20),
+        ),
+        (
+            "Return-Seeking Challenger Models",
+            _read_table(output_dir / "challenger_backtest_summary.csv"),
+        ),
+        (
+            "Research Alpha Leaderboard",
+            _read_table(output_dir / "research_alpha_leaderboard.csv"),
+        ),
+        (
+            "Model League Summary",
+            _read_table(output_dir / "model_league_summary.csv"),
+        ),
+        (
+            "Model Promotion Gate",
+            _read_table(output_dir / "model_promotion_gate.csv"),
+        ),
+        (
+            "Model Overfit Diagnostics",
+            _read_table(output_dir / "model_overfit_diagnostics.csv"),
+        ),
+        (
+            "Covariance Model Comparison",
+            _read_table(output_dir / "covariance_model_comparison.csv"),
+        ),
+        (
+            "Challenger vs Equal Weight",
+            _read_table(output_dir / "challenger_vs_equal_weight.csv"),
+        ),
+        (
+            "Annual Return Champion Review",
+            _read_json_table(output_dir / "champion_selection_summary.json"),
         ),
         ("ML Diagnostic", _read_table(output_dir / "ml_downside_risk_metrics.csv")),
         (

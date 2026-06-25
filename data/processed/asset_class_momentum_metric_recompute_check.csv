@@ -1,0 +1,8 @@
+Strategy,Metric,Summary_Value,Recomputed_Value,Absolute_Diff,Matches,Tolerance,Source,Conclusion
+Asset-Class Momentum Rotation,CAGR,0.3527069208679259,0.3527069208679259,0.0,True,1e-10,challenger_returns.csv recomputed with PerformanceMetrics,Matches saved summary.
+Asset-Class Momentum Rotation,Annual_Return,0.3527069208679259,0.3527069208679259,0.0,True,1e-10,challenger_returns.csv recomputed with PerformanceMetrics,Matches saved summary.
+Asset-Class Momentum Rotation,Volatility,0.3383403206015461,0.3383403206015461,0.0,True,1e-10,challenger_returns.csv recomputed with PerformanceMetrics,Matches saved summary.
+Asset-Class Momentum Rotation,Sharpe,0.95373824448172,0.95373824448172,0.0,True,1e-10,challenger_returns.csv recomputed with PerformanceMetrics,Matches saved summary.
+Asset-Class Momentum Rotation,Sortino,1.2722065568019254,1.2722065568019254,0.0,True,1e-10,challenger_returns.csv recomputed with PerformanceMetrics,Matches saved summary.
+Asset-Class Momentum Rotation,Calmar,0.9292924585610223,0.9292924585610223,0.0,True,1e-10,challenger_returns.csv recomputed with PerformanceMetrics,Matches saved summary.
+Asset-Class Momentum Rotation,Max_Drawdown,-0.3795435092781023,-0.3795435092781023,0.0,True,1e-10,challenger_returns.csv recomputed with PerformanceMetrics,Matches saved summary.

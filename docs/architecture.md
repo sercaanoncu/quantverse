@@ -14,7 +14,9 @@ biçimde raporlar.
 
 1. `configs/base.yaml` üretim için tek konfigürasyon kaynağıdır.
 2. `scripts/run_full_pipeline.py` config'i okur, log dosyasını başlatır ve
-   `project.pipeline.run_full_pipeline` fonksiyonunu çalıştırır.
+   public namespace olarak `quantverse.pipeline.run_full_pipeline` fonksiyonuna
+   denk gelen üretim pipeline'ını çalıştırır. Eski `project.*` namespace'i backward
+   compatibility için korunur.
 3. `data_pipeline` modülü yatırım yapılabilir enstrümanları piyasa sinyallerinden
    ayırır, fiyatları indirir, temizler ve iş günü getiri matrisini üretir.
 4. `covariance`, `optimization`, `risk`, `backtest`, `regime` ve `ml` modülleri
