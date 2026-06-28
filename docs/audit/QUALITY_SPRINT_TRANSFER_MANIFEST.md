@@ -152,7 +152,7 @@ python scripts/run_full_pipeline.py --config configs/base.yaml
   unchanged.
 - `python -m ruff check src scripts tests`: exit code 0; `All checks passed!`.
 - `python -m pytest -q`: exit code 0; latest local validation result is
-  `65 passed`.
+  `71 passed`.
 - `python -m compileall src scripts`: exit code 0.
 - `python scripts/run_full_pipeline.py --config configs/base.yaml`: exit code 0;
   refreshed `data/processed/`, `reports/`, `output/html/` and `output/pdf/`
