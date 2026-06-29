@@ -18,3 +18,6 @@ python scripts/run_global_quant_research.py --config configs/global_quant_resear
 If sourced universe files or returns are missing, scripts exit with status 0 and
 write an explicit status message. This prevents missing research inputs from
 being mistaken for model evidence.
+
+If the sourced global equity universe is missing, any proxy-only smoke output is
+not a promoted global master portfolio.

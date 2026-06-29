@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import json
 
 import numpy as np
 import pandas as pd
@@ -128,3 +129,117 @@ def test_orchestrator_exits_zero_when_inputs_are_missing(tmp_path):
     )
 
     assert result.returncode == 0
+
+
+def test_orchestrator_blocks_promotion_without_sourced_equity_universe(tmp_path):
+    output_dir = tmp_path / "processed"
+    current_config = tmp_path / "current_universe.yaml"
+    returns_config = tmp_path / "returns.yaml"
+    master_config = tmp_path / "master.yaml"
+    projection_config = tmp_path / "projection.yaml"
+    orchestrator_config = tmp_path / "global_quant.yaml"
+    current_universe = tmp_path / "current_global_equity_universe.csv"
+    current_config.write_text(
+        "\n".join(
+            [
+                "mode: csv",
+                "source_files:",
+                f"  global_equity_us: {(tmp_path / 'missing.csv').as_posix()}",
+                f"output_universe_path: {current_universe.as_posix()}",
+                f"summary_path: {(tmp_path / 'summary.csv').as_posix()}",
+                f"missing_market_caps_path: {(tmp_path / 'missing_caps.csv').as_posix()}",
+                f"bias_warnings_path: {(tmp_path / 'bias.csv').as_posix()}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    returns_config.write_text(
+        f"output_dir: {output_dir.as_posix()}\n", encoding="utf-8"
+    )
+    master_config.write_text(f"output_dir: {output_dir.as_posix()}\n", encoding="utf-8")
+    projection_config.write_text(
+        f"output_dir: {output_dir.as_posix()}\n",
+        encoding="utf-8",
+    )
+    orchestrator_config.write_text(
+        "\n".join(
+            [
+                f"current_universe_config: {current_config.as_posix()}",
+                f"returns_matrix_config: {returns_config.as_posix()}",
+                f"master_portfolio_config: {master_config.as_posix()}",
+                f"projection_config: {projection_config.as_posix()}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_global_quant_research.py",
+            "--config",
+            str(orchestrator_config),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    decision = json.loads(
+        (output_dir / "global_master_decision_summary.json").read_text(encoding="utf-8")
+    )
+    assert result.returncode == 0
+    assert "sourced global equity universe is missing" in result.stdout
+    assert "promoted" not in {
+        line.strip().lower() for line in result.stdout.splitlines()
+    }
+    assert decision["status"] == "insufficient_global_equity_universe"
+    assert decision["promotion_decision"] == "insufficient_inputs"
+
+
+def test_master_runner_blocks_proxy_only_promotion(tmp_path):
+    output_dir = tmp_path / "processed"
+    returns_path = tmp_path / "returns.csv"
+    proxy_universe = tmp_path / "proxy_universe.csv"
+    config = tmp_path / "master.yaml"
+    returns = _returns(n_assets=2).rename(columns={"AST0": "GLD", "AST1": "SHY"})
+    returns.to_csv(returns_path, index_label="Date")
+    proxy_metadata = _metadata(n_assets=2)
+    proxy_metadata["ticker"] = ["GLD", "SHY"]
+    proxy_metadata["sleeve"] = ["commodity_real_assets", "defensive_bonds_cash"]
+    proxy_metadata.to_csv(proxy_universe, index=False)
+    config.write_text(
+        "\n".join(
+            [
+                f"returns_path: {returns_path.as_posix()}",
+                "universe_paths:",
+                f"  - {(tmp_path / 'missing_equity.csv').as_posix()}",
+                f"  - {proxy_universe.as_posix()}",
+                f"output_dir: {output_dir.as_posix()}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_global_master_portfolio.py",
+            "--config",
+            str(config),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    decision = json.loads(
+        (output_dir / "global_master_decision_summary.json").read_text(encoding="utf-8")
+    )
+    gate = pd.read_csv(output_dir / "global_master_promotion_gate.csv")
+    assert result.returncode == 0
+    assert "promoted" not in {
+        line.strip().lower() for line in result.stdout.splitlines()
+    }
+    assert decision["promotion_decision"] == "insufficient_inputs"
+    assert gate["Promotion_Decision"].iloc[0] == "insufficient_inputs"
