@@ -132,7 +132,7 @@ python scripts/run_full_pipeline.py --config configs/base.yaml
 Expected pytest result after the research architecture sprint:
 
 ```text
-71 passed
+83 passed
 ```
 
 ## Main Outputs
@@ -207,6 +207,28 @@ LSTM, Transformer, reinforcement-learning and LLM allocation agents are not
 implemented as production allocation engines because the current data and
 validation design do not justify them.
 
+## Global Stock Selection Roadmap
+
+QuantVerse now includes the first architecture layer for global
+security-selection research. The existing ETF and multi-asset pipeline remains
+intact. ETFs continue to serve as benchmarks and macro proxies; they are not
+replaced by fabricated stock lists.
+
+The global stock-selection engine will not invent top-100 constituents or market
+capitalization ranks. Real analysis requires sourced universe files with
+tickers, market caps, ranks, dates and providers, plus a returns matrix for
+those assets.
+
+Offline entry point:
+
+```powershell
+python scripts/run_global_stock_selection.py --config configs/global_stock_selection.yaml
+```
+
+If only the template universe is present, the command exits successfully and
+explains that a populated sourced universe is required before stock-selection
+research can run.
+
 ## Project Structure
 
 ```text
@@ -241,6 +263,9 @@ tools/migration/                  local-only clean-repo transfer helper
 - `docs/research/research_grounded_quantverse_architecture.md`
 - `docs/research/literature_to_quantverse_implementation_matrix.md`
 - `docs/research/model_league_system.md`
+- `docs/research/global_stock_selection_engine.md`
+- `docs/research/random_portfolio_benchmarking.md`
+- `docs/research/global_security_selection_limitations.md`
 - `docs/research/risk_covariance_upgrade_plan.md`
 - `docs/research/ml_ai_quantverse_strategy.md`
 - `docs/research/validation_hardening_plan.md`
