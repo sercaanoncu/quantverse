@@ -137,7 +137,7 @@ python scripts/run_full_pipeline.py --config configs/base.yaml
 Expected pytest result after the global quant input gate sprint:
 
 ```text
-100 passed
+102 passed
 ```
 
 ## Main Outputs
