@@ -1,0 +1,15 @@
+column,required,description
+ticker,yes,Exchange ticker exactly as used by the selected data provider
+name,yes,Issuer or asset name
+exchange,yes,Listing venue or exchange
+country,yes,Listing country
+currency,yes,ISO-style three-letter trading currency
+source,yes,Human-readable source name
+source_url,conditional,Required unless notes explicitly contain manual_review_required
+as_of_date,yes,Source observation date in YYYY-MM-DD format
+data_provider,yes,Provider used for the row or planned market-data fetch
+market_cap_usd,no,Current market capitalization in USD if sourced
+market_cap_rank,no,Current rank if sourced
+sector,no,Sourced sector if available
+industry,no,Sourced industry if available
+notes,no,Use manual_review_required when source_url is temporarily unavailable

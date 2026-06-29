@@ -57,7 +57,7 @@ python scripts/run_full_pipeline.py --config configs/base.yaml
 Latest validated pytest result:
 
 ```text
-94 passed
+100 passed
 ```
 
 If deterministic tests are added or removed later, update README and

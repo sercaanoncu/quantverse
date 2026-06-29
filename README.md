@@ -109,6 +109,11 @@ make report
 See `docs/product_user_guide.md` for installation, local commands, output
 locations, report paths, interpretation notes and troubleshooting.
 
+## Codex Context Pack
+
+Future Codex runs should start from `.codex/CONTEXT.md` and the validation
+protocol in `.codex/VALIDATION.md`.
+
 ## Project Healthcheck
 
 Use `python scripts/quantverse_healthcheck.py` for a fast local readiness check.
@@ -129,10 +134,10 @@ python -m compileall src scripts
 python scripts/run_full_pipeline.py --config configs/base.yaml
 ```
 
-Expected pytest result after the global master portfolio projection sprint:
+Expected pytest result after the global quant input gate sprint:
 
 ```text
-94 passed
+100 passed
 ```
 
 ## Main Outputs
