@@ -8,8 +8,8 @@ Date: 2026-06-25
 - Operating system: Windows
 - Main configuration: `configs/base.yaml`
 - Production command: `python scripts/run_full_pipeline.py --config configs/base.yaml`
-- Working-folder note: this sprint is local-only in the old folder with invalid
-  Git metadata. Git is not used as the source of truth here.
+- Working-folder note: this repository is the clean GitHub clone. Git branch
+  and commit state should be checked in this folder before release work.
 
 ## Installation
 
@@ -44,7 +44,7 @@ python scripts/run_full_pipeline.py --config configs/base.yaml
 Latest validated pytest result:
 
 ```text
-65 passed
+71 passed
 ```
 
 This file should be updated whenever deterministic tests are added or removed.
@@ -96,5 +96,5 @@ validation engine and governance artifacts. The most important review files are:
 - Tested on Windows PowerShell.
 - Makefile targets can be used where GNU Make is available.
 - PDF generation uses `reportlab`; PDF QA can use `pdfplumber` and Poppler.
-- Git commit and branch validation must be done only in the valid clean Git
-  repository after transfer.
+- Git commit and branch validation must be done in this clean repository before
+  release work.

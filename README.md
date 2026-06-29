@@ -70,6 +70,20 @@ from quantverse.reporting.pdf_report import generate_pdf_report
 
 ## Run
 
+Quick local healthcheck:
+
+```powershell
+python scripts/quantverse_healthcheck.py
+```
+
+Summarize the latest generated local outputs:
+
+```powershell
+python scripts/quantverse_latest_run_summary.py
+```
+
+Run the full project:
+
 ```powershell
 python scripts/run_full_pipeline.py --config configs/base.yaml
 ```
@@ -90,6 +104,19 @@ make smoke
 make report
 ```
 
+## Product User Guide
+
+See `docs/product_user_guide.md` for installation, local commands, output
+locations, report paths, interpretation notes and troubleshooting.
+
+## Project Healthcheck
+
+Use `python scripts/quantverse_healthcheck.py` for a fast local readiness check.
+It does not download data, run pytest or execute the full pipeline.
+
+Use `python scripts/quantverse_latest_run_summary.py` to summarize already
+generated local outputs without downloading data or rerunning the pipeline.
+
 ## Validation
 
 Current full local validation gate:
@@ -105,7 +132,7 @@ python scripts/run_full_pipeline.py --config configs/base.yaml
 Expected pytest result after the research architecture sprint:
 
 ```text
-65 passed
+71 passed
 ```
 
 ## Main Outputs
@@ -217,7 +244,7 @@ tools/migration/                  local-only clean-repo transfer helper
 - `docs/research/risk_covariance_upgrade_plan.md`
 - `docs/research/ml_ai_quantverse_strategy.md`
 - `docs/research/validation_hardening_plan.md`
-- `docs/interview_defense_questions.md`
+- `docs/product_user_guide.md`
 - `docs/limitations.md`
 - `docs/model_governance.md`
 - `docs/validation/market_risk_validation_report.md`
@@ -228,5 +255,6 @@ tools/migration/                  local-only clean-repo transfer helper
 The data source is public yfinance. Institutional investment use requires
 independent vendor reconciliation. Backtests measure historical behavior and do
 not guarantee future performance. The ML layer is diagnostic and weak-signal; it
-is not an automated trading rule. The project is strong as research, GitHub/CV
-and interview evidence, but it is not a complete production trading platform.
+is not an automated trading rule. The project is designed as a public research
+and portfolio analytics project, but it is not a complete production trading
+platform.
