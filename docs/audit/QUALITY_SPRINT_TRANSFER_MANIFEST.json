@@ -135,7 +135,7 @@
   "expected_successful_outputs": {
     "black": "exit code 0; files would be left unchanged",
     "ruff": "exit code 0; All checks passed!",
-    "pytest": "exit code 0; 71 passed",
+    "pytest": "exit code 0; 83 passed",
     "compileall": "exit code 0",
     "pipeline": "exit code 0; refreshed data/processed, reports, output/html and output/pdf artefacts"
   },
