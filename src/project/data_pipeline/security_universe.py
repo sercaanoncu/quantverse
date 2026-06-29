@@ -210,9 +210,12 @@ def detect_stablecoin_like_assets(df: pd.DataFrame) -> pd.DataFrame:
     ).str.upper()
     token_match = text.apply(
         lambda value: any(token in value for token in STABLECOIN_TOKENS)
-    )
-    stable_word = text.str.contains("STABLECOIN|STABLE COIN", regex=True)
-    mask = df["sleeve"].eq("crypto") & (token_match | stable_word)
+    ).astype(bool)
+    stable_word = text.str.contains(
+        "STABLECOIN|STABLE COIN", regex=True, na=False
+    ).astype(bool)
+    crypto_mask = df["sleeve"].astype(str).eq("crypto")
+    mask = crypto_mask & (token_match | stable_word)
     return df.loc[mask].copy()
 
 

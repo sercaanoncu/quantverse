@@ -65,9 +65,10 @@ def cluster_assets_by_correlation(
     max_clusters = max(1, min(int(max_clusters), n_assets))
 
     corr = clean.corr().replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    np.fill_diagonal(corr.values, 1.0)
-    distance = (1.0 - corr).clip(lower=0.0, upper=2.0)
-    condensed = squareform(distance.values, checks=False)
+    corr_array = corr.to_numpy(dtype=float, copy=True)
+    np.fill_diagonal(corr_array, 1.0)
+    distance_array = np.clip(1.0 - corr_array, 0.0, 2.0)
+    condensed = squareform(distance_array, checks=False)
     labels = fcluster(linkage(condensed, method="average"), max_clusters, "maxclust")
     return pd.Series(labels.astype(int), index=tickers, name="Cluster")
 
