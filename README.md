@@ -129,10 +129,10 @@ python -m compileall src scripts
 python scripts/run_full_pipeline.py --config configs/base.yaml
 ```
 
-Expected pytest result after the research architecture sprint:
+Expected pytest result after the global master portfolio projection sprint:
 
 ```text
-83 passed
+94 passed
 ```
 
 ## Main Outputs
@@ -228,6 +228,27 @@ python scripts/run_global_stock_selection.py --config configs/global_stock_selec
 If only the template universe is present, the command exits successfully and
 explains that a populated sourced universe is required before stock-selection
 research can run.
+
+## Global Quant Research Pipeline
+
+QuantVerse now includes a first-pass global quantitative research pipeline for
+current universe construction, global returns matrices, master portfolio
+candidate comparison and 1/3/6/12 month projection outputs.
+
+Current top-100 style universe mode is forward-looking research only.
+Institutional-grade historical claims require point-in-time constituent,
+market-cap, FX, corporate-action and delisting data. The system must be allowed
+to return `not promoted`; Equal Weight and random portfolios remain hard
+benchmarks. This project is not investment advice.
+
+Offline orchestration entry point:
+
+```powershell
+python scripts/run_global_quant_research.py --config configs/global_quant_research.yaml
+```
+
+If sourced universe or returns inputs are missing, the command exits
+successfully with an explicit status instead of fabricating data.
 
 ## Project Structure
 

@@ -1,0 +1,4 @@
+current_universe_config: configs/current_global_universe.yaml
+returns_matrix_config: configs/global_returns_matrix.yaml
+master_portfolio_config: configs/global_master_portfolio.yaml
+projection_config: configs/global_portfolio_projection.yaml
