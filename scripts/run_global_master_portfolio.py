@@ -36,6 +36,12 @@ def main() -> int:
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     output_dir = Path(config.get("output_dir", "data/processed"))
     output_dir.mkdir(parents=True, exist_ok=True)
+    if not _has_investable_global_equity(config.get("universe_paths", []) or []):
+        _write_insufficient_inputs(output_dir)
+        print(
+            "Global master portfolio not promoted: sourced global equity universe is missing."
+        )
+        return 0
     returns_path = Path(config.get("returns_path", ""))
     if not returns_path.exists():
         _write_status(output_dir, "missing_returns", "Global returns CSV is required.")
@@ -78,6 +84,64 @@ def _write_status(output_dir: Path, status: str, message: str) -> None:
         json.dumps({"status": status, "message": message}, indent=2),
         encoding="utf-8",
     )
+
+
+def _has_investable_global_equity(universe_paths: list[str]) -> bool:
+    equity_frames = []
+    for raw_path in universe_paths:
+        path = Path(raw_path)
+        if not path.exists():
+            continue
+        try:
+            frame = pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            continue
+        if "sleeve" in frame:
+            equity_frames.append(
+                frame.loc[frame["sleeve"].astype(str).str.startswith("global_equity")]
+            )
+    if not equity_frames:
+        return False
+    equity = pd.concat(equity_frames, ignore_index=True)
+    if equity.empty:
+        return False
+    flags = _boolean_series(equity, "include") & _boolean_series(equity, "investable")
+    if "benchmark_only" in equity:
+        flags &= ~_boolean_series(equity, "benchmark_only")
+    if "signal_only" in equity:
+        flags &= ~_boolean_series(equity, "signal_only")
+    return bool(flags.any())
+
+
+def _boolean_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame:
+        return pd.Series(False, index=frame.index)
+    return frame[column].map(
+        lambda value: str(value).strip().lower() in {"1", "true", "yes", "y"}
+    )
+
+
+def _write_insufficient_inputs(output_dir: Path) -> None:
+    decision = {
+        "status": "insufficient_global_equity_universe",
+        "run_type": "insufficient_inputs",
+        "promotion_decision": "insufficient_inputs",
+        "reason": "Sourced current global equity universe is missing or has zero investable equity rows.",
+    }
+    (output_dir / "global_master_decision_summary.json").write_text(
+        json.dumps(decision, indent=2),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {
+                "Promotion_Decision": "insufficient_inputs",
+                "Promoted": False,
+                "Run_Type": "insufficient_inputs",
+                "Reason": decision["reason"],
+            }
+        ]
+    ).to_csv(output_dir / "global_master_promotion_gate.csv", index=False)
 
 
 if __name__ == "__main__":

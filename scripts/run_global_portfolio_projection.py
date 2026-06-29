@@ -39,6 +39,15 @@ def main() -> int:
     output_dir = Path(config.get("output_dir", "data/processed"))
     output_dir.mkdir(parents=True, exist_ok=True)
     returns_path = Path(config.get("returns_path", ""))
+    weights_path = Path(config.get("weights_path", ""))
+    if not _valid_candidate_weights_available(weights_path, output_dir):
+        _write_status(
+            output_dir,
+            "insufficient_inputs",
+            "Valid global master candidate weights are required before projection.",
+        )
+        print("Projection skipped: valid global master candidate weights are missing.")
+        return 0
     if not returns_path.exists():
         _write_status(output_dir, "missing_returns", "Returns CSV is required.")
         print("Missing returns matrix; projection not run.")
@@ -55,9 +64,7 @@ def main() -> int:
         output_dir / "forecast_model_league.csv",
         index=False,
     )
-    weights = _load_or_equal_weights(
-        Path(config.get("weights_path", "")), returns.columns
-    )
+    weights = _load_weights(weights_path, returns.columns)
     projection = monte_carlo_projection(
         returns,
         weights,
@@ -86,19 +93,29 @@ def _load_returns(path: Path) -> pd.DataFrame:
     return raw.apply(pd.to_numeric, errors="coerce").dropna(axis=1, how="all")
 
 
-def _load_or_equal_weights(path: Path, tickers: pd.Index) -> pd.Series:
-    if path.exists():
-        raw = pd.read_csv(path)
-        if {"Ticker", "Weight"}.issubset(raw.columns):
-            if "Model" in raw.columns:
-                raw = raw.loc[raw["Model"].eq(raw["Model"].iloc[0])]
-            weights = pd.Series(
-                raw["Weight"].to_numpy(dtype=float), index=raw["Ticker"]
-            )
-            weights = weights.reindex(tickers).dropna()
-            if not weights.empty and weights.sum() > 0:
-                return weights / weights.sum()
-    return pd.Series(1.0 / len(tickers), index=tickers)
+def _valid_candidate_weights_available(path: Path, output_dir: Path) -> bool:
+    decision_path = output_dir / "global_master_decision_summary.json"
+    if decision_path.exists():
+        decision = json.loads(decision_path.read_text(encoding="utf-8"))
+        if decision.get("promotion_decision") == "insufficient_inputs":
+            return False
+        if decision.get("run_type") == "insufficient_inputs":
+            return False
+    if not path.exists():
+        return False
+    raw = pd.read_csv(path)
+    return {"Ticker", "Weight"}.issubset(raw.columns) and not raw.empty
+
+
+def _load_weights(path: Path, tickers: pd.Index) -> pd.Series:
+    raw = pd.read_csv(path)
+    if "Model" in raw.columns:
+        raw = raw.loc[raw["Model"].eq(raw["Model"].iloc[0])]
+    weights = pd.Series(raw["Weight"].to_numpy(dtype=float), index=raw["Ticker"])
+    weights = weights.reindex(tickers).dropna()
+    if weights.empty or weights.sum() <= 0:
+        raise ValueError("Candidate weights do not overlap returns columns.")
+    return weights / weights.sum()
 
 
 def _write_status(output_dir: Path, status: str, message: str) -> None:
