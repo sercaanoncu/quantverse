@@ -1,0 +1,38 @@
+source_dir: data/universe/sources
+output_dir: data/processed
+as_of_date:
+request_timeout: 30
+max_rows_per_sleeve: 100
+user_agent: "Mozilla/5.0 QuantVerse research audit"
+sources:
+  nasdaq:
+    enabled: true
+    url: "https://en.wikipedia.org/wiki/Nasdaq-100"
+  nyse:
+    enabled: true
+    url: "https://en.wikipedia.org/wiki/S%26P_100"
+  europe:
+    enabled: true
+    url: "https://en.wikipedia.org/wiki/EURO_STOXX_50"
+  germany:
+    enabled: true
+    url: "https://en.wikipedia.org/wiki/DAX"
+  uk:
+    enabled: true
+    url: "https://en.wikipedia.org/wiki/FTSE_100_Index"
+  turkey:
+    enabled: true
+    url: "https://www.kap.org.tr/en/Endeksler"
+  japan:
+    enabled: true
+    url: "https://topforeignstocks.com/indices/the-components-of-the-nikkei-225-index/"
+  china_hk:
+    enabled: true
+    url: "https://en.wikipedia.org/wiki/Hang_Seng_Index"
+  crypto:
+    enabled: true
+    url: "https://api.coingecko.com/api/v3/coins/markets"
+  commodities:
+    enabled: true
+  bonds_bills:
+    enabled: true

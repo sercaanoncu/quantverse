@@ -1,11 +1,11 @@
 equity_universe_path: data/universe/current_global_equity_universe.csv
-additional_universe_paths:
-  - data/universe/crypto_universe_template.csv
-  - data/universe/commodity_real_assets_universe.csv
-  - data/universe/defensive_assets_universe.csv
+additional_universe_paths: []
 local_price_csv:
 output_dir: data/processed
 base_currency: USD
 min_price_observations: 20
-start_date:
+start_date: "2021-01-01"
 end_date:
+return_frequency: daily
+portfolio_return_type: simple
+statistical_return_type: log

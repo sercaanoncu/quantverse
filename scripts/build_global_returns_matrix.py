@@ -11,6 +11,7 @@ import pandas as pd
 import yaml
 
 from project.data_pipeline.global_returns import (
+    build_log_returns_matrix,
     build_returns_matrix,
     coverage_report,
     fetch_prices_with_yfinance,
@@ -18,6 +19,7 @@ from project.data_pipeline.global_returns import (
     fx_normalization_report,
     load_global_universe,
     load_price_matrix,
+    return_outlier_report,
 )
 from project.data_pipeline.security_universe import filter_included_investable_assets
 
@@ -82,18 +84,33 @@ def main() -> int:
         min_observations=int(config.get("min_price_observations", 20)),
     )
     covered_prices = filter_prices_by_coverage(prices, report)
-    returns = build_returns_matrix(covered_prices).dropna(how="all")
+    simple_returns = build_returns_matrix(covered_prices).dropna(how="all")
+    log_returns = build_log_returns_matrix(covered_prices).dropna(how="all")
     prices.to_csv(output_dir / "global_security_prices.csv", index_label="Date")
-    returns.to_csv(output_dir / "global_security_returns.csv", index_label="Date")
+    simple_returns.to_csv(
+        output_dir / "global_security_simple_returns.csv", index_label="Date"
+    )
+    log_returns.to_csv(
+        output_dir / "global_security_log_returns.csv", index_label="Date"
+    )
+    simple_returns.to_csv(
+        output_dir / "global_security_returns.csv", index_label="Date"
+    )
     report.to_csv(output_dir / "global_returns_coverage_report.csv", index=False)
-    fx_normalization_report(
+    fx_report = fx_normalization_report(
         universe,
         base_currency=str(config.get("base_currency", "USD")),
-    ).to_csv(output_dir / "global_fx_normalization_report.csv", index=False)
-    _write_status(
-        output_dir, "completed", f"Built returns for {returns.shape[1]} assets."
     )
-    print(f"Global returns matrix assets: {returns.shape[1]}")
+    fx_report.to_csv(output_dir / "global_fx_normalization_report.csv", index=False)
+    return_outlier_report(simple_returns).to_csv(
+        output_dir / "global_return_outlier_report.csv", index=False
+    )
+    _write_status(
+        output_dir,
+        "completed",
+        f"Built simple/log returns for {simple_returns.shape[1]} assets.",
+    )
+    print(f"Global returns matrix assets: {simple_returns.shape[1]}")
     return 0
 
 

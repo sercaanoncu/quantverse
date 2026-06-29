@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 from project.data_pipeline.security_universe import (
@@ -57,6 +58,14 @@ def build_returns_matrix(prices: pd.DataFrame) -> pd.DataFrame:
     return clean.pct_change(fill_method=None).replace(
         [float("inf"), -float("inf")], pd.NA
     )
+
+
+def build_log_returns_matrix(prices: pd.DataFrame) -> pd.DataFrame:
+    """Convert adjusted-close prices into log returns for diagnostics."""
+    clean = prices.apply(pd.to_numeric, errors="coerce").sort_index()
+    clean = clean.loc[:, clean.notna().any()]
+    log_prices = np.log(clean.where(clean > 0))
+    return log_prices.diff().replace([float("inf"), -float("inf")], pd.NA)
 
 
 def coverage_report(
@@ -131,6 +140,39 @@ def fx_normalization_report(
     return pd.DataFrame(rows)
 
 
+def return_outlier_report(
+    returns: pd.DataFrame,
+    absolute_threshold: float = 0.25,
+) -> pd.DataFrame:
+    """Flag extreme one-day simple returns for review."""
+    rows = []
+    clean = returns.apply(pd.to_numeric, errors="coerce")
+    for ticker, series in clean.items():
+        outliers = series[series.abs() >= float(absolute_threshold)].dropna()
+        for dt, value in outliers.items():
+            rows.append(
+                {
+                    "date": dt,
+                    "ticker": ticker,
+                    "return": float(value),
+                    "absolute_threshold": float(absolute_threshold),
+                    "issue": "large_absolute_daily_return",
+                    "severity": "warning",
+                }
+            )
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "date",
+            "ticker",
+            "return",
+            "absolute_threshold",
+            "issue",
+            "severity",
+        ],
+    )
+
+
 def fetch_prices_with_yfinance(
     tickers: list[str],
     start: str | None = None,
@@ -143,15 +185,30 @@ def fetch_prices_with_yfinance(
         import yfinance as yf
     except ImportError:
         return pd.DataFrame()
-    data = yf.download(
-        tickers,
-        start=start,
-        end=end,
-        auto_adjust=True,
-        progress=False,
-        group_by="column",
-        threads=False,
-    )
+    frames = []
+    unique_tickers = list(dict.fromkeys(str(ticker) for ticker in tickers))
+    for start_idx in range(0, len(unique_tickers), 50):
+        batch = unique_tickers[start_idx : start_idx + 50]
+        data = yf.download(
+            batch,
+            start=start,
+            end=end,
+            auto_adjust=True,
+            progress=False,
+            group_by="column",
+            threads=True,
+        )
+        close = _extract_close(data, batch)
+        if not close.empty:
+            frames.append(close)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, axis=1).loc[
+        :, ~pd.concat(frames, axis=1).columns.duplicated()
+    ]
+
+
+def _extract_close(data: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     if data.empty:
         return pd.DataFrame()
     if isinstance(data.columns, pd.MultiIndex):
