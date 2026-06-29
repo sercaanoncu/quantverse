@@ -1,0 +1,11 @@
+equity_universe_path: data/universe/current_global_equity_universe.csv
+additional_universe_paths:
+  - data/universe/crypto_universe_template.csv
+  - data/universe/commodity_real_assets_universe.csv
+  - data/universe/defensive_assets_universe.csv
+local_price_csv:
+output_dir: data/processed
+base_currency: USD
+min_price_observations: 20
+start_date:
+end_date:

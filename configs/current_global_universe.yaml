@@ -1,0 +1,15 @@
+mode: csv
+output_universe_path: data/universe/current_global_equity_universe.csv
+summary_path: data/processed/current_global_universe_summary.csv
+missing_market_caps_path: data/processed/current_global_universe_missing_market_caps.csv
+bias_warnings_path: data/processed/current_global_universe_bias_warnings.csv
+top_n_per_sleeve: 100
+source_files:
+  global_equity_us: data/universe/sources/us_candidates.csv
+  global_equity_europe: data/universe/sources/europe_candidates.csv
+  global_equity_uk: data/universe/sources/uk_candidates.csv
+  global_equity_turkey: data/universe/sources/turkey_candidates.csv
+  global_equity_china: data/universe/sources/china_candidates.csv
+  global_equity_japan: data/universe/sources/japan_candidates.csv
+online:
+  enabled: false
