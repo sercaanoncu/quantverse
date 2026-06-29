@@ -1,0 +1,22 @@
+source_dir: data/universe/sources
+output_dir: data/processed
+files:
+  global_equity_us: us_candidates.csv
+  global_equity_europe: europe_candidates.csv
+  global_equity_uk: uk_candidates.csv
+  global_equity_turkey: turkey_candidates.csv
+  global_equity_china: china_candidates.csv
+  global_equity_japan: japan_candidates.csv
+allowed_currencies:
+  - USD
+  - EUR
+  - GBP
+  - TRY
+  - HKD
+  - CNY
+  - CNH
+  - JPY
+  - CHF
+  - SEK
+  - DKK
+  - NOK
