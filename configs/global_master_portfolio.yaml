@@ -1,4 +1,5 @@
 returns_path: data/processed/global_security_returns.csv
+fx_report_path: data/processed/global_fx_normalization_report.csv
 universe_paths:
   - data/universe/current_global_equity_universe.csv
   - data/universe/commodity_real_assets_universe.csv

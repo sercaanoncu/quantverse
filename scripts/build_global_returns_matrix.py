@@ -11,13 +11,18 @@ import pandas as pd
 import yaml
 
 from project.data_pipeline.global_returns import (
+    build_log_returns_matrix,
     build_returns_matrix,
     coverage_report,
     fetch_prices_with_yfinance,
     filter_prices_by_coverage,
-    fx_normalization_report,
+    fx_mappings_from_config,
     load_global_universe,
     load_price_matrix,
+    normalize_returns_to_base,
+    return_outlier_report,
+    simple_to_log_returns,
+    required_fx_tickers,
 )
 from project.data_pipeline.security_universe import filter_included_investable_assets
 
@@ -76,25 +81,97 @@ def main() -> int:
         print("No prices available; returns matrix not built.")
         return 0
 
+    fx_config = config.get("fx", {}) or {}
+    fx_mappings = fx_mappings_from_config(fx_config)
+    fx_prices = _fx_prices(
+        prices,
+        investable,
+        fx_mappings=fx_mappings,
+        base_currency=str(config.get("base_currency", "USD")),
+        start=config.get("start_date"),
+        end=config.get("end_date"),
+        local_price_csv=local_price_csv,
+    )
     report = coverage_report(
         prices,
         universe,
         min_observations=int(config.get("min_price_observations", 20)),
     )
     covered_prices = filter_prices_by_coverage(prices, report)
-    returns = build_returns_matrix(covered_prices).dropna(how="all")
-    prices.to_csv(output_dir / "global_security_prices.csv", index_label="Date")
-    returns.to_csv(output_dir / "global_security_returns.csv", index_label="Date")
-    report.to_csv(output_dir / "global_returns_coverage_report.csv", index=False)
-    fx_normalization_report(
+    simple_returns_local = build_returns_matrix(covered_prices).dropna(how="all")
+    log_returns_local = build_log_returns_matrix(covered_prices).dropna(how="all")
+    simple_returns_usd, fx_report, fx_coverage = normalize_returns_to_base(
+        simple_returns_local,
         universe,
+        fx_prices,
         base_currency=str(config.get("base_currency", "USD")),
-    ).to_csv(output_dir / "global_fx_normalization_report.csv", index=False)
-    _write_status(
-        output_dir, "completed", f"Built returns for {returns.shape[1]} assets."
+        fx_mappings=fx_mappings,
+        max_forward_fill_days=int(fx_config.get("max_forward_fill_days", 2)),
     )
-    print(f"Global returns matrix assets: {returns.shape[1]}")
+    simple_returns_usd = simple_returns_usd.dropna(how="all")
+    log_returns_usd = simple_to_log_returns(simple_returns_usd).dropna(how="all")
+    prices.to_csv(output_dir / "global_security_prices.csv", index_label="Date")
+    simple_returns_local.to_csv(
+        output_dir / "global_security_simple_returns_local.csv", index_label="Date"
+    )
+    simple_returns_usd.to_csv(
+        output_dir / "global_security_simple_returns_usd.csv", index_label="Date"
+    )
+    log_returns_local.to_csv(
+        output_dir / "global_security_log_returns_local.csv", index_label="Date"
+    )
+    log_returns_usd.to_csv(
+        output_dir / "global_security_log_returns_usd.csv", index_label="Date"
+    )
+    simple_returns_usd.to_csv(
+        output_dir / "global_security_simple_returns.csv", index_label="Date"
+    )
+    log_returns_usd.to_csv(
+        output_dir / "global_security_log_returns.csv", index_label="Date"
+    )
+    simple_returns_usd.to_csv(
+        output_dir / "global_security_returns.csv", index_label="Date"
+    )
+    report.to_csv(output_dir / "global_returns_coverage_report.csv", index=False)
+    fx_report.to_csv(output_dir / "global_fx_normalization_report.csv", index=False)
+    fx_coverage.to_csv(output_dir / "global_fx_rate_coverage_report.csv", index=False)
+    return_outlier_report(simple_returns_usd).to_csv(
+        output_dir / "global_return_outlier_report.csv", index=False
+    )
+    _write_status(
+        output_dir,
+        "completed",
+        f"Built USD-normalized simple/log returns for {simple_returns_usd.shape[1]} assets.",
+    )
+    print(f"Global returns matrix assets: {simple_returns_usd.shape[1]}")
     return 0
+
+
+def _fx_prices(
+    prices: pd.DataFrame,
+    investable: pd.DataFrame,
+    *,
+    fx_mappings: dict[str, dict[str, object]],
+    base_currency: str,
+    start: str | None,
+    end: str | None,
+    local_price_csv: str | None,
+) -> pd.DataFrame:
+    tickers = required_fx_tickers(
+        investable,
+        base_currency=base_currency,
+        fx_mappings=fx_mappings,
+    )
+    local = prices[[ticker for ticker in tickers if ticker in prices]].copy()
+    missing = [ticker for ticker in tickers if ticker not in local]
+    if not missing or local_price_csv:
+        return local
+    fetched = fetch_prices_with_yfinance(missing, start=start, end=end)
+    if fetched.empty:
+        return local
+    return pd.concat([local, fetched], axis=1).loc[
+        :, ~pd.concat([local, fetched], axis=1).columns.duplicated()
+    ]
 
 
 def _write_status(output_dir: Path, status: str, message: str) -> None:
