@@ -40,6 +40,7 @@ def run_master_portfolio_research(
     n_random_portfolios: int = 10000,
     random_state: int = 42,
     portfolio_constraints: dict[str, float | int | bool] | None = None,
+    fx_report: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame | dict[str, object]]:
     """Run the first-pass global master portfolio research layer."""
     constraints = _default_constraints(
@@ -99,7 +100,7 @@ def run_master_portfolio_research(
     final_constraint = constraint_audit.loc[
         constraint_audit["Model"].eq(final_model)
     ].iloc[0]
-    fx_status = _fx_status(selected_metadata)
+    fx_status = _fx_status(selected_metadata, fx_report)
     gate = _apply_non_performance_blocks(gate, final_constraint, fx_status)
     if not gate["Promoted"]:
         policy_row = constraint_audit.loc[
@@ -149,6 +150,7 @@ def run_master_portfolio_research(
         "reason": gate["Reason"],
         "selected_assets": selected,
         "fx_normalization_status": fx_status,
+        "promotion_universe": "current global proxy research candidate",
         "constraints_pass": bool(
             constraint_audit.loc[
                 constraint_audit["Model"].eq(final_model),
@@ -333,7 +335,7 @@ def _apply_non_performance_blocks(
             str(blocked["Reason"]),
             "Constraint audit failed: " + failed_constraints + ".",
         )
-    if fx_status != "usd_native":
+    if fx_status not in {"usd_native", "fx_normalized"}:
         blocked["Promoted"] = False
         blocked["Promotion_Decision"] = "not promoted"
         blocked["Reason"] = _append_reason(
@@ -704,10 +706,33 @@ def _exposure_frame(series: pd.Series, label: str, model: str) -> pd.DataFrame:
     return frame
 
 
-def _fx_status(metadata: pd.DataFrame) -> str:
+def _fx_status(metadata: pd.DataFrame, fx_report: pd.DataFrame | None = None) -> str:
     currencies = set(metadata["currency"].fillna("").astype(str).str.upper())
     non_usd = {currency for currency in currencies if currency and currency != "USD"}
-    return "usd_native" if not non_usd else "local_currency_mixed_not_promotable"
+    if not non_usd:
+        return "usd_native"
+    if fx_report is None or fx_report.empty:
+        return "local_currency_mixed_not_promotable"
+    required = {"ticker", "fx_normalization_status"}
+    if not required.issubset(fx_report.columns):
+        return "local_currency_mixed_not_promotable"
+    status = (
+        fx_report.drop_duplicates("ticker", keep="last")
+        .set_index("ticker")["fx_normalization_status"]
+        .astype(str)
+    )
+    selected_non_usd = metadata.loc[
+        metadata["currency"].fillna("").astype(str).str.upper().ne("USD"),
+        "ticker",
+    ].astype(str)
+    if selected_non_usd.empty:
+        return "usd_native"
+    selected_status = status.reindex(selected_non_usd)
+    return (
+        "fx_normalized"
+        if selected_status.eq("fx_normalized").all()
+        else "local_currency_mixed_not_promotable"
+    )
 
 
 def _constraint_clusters(

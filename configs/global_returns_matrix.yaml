@@ -9,3 +9,72 @@ end_date:
 return_frequency: daily
 portfolio_return_type: simple
 statistical_return_type: log
+fx:
+  max_forward_fill_days: 2
+  currency_mappings:
+    USD:
+      fx_ticker: ""
+      quote_direction: native_base
+      expected_interpretation: USD assets are already in the reporting base currency.
+      inversion_required: false
+      fallback_behavior: native_base
+    EUR:
+      fx_ticker: EURUSD=X
+      quote_direction: USD per 1 EUR
+      expected_interpretation: Positive return means EUR strengthened versus USD.
+      inversion_required: false
+      fallback_behavior: fx_missing
+    GBP:
+      fx_ticker: GBPUSD=X
+      quote_direction: USD per 1 GBP
+      expected_interpretation: Positive return means GBP strengthened versus USD.
+      inversion_required: false
+      fallback_behavior: fx_missing
+    TRY:
+      fx_ticker: TRY=X
+      quote_direction: TRY per 1 USD
+      expected_interpretation: Quote is inverted to get TRY against USD.
+      inversion_required: true
+      fallback_behavior: fx_missing
+    JPY:
+      fx_ticker: JPY=X
+      quote_direction: JPY per 1 USD
+      expected_interpretation: Quote is inverted to get JPY against USD.
+      inversion_required: true
+      fallback_behavior: fx_missing
+    HKD:
+      fx_ticker: HKD=X
+      quote_direction: HKD per 1 USD
+      expected_interpretation: Quote is inverted to get HKD against USD.
+      inversion_required: true
+      fallback_behavior: fx_missing
+    CNY:
+      fx_ticker: CNY=X
+      quote_direction: CNY per 1 USD
+      expected_interpretation: Quote is inverted to get CNY against USD.
+      inversion_required: true
+      fallback_behavior: fx_missing
+    CNH:
+      fx_ticker: CNH=X
+      quote_direction: CNH per 1 USD
+      expected_interpretation: Quote is inverted to get CNH against USD.
+      inversion_required: true
+      fallback_behavior: fx_missing
+    CAD:
+      fx_ticker: CAD=X
+      quote_direction: CAD per 1 USD
+      expected_interpretation: Quote is inverted to get CAD against USD.
+      inversion_required: true
+      fallback_behavior: fx_missing
+    CHF:
+      fx_ticker: CHF=X
+      quote_direction: CHF per 1 USD
+      expected_interpretation: Quote is inverted to get CHF against USD.
+      inversion_required: true
+      fallback_behavior: fx_missing
+    AUD:
+      fx_ticker: AUDUSD=X
+      quote_direction: USD per 1 AUD
+      expected_interpretation: Positive return means AUD strengthened versus USD.
+      inversion_required: false
+      fallback_behavior: fx_missing

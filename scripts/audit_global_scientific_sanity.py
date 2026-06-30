@@ -197,9 +197,10 @@ def _source_data_sanity(processed: Path, universe_path: Path) -> list[dict[str, 
                 )
             )
     fx = _read_csv(processed / "global_fx_normalization_report.csv")
+    fx_blocking_statuses = {"not_implemented", "fx_missing", "blocked"}
     if (
         "fx_normalization_status" in fx
-        and fx["fx_normalization_status"].astype(str).eq("not_implemented").any()
+        and fx["fx_normalization_status"].astype(str).isin(fx_blocking_statuses).any()
     ):
         issues.append(
             _issue(
@@ -210,6 +211,39 @@ def _source_data_sanity(processed: Path, universe_path: Path) -> list[dict[str, 
                 "fx_normalization_incomplete",
                 "Non-USD local returns cannot be treated as USD portfolio returns.",
                 "Implement FX conversion or keep global USD promotion blocked.",
+                True,
+            )
+        )
+    required_fx_columns = {
+        "currency",
+        "fx_ticker",
+        "quote_direction",
+        "inversion_required",
+        "fx_normalization_status",
+    }
+    if not fx.empty and not required_fx_columns.issubset(fx.columns):
+        issues.append(
+            _issue(
+                "high",
+                "fx_currency",
+                "data/processed/global_fx_normalization_report.csv",
+                "columns",
+                "fx_report_schema_incomplete",
+                "FX audit evidence needs currency, ticker, quote direction and status fields.",
+                "Regenerate FX report with explicit source and conversion metadata.",
+                True,
+            )
+        )
+    if not (processed / "global_security_simple_returns_usd.csv").exists():
+        issues.append(
+            _issue(
+                "critical",
+                "fx_currency",
+                "data/processed/global_security_simple_returns_usd.csv",
+                "file",
+                "usd_return_matrix_missing",
+                "A promoted global USD portfolio requires an explicitly USD-normalized return matrix.",
+                "Build global_security_simple_returns_usd.csv before promotion.",
                 True,
             )
         )
