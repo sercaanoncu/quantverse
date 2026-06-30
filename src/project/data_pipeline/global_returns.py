@@ -27,7 +27,8 @@ def load_global_universe(paths: Iterable[str | Path]) -> pd.DataFrame:
             continue
         frame = pd.read_csv(path)
         validate_security_universe_schema(frame)
-        frames.append(frame)
+        if not frame.empty:
+            frames.append(frame)
     if not frames:
         return pd.DataFrame(columns=REQUIRED_UNIVERSE_COLUMNS)
     return pd.concat(frames, ignore_index=True)

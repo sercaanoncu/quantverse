@@ -9,6 +9,11 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+from project.data_pipeline.market_cap_rank_evidence import (
+    EXACT_TOP100_UNSUPPORTED_TEXT,
+    black_litterman_priors_available,
+    validate_market_cap_rank_evidence,
+)
 from project.optimization.black_litterman import black_litterman_weights
 from project.projection.portfolio_projection import (
     correlation_diagnostics,
@@ -56,6 +61,9 @@ def run_master_portfolio_research(
     selected_metadata = metadata.loc[
         metadata["ticker"].astype(str).isin(selected)
     ].copy()
+    _selected_evidence_report, classification, _, bl_prerequisites = (
+        validate_market_cap_rank_evidence(selected_metadata)
+    )
     candidates = _candidate_weights(selected_returns, selected_metadata, max_weight)
     model_comparison = _compare_models(selected_returns, candidates)
     equal_weight_metrics = model_comparison.loc[
@@ -108,6 +116,41 @@ def run_master_portfolio_research(
         "promotion_decision": gate["Promotion_Decision"],
         "reason": gate["Reason"],
         "selected_assets": selected,
+        "promotion_universe": _promotion_universe_label(classification),
+        "exact_top100_claim_supported": bool(
+            not classification.empty
+            and classification["classification"]
+            .astype(str)
+            .eq("exact_market_cap_rank_supported")
+            .all()
+        ),
+        "unsupported_exact_top100_sleeves": (
+            classification.loc[
+                ~classification["classification"]
+                .astype(str)
+                .eq("exact_market_cap_rank_supported"),
+                "sleeve",
+            ]
+            .astype(str)
+            .tolist()
+            if not classification.empty
+            else []
+        ),
+        "exact_top100_required_text": (
+            ""
+            if classification.empty
+            or classification["classification"]
+            .astype(str)
+            .eq("exact_market_cap_rank_supported")
+            .all()
+            else EXACT_TOP100_UNSUPPORTED_TEXT
+        ),
+        "black_litterman_prerequisite_status": (
+            "allowed"
+            if not bl_prerequisites.empty
+            and bl_prerequisites["black_litterman_prior_valid"].astype(bool).all()
+            else "blocked_by_data"
+        ),
     }
     return {
         "selected_assets": selected_metadata,
@@ -122,6 +165,8 @@ def run_master_portfolio_research(
         "high_correlation_pairs": diagnostics["high_correlation_pairs"],
         "cluster_diagnostics": diagnostics["cluster_diagnostics"],
         "estimator_comparison": estimator_comparison(selected_returns),
+        "exact_proxy_classification": classification,
+        "black_litterman_prerequisites": bl_prerequisites,
         "decision_summary": decision,
     }
 
@@ -146,6 +191,8 @@ def write_master_portfolio_outputs(
         "high_correlation_pairs": "global_high_correlation_pairs.csv",
         "cluster_diagnostics": "global_cluster_diagnostics.csv",
         "estimator_comparison": "global_estimator_comparison.csv",
+        "exact_proxy_classification": "global_master_exact_proxy_classification.csv",
+        "black_litterman_prerequisites": "global_master_black_litterman_prerequisites.csv",
     }
     for key, filename in file_map.items():
         value = result[key]
@@ -192,7 +239,14 @@ def _candidate_weights(
         else pd.Series(dtype=float)
     )
     caps = caps.reindex(returns.columns)
-    if caps.notna().all() and (caps > 0).all():
+    if (
+        caps.notna().all()
+        and (caps > 0).all()
+        and black_litterman_priors_available(
+            metadata,
+            returns.columns,
+        )
+    ):
         candidates["Black-Litterman"] = black_litterman_weights(
             returns.cov() * 252,
             caps,
@@ -213,7 +267,7 @@ def _compare_models(
         rows.append(
             {
                 "Model": "Black-Litterman",
-                "Status": "missing_market_caps",
+                "Status": "blocked_missing_market_cap_priors",
                 "CAGR": np.nan,
                 "Annual_Return": np.nan,
                 "Volatility": np.nan,
@@ -232,6 +286,19 @@ def _compare_models(
     ]:
         rows.append({"Model": name, "Status": "not_available_in_this_run"})
     return pd.DataFrame(rows)
+
+
+def _promotion_universe_label(classification: pd.DataFrame) -> str:
+    if classification.empty:
+        return "current global proxy research candidate"
+    if (
+        classification["classification"]
+        .astype(str)
+        .eq("exact_market_cap_rank_supported")
+        .all()
+    ):
+        return "exact market-cap-ranked current universe"
+    return "current global proxy research candidate"
 
 
 def _best_promotable_candidate(model_comparison: pd.DataFrame) -> pd.Series:

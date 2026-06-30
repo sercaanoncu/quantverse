@@ -23,7 +23,9 @@ INPUT_COLUMNS = [
     "country",
     "currency",
     "source",
+    "source_url",
     "as_of_date",
+    "data_provider",
     "notes",
 ]
 
@@ -190,9 +192,13 @@ def _normalize_source_frame(df: pd.DataFrame, sleeve: str) -> pd.DataFrame:
                 "include": True,
                 "proxy_type": "direct_listing",
                 "notes": row["notes"],
+                "source_url": row.get("source_url", ""),
+                "source_method": row.get("source_method", ""),
+                "rank_universe": row.get("rank_universe", sleeve),
+                "rank_method": row.get("rank_method", ""),
             }
         )
-    return pd.DataFrame(rows, columns=REQUIRED_UNIVERSE_COLUMNS)
+    return pd.DataFrame(rows)
 
 
 def _rank_and_select_by_market_cap(
@@ -212,6 +218,11 @@ def _rank_and_select_by_market_cap(
             ranked = ranked.sort_values("_market_cap_numeric", ascending=False)
             ranked = ranked.head(int(top_n_per_sleeve)).copy()
             ranked["market_cap_rank"] = range(1, len(ranked) + 1)
+            ranked["rank_method"] = ranked["rank_method"].fillna("").astype(str)
+            empty_rank_method = ranked["rank_method"].str.strip().eq("")
+            ranked.loc[empty_rank_method, "rank_method"] = (
+                "computed_from_sourced_market_cap_same_date"
+            )
             ranked = ranked.drop(columns=["_market_cap_numeric"])
         if not missing.empty:
             missing["include"] = False
@@ -222,7 +233,17 @@ def _rank_and_select_by_market_cap(
         selected.append(pd.concat([ranked, missing], ignore_index=True))
     if not selected:
         return _empty_universe()
-    return pd.concat(selected, ignore_index=True)[REQUIRED_UNIVERSE_COLUMNS]
+    ordered = REQUIRED_UNIVERSE_COLUMNS + [
+        "source_url",
+        "source_method",
+        "rank_universe",
+        "rank_method",
+    ]
+    result = pd.concat(selected, ignore_index=True)
+    for column in ordered:
+        if column not in result:
+            result[column] = ""
+    return result[ordered]
 
 
 def _missing_market_cap_report(universe: pd.DataFrame) -> pd.DataFrame:

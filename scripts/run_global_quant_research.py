@@ -50,6 +50,10 @@ def main() -> int:
         return 0
 
     steps = [
+        (
+            "scripts/validate_real_global_universe.py",
+            config.get("master_portfolio_config"),
+        ),
         ("scripts/build_global_returns_matrix.py", config.get("returns_matrix_config")),
         (
             "scripts/run_global_master_portfolio.py",
