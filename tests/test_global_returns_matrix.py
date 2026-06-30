@@ -57,7 +57,7 @@ def test_returns_matrix_coverage_and_fx_reports_are_stable():
 
     assert "AAA" in returns.columns
     assert coverage.loc[coverage["ticker"].eq("BBB"), "drop_reason"].iloc[0]
-    assert set(fx["fx_normalization_status"]) == {"native_base", "not_implemented"}
+    assert set(fx["fx_normalization_status"]) == {"native_base", "fx_missing"}
 
 
 def test_global_returns_matrix_cli_uses_synthetic_prices(tmp_path):
@@ -100,4 +100,7 @@ def test_global_returns_matrix_cli_uses_synthetic_prices(tmp_path):
 
     assert result.returncode == 0
     assert (output_dir / "global_security_returns.csv").exists()
+    assert (output_dir / "global_security_simple_returns_local.csv").exists()
+    assert (output_dir / "global_security_simple_returns_usd.csv").exists()
+    assert (output_dir / "global_fx_rate_coverage_report.csv").exists()
     assert (output_dir / "global_returns_coverage_report.csv").exists()

@@ -55,6 +55,13 @@ def main() -> int:
         print("Missing universe metadata; master portfolio not run.")
         return 0
     returns = _load_returns(returns_path)
+    fx_report = _load_optional_csv(
+        Path(
+            config.get(
+                "fx_report_path", "data/processed/global_fx_normalization_report.csv"
+            )
+        )
+    )
     selection = config.get("selection", {}) or {}
     random_cfg = config.get("random_portfolios", {}) or {}
     constraints = config.get("portfolio_constraints", {}) or {}
@@ -67,6 +74,7 @@ def main() -> int:
         n_random_portfolios=int(random_cfg.get("n_portfolios", 10000)),
         random_state=int(selection.get("random_state", 42)),
         portfolio_constraints=constraints,
+        fx_report=fx_report,
     )
     write_master_portfolio_outputs(result, output_dir)
     print(result["decision_summary"]["promotion_decision"])
@@ -79,6 +87,15 @@ def _load_returns(path: Path) -> pd.DataFrame:
     if str(first).lower() in {"date", "datetime", "timestamp"}:
         raw = raw.set_index(first)
     return raw.apply(pd.to_numeric, errors="coerce").dropna(axis=1, how="all")
+
+
+def _load_optional_csv(path: Path) -> pd.DataFrame | None:
+    if not path.exists():
+        return None
+    try:
+        return pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return None
 
 
 def _write_status(output_dir: Path, status: str, message: str) -> None:
