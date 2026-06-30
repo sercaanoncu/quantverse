@@ -86,3 +86,24 @@ Sprint 2B may attempt source population from existing local sourced CSVs or
 configured public data already used by the project. If sources are missing,
 incomplete, access-restricted, current-only, or not official enough, the correct
 result is a documented blocker, not fabricated ranks or market caps.
+
+## Sprint 2B Source-Coverage Result
+
+Current local source coverage is insufficient for exact equity top-100 support.
+The configured source candidate files are missing and only `.example.csv` schema
+templates are present. Therefore the correct state is:
+
+- NASDAQ / NYSE / broader US: `source_unavailable` until sourced CSVs exist.
+- Europe / Germany / broader Europe: `source_unavailable` until sourced CSVs exist.
+- UK: `source_unavailable` until sourced CSVs exist.
+- BIST / Turkey: `source_unavailable` until sourced CSVs exist.
+- Japan: `source_unavailable` until sourced CSVs exist.
+- China/HK: `source_unavailable` until sourced CSVs exist.
+- Crypto top 100: may be `api_market_cap_enriched` only when generated
+  CoinGecko-style market-cap/rank evidence is present; it cannot support equity
+  market-cap priors.
+- Commodities and defensive assets: proxy sleeves, not exact top-100 equity
+  evidence.
+
+The global master portfolio must remain `insufficient_inputs` or `not promoted`
+until sourced equity files exist and pass the evidence gate.
