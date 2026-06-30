@@ -360,8 +360,8 @@ def build_stock_selection_promotion_gate(
     failed = [
         name
         for name, ok in [
-            ("net CAGR greater than Equal Weight", cagr_ok),
-            ("Sharpe greater than Equal Weight", sharpe_ok),
+            ("net CAGR is not greater than Equal Weight", cagr_ok),
+            ("Sharpe is not greater than Equal Weight", sharpe_ok),
             ("volatility gate", volatility_ok),
             ("max drawdown gate", drawdown_ok),
             ("CVaR gate", cvar_ok),
