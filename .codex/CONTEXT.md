@@ -5,7 +5,8 @@ validation project. It includes the legacy ETF/multi-asset pipeline plus global
 stock-selection and global master-portfolio research layers.
 
 Start repo work from `AGENTS.md`, `PROJECT_CONTEXT.md`, `PIPELINE_CONTEXT.md`
-and `.codex/VALIDATION.md`.
+and `.codex/VALIDATION.md`. For roadmap-level planning and sprint sequencing,
+also read `docs/roadmap/QUANTVERSE_MASTER_PROJECT_PLAN.md`.
 
 Current capabilities include portfolio construction, risk metrics, Equal Weight
 comparison, random portfolio benchmarking, Black-Litterman, Monte Carlo,

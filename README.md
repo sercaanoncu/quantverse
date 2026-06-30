@@ -114,6 +114,9 @@ locations, report paths, interpretation notes and troubleshooting.
 Future Codex runs should start from `.codex/CONTEXT.md` and the validation
 protocol in `.codex/VALIDATION.md`.
 
+The permanent master roadmap is
+`docs/roadmap/QUANTVERSE_MASTER_PROJECT_PLAN.md`.
+
 ## Project Healthcheck
 
 Use `python scripts/quantverse_healthcheck.py` for a fast local readiness check.
