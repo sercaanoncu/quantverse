@@ -43,7 +43,7 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
-            "node",
+            str(_node_executable()),
             str(builder_path.resolve()),
             str(payload_path.resolve()),
             str(output.resolve()),
@@ -94,9 +94,19 @@ def _workbook_payload(processed: Path) -> dict[str, Any]:
             "Model karşılaştırması. Extreme metrikler kırmızı bayrakla okunmalı.",
         ),
         _sheet(
+            "MODEL_APPLICABILITY",
+            _model_applicability(processed),
+            "Her modelin actually run, not available, blocked by data, not appropriate veya diagnostic only statüsü.",
+        ),
+        _sheet(
             "CONSTRAINT_AUDIT",
             _csv(processed / "global_master_constraint_audit.csv", 50),
             "Hard constraints geçiş/kalış denetimi.",
+        ),
+        _sheet(
+            "WEIGHT_AUDIT",
+            _weight_audit(processed, decision),
+            "Final adayın full weight sum, negative weight, cap, exposure sum, dust ve max-cap denetimi.",
         ),
         _sheet(
             "FINAL_WEIGHTS",
@@ -160,7 +170,7 @@ def _start_here(decision: dict[str, Any]) -> list[list[Any]]:
         ],
         [
             "İlk hangi sayfaya bakmalıyım?",
-            "START_HERE, EXECUTIVE_SUMMARY, RED_FLAGS, FINAL_WEIGHTS ve PROJECTIONS.",
+            "START_HERE, EXECUTIVE_SUMMARY, RED_FLAGS, WEIGHT_AUDIT, FINAL_WEIGHTS ve PROJECTIONS.",
         ],
         [
             "Hangi sonuç güvenilir?",
@@ -170,18 +180,22 @@ def _start_here(decision: dict[str, Any]) -> list[list[Any]]:
             "Hangi sonuç güvenilir değil?",
             "Exact top-100 market-cap ve global USD promoted portfolio iddiası güvenilir değildir; veri blokları var.",
         ],
+        [
+            "Karar hangi evren için?",
+            "Bu karar current global proxy research candidate içindir; ETF/multi-asset pipeline kararı veya promoted global USD master portfolio kararı değildir.",
+        ],
         ["Neden not promoted?", _decision_reason(decision)],
         [
             "Neden FX blocker var?",
-            "Non-USD local returns USD'ye çevrilmediği için global USD portföy terfi edemez.",
+            "Global USD master portfolio promotion is blocked until non-USD local returns are converted into USD with appropriate FX series, calendars and compounding logic.",
         ],
         [
             "Neden exact top-100 claim yok?",
-            "Equity sleeves market_cap_usd/market_cap_rank kanıtı taşımıyor; çoğu index_proxy.",
+            "Exact top-100 market-cap claim is not supported for these sleeves; equity sleeves market_cap_usd/market_cap_rank kanıtı taşımıyor.",
         ],
         [
             "Ağırlıklar nerede?",
-            "FINAL_WEIGHTS sheet'i ve data/processed/global_master_candidate_weights.csv.",
+            "WEIGHT_AUDIT ve FINAL_WEIGHTS sheet'leri; full source path: data/processed/global_master_candidate_weights.csv.",
         ],
         [
             "Grafikler nerede?",
@@ -215,7 +229,7 @@ def _executive_summary(processed: Path, decision: dict[str, Any]) -> list[list[A
         [
             "Promotion decision",
             decision.get("promotion_decision", ""),
-            "Global USD master portfolio promoted değildir.",
+            "Current global proxy research candidate içindir; promoted global USD master portfolio değildir.",
         ],
         [
             "Selected holdings",
@@ -254,7 +268,7 @@ def _data_quality(processed: Path) -> list[list[Any]]:
                 "Market-cap",
                 "Equity sleeves with zero cap rows",
                 int(equity_zero_cap.shape[0]),
-                "Exact top-100 claim blocked.",
+                "Exact top-100 market-cap claim is not supported for these sleeves.",
             ]
         )
     if not fx.empty:
@@ -268,7 +282,7 @@ def _data_quality(processed: Path) -> list[list[Any]]:
                     .eq("not_implemented")
                     .sum()
                 ),
-                "Global USD promotion blocked.",
+                "Global USD master portfolio promotion is blocked until FX conversion is implemented.",
             ]
         )
     if not coverage.empty:
@@ -290,6 +304,122 @@ def _data_quality(processed: Path) -> list[list[Any]]:
             ]
         )
     return rows
+
+
+def _model_applicability(processed: Path) -> list[list[Any]]:
+    rows = [["Model", "Evidence_Status", "Interpretation"]]
+    comparison = _read_csv(processed / "global_master_model_comparison.csv")
+    if not comparison.empty and {"Model", "Status"}.issubset(comparison.columns):
+        for row in comparison[["Model", "Status"]].itertuples(index=False):
+            status = _model_status_label(str(row.Status))
+            rows.append([row.Model, status, _model_status_interpretation(status)])
+    applicability = _read_csv(processed / "model_applicability_matrix.csv")
+    model_col = "model" if "model" in applicability.columns else None
+    status_col = "current_status" if "current_status" in applicability.columns else None
+    if model_col and status_col:
+        for row in applicability[[model_col, status_col]].itertuples(index=False):
+            status = _model_status_label(str(row[1]))
+            rows.append([row[0], status, _model_status_interpretation(status)])
+    return rows
+
+
+def _model_status_label(status: str) -> str:
+    text = status.lower()
+    if "diagnostic" in text:
+        return "diagnostic only"
+    if "computed" in text or "implemented" in text:
+        return "actually run"
+    if "missing_market" in text or "blocked" in text:
+        return "blocked by data"
+    if "not_appropriate" in text or "not scientifically" in text:
+        return "not appropriate"
+    if "not_available" in text or "optional" in text or "not_run" in text:
+        return "not available"
+    return "diagnostic only"
+
+
+def _model_status_interpretation(status: str) -> str:
+    mapping = {
+        "actually run": "Generated evidence exists in this run, but promotion still depends on gates.",
+        "blocked by data": "Prerequisite data is missing; do not present as valid allocation evidence.",
+        "not appropriate": "Method is not scientifically justified for the current data/task.",
+        "diagnostic only": "Useful for interpretation, not a direct allocation decision.",
+        "not available": "Not executed in this global run; do not present as result evidence.",
+    }
+    return mapping.get(status, "Review model applicability before interpretation.")
+
+
+def _weight_audit(processed: Path, decision: dict[str, Any]) -> list[list[Any]]:
+    rows = [["Check", "Value", "Status", "Evidence"]]
+    weights = _read_csv(processed / "global_master_candidate_weights.csv")
+    final_model = str(decision.get("final_model", ""))
+    path = processed / "global_master_candidate_weights.csv"
+    if weights.empty or "Weight" not in weights or "Model" not in weights:
+        return rows + [["Full candidate weights path", str(path), "missing", path.name]]
+    final = weights.loc[weights["Model"].astype(str).eq(final_model)].copy()
+    numeric = pd.to_numeric(final["Weight"], errors="coerce")
+    weight_sum = float(numeric.sum()) if not numeric.empty else 0.0
+    negative_count = int((numeric < -1e-9).sum())
+    max_weight = float(numeric.max()) if not numeric.empty else 0.0
+    dust_count = int(((numeric > 0) & (numeric < 0.001)).sum())
+    max_cap_count = int((numeric >= 0.099).sum())
+    rows.extend(
+        [
+            [
+                "Full candidate weights path",
+                str(path),
+                "available" if not final.empty else "missing",
+                path.name,
+            ],
+            [
+                "Full weight sum",
+                weight_sum,
+                _ok(abs(weight_sum - 1.0) <= 1e-6),
+                "Weight",
+            ],
+            [
+                "Negative weight check",
+                negative_count,
+                _ok(negative_count == 0),
+                "Weight",
+            ],
+            [
+                "Max weight cap check",
+                max_weight,
+                _ok(max_weight <= 0.1000001),
+                "Weight",
+            ],
+            [
+                "Dust weights count",
+                dust_count,
+                "warning" if dust_count else "ok",
+                "Weight",
+            ],
+            [
+                "Max-cap weights count",
+                max_cap_count,
+                "warning" if max_cap_count else "ok",
+                "Weight",
+            ],
+        ]
+    )
+    for filename, label in [
+        ("global_master_asset_class_weights.csv", "Asset-class weight sum"),
+        ("global_master_region_weights.csv", "Region weight sum"),
+        ("global_master_cluster_weights.csv", "Cluster weight sum"),
+    ]:
+        frame = _read_csv(processed / filename)
+        total = (
+            float(pd.to_numeric(frame["Weight"], errors="coerce").sum())
+            if not frame.empty and "Weight" in frame
+            else 0.0
+        )
+        rows.append([label, total, _ok(abs(total - 1.0) <= 1e-6), filename])
+    return rows
+
+
+def _ok(condition: bool) -> str:
+    return "ok" if condition else "warning"
 
 
 def _final_weights(processed: Path, decision: dict[str, Any]) -> list[list[Any]]:
@@ -401,6 +531,14 @@ def _ensure_artifact_tool_node_modules(tmp_dir: Path) -> None:
         )
     else:
         os.symlink(provided, node_modules, target_is_directory=True)
+
+
+def _node_executable() -> Path | str:
+    bundled = (
+        Path.home()
+        / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe"
+    )
+    return bundled if bundled.exists() else "node"
 
 
 def _js_builder() -> str:

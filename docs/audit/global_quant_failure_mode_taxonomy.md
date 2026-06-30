@@ -52,7 +52,26 @@ This taxonomy defines what counts as an error before the project is audited.
 - claiming HRP/Risk Parity if not wired into the global run,
 - using ML/deep learning as an allocation engine without strict validation.
 
-## F. Reporting Errors
+## F. Backtest Validation Errors
+
+- look-ahead leakage,
+- survivorship-biased current constituents used as historical truth,
+- no point-in-time universe membership,
+- no transaction-cost or turnover treatment,
+- benchmark and candidate using different dates or universes,
+- full-sample statistics used for out-of-sample decisions.
+
+## G. ML / Forecasting Validation Errors
+
+- regression metrics used for classification,
+- classification metrics used for regression,
+- weak R2/AUC presented as allocation proof,
+- AIC/BIC shown without a fitted likelihood-based model,
+- LSTM/RNN/RL presented as production allocation engines without strict
+  chronological validation,
+- feature or target leakage hidden in forecast diagnostics.
+
+## H. Reporting Errors
 
 - raw DataFrame dumps,
 - `Unnamed: 0` columns shown,

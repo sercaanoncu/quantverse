@@ -74,6 +74,14 @@ def test_scientific_sanity_flags_market_cap_fx_and_extreme_metrics(tmp_path):
         "global_equity_us: equity_market_cap_coverage_missing",
         "duplicate_tickers_in_universe: 1",
     }.issubset(set(issues["issue"]))
+    assert {
+        "what_is_wrong",
+        "why_it_matters",
+        "evidence_file",
+        "evidence_column",
+        "promotion_blocker",
+        "next_required_fix",
+    }.issubset(issues.columns)
     assert {"source_data", "fx_currency", "return_risk_scale"}.issubset(
         set(dashboard["category"])
     )
@@ -86,6 +94,13 @@ def test_methodology_source_check_contains_required_guardrails():
     assert "Black-Litterman" in areas
     assert "FX normalization" in areas
     assert "random portfolio benchmarking" in areas
+    assert {
+        "portfolio theory rules",
+        "risk rules",
+        "econometrics/time-series rules",
+        "ML validation rules",
+        "data/source/FX rules",
+    }.issubset(set(source_check["rule_family"]))
     assert (
         source_check.loc[
             source_check["methodology_area"].eq("Black-Litterman"),
@@ -166,10 +181,18 @@ def test_explainable_excel_payload_contains_required_sheets(tmp_path):
         "EXECUTIVE_SUMMARY",
         "RED_FLAGS",
         "REQUIREMENT_TRACEABILITY",
+        "MODEL_APPLICABILITY",
         "FINAL_WEIGHTS",
+        "WEIGHT_AUDIT",
         "METHODOLOGY_SOURCE_BASIS",
     }.issubset(sheet_names)
     assert payload["generated_by"] == "scripts/build_explainable_excel_output.py"
+    start_here = next(
+        sheet for sheet in payload["sheets"] if sheet["name"] == "START_HERE"
+    )
+    start_text = " ".join(str(cell) for row in start_here["rows"] for cell in row)
+    assert "Global USD master portfolio promotion is blocked" in start_text
+    assert "Exact top-100 market-cap claim is not supported" in start_text
 
 
 def test_promotion_gate_failure_reason_is_not_misleading():

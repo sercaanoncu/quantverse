@@ -330,6 +330,18 @@ def _build_charts(
         ),
         (
             _spec(
+                "model_applicability_status",
+                "Model applicability: hangi model gerçekten kanıt üretti?",
+                "data/processed/global_master_model_comparison.csv + data/processed/model_applicability_matrix.csv",
+                "Her model ailesinin actually run, not available, blocked by data, not appropriate veya diagnostic only statüsünü gösterir.",
+                "Model adı görmek modelin geçerli allocation kanıtı ürettiği anlamına gelmez.",
+                "Blocked/unavailable modeller valid allocation sonucu gibi sunulursa bilimsel hata olur.",
+                "Black-Litterman market-cap eksikliğiyle bloklu; HRP/Risk Parity bu global run'da available değildir; ML diagnostiktir.",
+            ),
+            lambda p: _model_status_chart(data, p),
+        ),
+        (
+            _spec(
                 "constraint_pass_fail",
                 "Kısıt audit: hangi model geçiyor?",
                 "data/processed/global_master_constraint_audit.csv",
@@ -339,6 +351,18 @@ def _build_charts(
                 "Policy Constrained tüm kısıtları geçiyor.",
             ),
             lambda p: _constraint_chart(data["constraint"], p),
+        ),
+        (
+            _spec(
+                "final_weight_audit",
+                "Final aday ağırlık audit'i",
+                "data/processed/global_master_candidate_weights.csv + exposure weight CSV files",
+                "Full weight sum, negative weight, dust weight ve max-cap weight sayılarını gösterir.",
+                "Portföy matematiksel olarak normalize olsa bile operasyonel gürültü veya cap baskısı görülebilir.",
+                "Ağırlık toplamı 1 değilse, negatif weight varsa veya exposure toplamları tutmuyorsa final aday geçersizdir.",
+                "Policy Constrained aday weight sum ve hard constraints geçirir; dust ve max-cap uyarıları ayrıca açıklanır.",
+            ),
+            lambda p: _weight_audit_chart(data, p),
         ),
         (
             _spec(
@@ -744,6 +768,52 @@ def _risk_pair_chart(frame: pd.DataFrame, path: Path) -> None:
     _finish(fig, path)
 
 
+def _model_status_chart(data: dict[str, pd.DataFrame | dict], path: Path) -> None:
+    rows = []
+    comparison = data["model_comparison"]
+    if not comparison.empty and {"Model", "Status"}.issubset(comparison.columns):
+        rows.extend(_model_status_label(str(status)) for status in comparison["Status"])
+    applicability = data["applicability"]
+    if not applicability.empty and "current_status" in applicability.columns:
+        rows.extend(
+            _model_status_label(str(status))
+            for status in applicability["current_status"]
+        )
+    if not rows:
+        _empty_chart(path, "Model applicability")
+        return
+    counts = pd.Series(rows).value_counts().sort_values()
+    fig, ax = _prepare_ax("Model applicability status", "Model sayısı", "Statü")
+    colors = {
+        "actually run": "#4C956C",
+        "blocked by data": "#D95D39",
+        "not available": "#8D99AE",
+        "not appropriate": "#B56576",
+        "diagnostic only": "#2F6F8F",
+    }
+    ax.barh(
+        counts.index,
+        counts.values,
+        color=[colors.get(idx, "#2F6F8F") for idx in counts.index],
+    )
+    _finish(fig, path)
+
+
+def _model_status_label(status: str) -> str:
+    text = status.lower()
+    if "diagnostic" in text:
+        return "diagnostic only"
+    if "computed" in text or "implemented" in text:
+        return "actually run"
+    if "missing_market" in text or "blocked" in text:
+        return "blocked by data"
+    if "not_appropriate" in text or "not scientifically" in text:
+        return "not appropriate"
+    if "not_available" in text or "optional" in text or "not_run" in text:
+        return "not available"
+    return "diagnostic only"
+
+
 def _constraint_chart(frame: pd.DataFrame, path: Path) -> None:
     if frame.empty:
         _empty_chart(path, "Constraint audit")
@@ -754,6 +824,38 @@ def _constraint_chart(frame: pd.DataFrame, path: Path) -> None:
     fig, ax = _prepare_ax("Constraint pass/fail by model", "Geçti=1", "Model")
     ax.barh(data["Model"], data["Pass"], color=colors)
     ax.set_xlim(0, 1)
+    _finish(fig, path)
+
+
+def _weight_audit_chart(data: dict[str, pd.DataFrame | dict], path: Path) -> None:
+    weights = data["weights"]
+    final_model = (
+        str(data["decision"].get("final_model", ""))
+        if isinstance(data["decision"], dict)
+        else ""
+    )
+    if weights.empty or "Weight" not in weights or "Model" not in weights:
+        _empty_chart(path, "Final weight audit")
+        return
+    final = weights.loc[weights["Model"].astype(str).eq(final_model)].copy()
+    numeric = pd.to_numeric(final["Weight"], errors="coerce")
+    metrics = pd.Series(
+        {
+            "negative weights": int((numeric < -1e-9).sum()),
+            "dust weights <0.10%": int(((numeric > 0) & (numeric < 0.001)).sum()),
+            "weights near 10% cap": int((numeric >= 0.099).sum()),
+        }
+    )
+    fig, ax = _prepare_ax("Final weight audit counts", "Adet", "Kontrol")
+    ax.barh(metrics.index, metrics.values, color=["#4C956C", "#D95D39", "#D95D39"])
+    ax.text(
+        0.02,
+        0.05,
+        f"Full weight sum: {float(numeric.sum()):.8f}",
+        transform=ax.transAxes,
+        fontsize=10,
+        fontweight="bold",
+    )
     _finish(fig, path)
 
 
@@ -878,6 +980,9 @@ def _write_markdown(
         f"- Terfi kararı: `{decision.get('promotion_decision', 'missing')}`.",
         f"- Ana gerekçe: {_decision_reason(decision)}",
         "- Global USD master portfolio promoted değildir; FX ve market-cap blokları devam etmektedir.",
+        "- Karar evreni: current global proxy research candidate. Bu karar ETF/multi-asset pipeline kararı veya promoted global USD master portfolio kararı değildir.",
+        "- Exact top-100 market-cap claim is not supported for these sleeves.",
+        "- Global USD master portfolio promotion is blocked until non-USD local returns are converted into USD with appropriate FX series, calendars and compounding logic.",
         "",
     ]
     for idx, spec in enumerate(specs, start=1):
@@ -1010,20 +1115,20 @@ def _write_pdf(
     styles = getSampleStyleSheet()
     for name in ["Normal", "BodyText", "Title", "Heading1", "Heading2"]:
         styles[name].fontName = font
-    styles["Title"].fontSize = 18 if not presentation else 22
+    styles["Title"].fontSize = 18 if not presentation else 20
     styles["Title"].textColor = colors.HexColor("#102F45")
     body = ParagraphStyle(
         "AuditBody",
         parent=styles["BodyText"],
         fontName=font,
-        fontSize=9.5 if not presentation else 12,
-        leading=12 if not presentation else 15,
+        fontSize=9.5 if not presentation else 9,
+        leading=12 if not presentation else 11,
     )
     heading = ParagraphStyle(
         "AuditHeading",
         parent=styles["Heading2"],
         fontName=font,
-        fontSize=13 if not presentation else 17,
+        fontSize=13 if not presentation else 14,
         textColor=colors.HexColor("#102F45"),
         spaceAfter=8,
     )
@@ -1045,6 +1150,25 @@ def _write_pdf(
         )
     )
     story.append(Spacer(1, 8))
+    story.append(
+        Paragraph(
+            "Karar evreni: current global proxy research candidate. Bu karar ETF/multi-asset pipeline kararı veya promoted global USD master portfolio kararı değildir.",
+            body,
+        )
+    )
+    story.append(
+        Paragraph(
+            "Exact top-100 market-cap claim is not supported for these sleeves.",
+            body,
+        )
+    )
+    story.append(
+        Paragraph(
+            "Global USD master portfolio promotion is blocked until non-USD local returns are converted into USD with appropriate FX series, calendars and compounding logic.",
+            body,
+        )
+    )
+    story.append(Spacer(1, 8))
     max_specs = min(len(specs), 17) if presentation else len(specs)
     for idx, spec in enumerate(specs[:max_specs], start=1):
         if presentation and idx > 1:
@@ -1053,8 +1177,8 @@ def _write_pdf(
         story.append(
             Image(
                 str(FIG_DIR / spec.filename),
-                width=9.0 * inch if presentation else 6.8 * inch,
-                height=4.1 * inch if presentation else 3.7 * inch,
+                width=7.2 * inch if presentation else 6.8 * inch,
+                height=2.85 * inch if presentation else 3.7 * inch,
                 kind="proportional",
             )
         )

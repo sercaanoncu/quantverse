@@ -18,6 +18,10 @@ data-quality blockers.
 - Chart-led Turkish report and presentation now explain source coverage, FX
   status, market-cap gaps, model metrics, constraints, final weights, random
   benchmark and projections.
+- The report now renders 27 chart sections, including explicit model
+  applicability status and final weight audit charts.
+- The Excel workbook now includes dedicated `MODEL_APPLICABILITY` and
+  `WEIGHT_AUDIT` sheets in addition to the required user-facing sheets.
 - The final portfolio candidate is explicitly labelled `not promoted`.
 - The contradictory old wording `not promoted because: net CAGR greater than
   Equal Weight` was corrected in source/reporting language to `net CAGR is not
@@ -69,6 +73,10 @@ the first page states `not promoted` and explains FX/market-cap limitations. The
 Excel workbook has a `START_HERE` sheet and separates executive summary, red
 flags, requirements, data quality, model comparison, constraints, final weights,
 exposures, random benchmark, projections and methodology basis.
+
+First-page PDF rendering was checked after generation. The detailed report and
+presentation first pages show readable text, a decision heading, blocker
+language and a visible chart rather than a raw table dump.
 
 ## What Still Needs A Future Sprint
 

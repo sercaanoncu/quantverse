@@ -605,7 +605,13 @@ def build_methodology_source_check() -> pd.DataFrame:
             "Make visual reports explicit.",
         ),
     ]
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+    frame.insert(
+        0,
+        "rule_family",
+        frame["methodology_area"].astype(str).map(_rule_family),
+    )
+    return frame
 
 
 def write_outputs(
@@ -727,6 +733,89 @@ def _method(
     }
 
 
+def _rule_family(methodology_area: str) -> str:
+    text = methodology_area.lower()
+    portfolio_terms = [
+        "markowitz",
+        "mean-variance",
+        "global minimum variance",
+        "maximum sharpe",
+        "risk parity",
+        "hrp",
+        "black-litterman",
+        "robust optimization",
+        "convex optimization",
+        "random portfolio",
+    ]
+    risk_terms = [
+        "cvar",
+        "expected shortfall",
+        "var",
+        "stress",
+        "scenario",
+        "drawdown",
+        "volatility",
+        "covariance",
+        "shrinkage",
+    ]
+    econometrics_terms = [
+        "stationarity",
+        "normality",
+        "arma",
+        "arima",
+        "sarima",
+        "aic",
+        "bic",
+        "garch",
+        "monte carlo",
+        "random walk",
+        "simple returns",
+        "log returns",
+    ]
+    ml_terms = [
+        "linear regression",
+        "ridge",
+        "lasso",
+        "logistic",
+        "decision tree",
+        "random forest",
+        "gradient",
+        "xgboost",
+        "lstm",
+        "rnn",
+        "classification",
+        "regression",
+        "train/test",
+        "rolling",
+        "walk-forward",
+        "leakage",
+        "look-ahead",
+    ]
+    data_terms = [
+        "survivorship",
+        "point-in-time",
+        "corporate",
+        "adjusted prices",
+        "delistings",
+        "fx",
+        "currency",
+        "market-cap",
+        "index proxy",
+        "top-100",
+    ]
+    if any(term in text for term in data_terms):
+        return "data/source/FX rules"
+    if any(term in text for term in ml_terms):
+        return "ML validation rules"
+    if any(term in text for term in econometrics_terms):
+        return "econometrics/time-series rules"
+    if any(term in text for term in risk_terms):
+        return "risk rules"
+    if any(term in text for term in portfolio_terms):
+        return "portfolio theory rules"
+    return "portfolio theory rules"
+
+
 def _markdown_table(frame: pd.DataFrame, columns: list[str]) -> str:
     rows = [
         "| " + " | ".join(columns) + " |",
@@ -770,6 +859,7 @@ def _source_check_markdown(source_check: pd.DataFrame) -> str:
         + _markdown_table(
             source_check,
             [
+                "rule_family",
                 "methodology_area",
                 "trusted_source_used",
                 "practical_rule",

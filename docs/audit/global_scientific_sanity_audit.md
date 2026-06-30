@@ -21,6 +21,14 @@ coverage, incomplete FX normalization, price coverage gaps, outlier returns,
 weight-sum errors, dust weights, concentration, unavailable models and weak
 forecast diagnostics.
 
+Each issue row must explain:
+
+- what is wrong,
+- why it matters,
+- the evidence file and column,
+- whether it blocks promotion,
+- the next required fix.
+
 Critical and high issues do not mean the code is useless. They mean the output
 must be interpreted as research evidence and must not be promoted as an
 institutional global USD master portfolio until the blocker is fixed.

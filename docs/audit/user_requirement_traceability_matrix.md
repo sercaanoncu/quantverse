@@ -4,8 +4,8 @@ This matrix reconstructs the user's requirements and maps each one to evidence, 
 
 ## Status Summary
 
-- `met`: 26
-- `partially_met`: 7
+- `met`: 27
+- `partially_met`: 14
 
 ## Requirements
 
@@ -44,3 +44,11 @@ This matrix reconstructs the user's requirements and maps each one to evidence, 
 | 31 | Excel workbook must have START_HERE and plain Turkish. | `partially_met` | output/excel/quantverse_explainable_global_stock_output.xlsx | Depends on artifact-tool export. | True |
 | 32 | Scientific errors, economic nonsense and suspicious metrics must be flagged. | `met` | global_scientific_sanity_issues.csv | Not all issues are fixed immediately. | True |
 | 33 | Nothing should be promoted if FX/source/data quality blocks it. | `met` | global_master_decision_summary.json | FX and market-cap blockers remain. | True |
+| 34 | NASDAQ top 100 must be labelled as exact or proxy. | `partially_met` | data/universe/sources/nasdaq_top100_candidates.csv | Not exchange-wide exact market-cap-ranked NASDAQ top 100. | True |
+| 35 | NYSE top 100 must be labelled as exact or proxy. | `partially_met` | data/universe/sources/nyse_top100_candidates.csv | Not pure NYSE market-cap-ranked top 100. | True |
+| 36 | Europe top 100 must be labelled as exact or proxy. | `partially_met` | data/universe/sources/europe_top100_candidates.csv | Not broad Europe exact top-100 market-cap ranking. | True |
+| 37 | Germany top 100 must be labelled as exact or proxy. | `partially_met` | data/universe/sources/germany_top100_candidates.csv | DAX-style proxy is not Germany exact top 100. | True |
+| 38 | UK top 100 must be labelled as exact or proxy. | `partially_met` | data/universe/sources/uk_top100_candidates.csv | Current constituents are not point-in-time historical evidence. | True |
+| 39 | BIST top 100 / BIST 100 distinction must be explicit. | `met` | data/universe/sources/turkey_top100_candidates.csv | Not historical point-in-time membership. | True |
+| 40 | Japan top 100 must be labelled as exact or proxy. | `partially_met` | data/universe/sources/japan_top100_candidates.csv | Not exact market-cap-ranked Japan top 100. | True |
+| 41 | China/HK top 100 must be labelled as exact or proxy. | `partially_met` | data/universe/sources/china_hk_top100_candidates.csv | Not exact market-cap-ranked China/HK top 100. | True |
