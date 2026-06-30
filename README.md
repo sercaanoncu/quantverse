@@ -240,6 +240,13 @@ QuantVerse now includes a first-pass global quantitative research pipeline for
 current universe construction, global returns matrices, master portfolio
 candidate comparison and 1/3/6/12 month projection outputs.
 
+The current real-global audit layer can populate sourced current stock/proxy
+universes, validate source coverage, build simple and log returns, run
+statistical diagnostics, compare constrained global portfolio candidates and
+write forecast/projection outputs. Exact top-100 market-cap claims are made only
+when market-cap/rank evidence exists; otherwise the input is labelled as an
+index proxy or manual-review proxy.
+
 Current top-100 style universe mode is forward-looking research only.
 Institutional-grade historical claims require point-in-time constituent,
 market-cap, FX, corporate-action and delisting data. The system must be allowed

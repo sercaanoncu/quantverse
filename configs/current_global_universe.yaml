@@ -5,11 +5,17 @@ missing_market_caps_path: data/processed/current_global_universe_missing_market_
 bias_warnings_path: data/processed/current_global_universe_bias_warnings.csv
 top_n_per_sleeve: 100
 source_files:
+  global_equity_nasdaq: data/universe/sources/nasdaq_top100_candidates.csv
+  global_equity_nyse: data/universe/sources/nyse_top100_candidates.csv
+  global_equity_europe: data/universe/sources/europe_top100_candidates.csv
+  global_equity_germany: data/universe/sources/germany_top100_candidates.csv
+  global_equity_uk: data/universe/sources/uk_top100_candidates.csv
+  global_equity_turkey: data/universe/sources/turkey_top100_candidates.csv
+  global_equity_japan: data/universe/sources/japan_top100_candidates.csv
+  global_equity_china_hk: data/universe/sources/china_hk_top100_candidates.csv
+  crypto_top100: data/universe/sources/crypto_top100_candidates.csv
+  commodity_real_assets: data/universe/sources/commodity_candidates.csv
+  defensive_bonds_cash: data/universe/sources/bond_bill_candidates.csv
   global_equity_us: data/universe/sources/us_candidates.csv
-  global_equity_europe: data/universe/sources/europe_candidates.csv
-  global_equity_uk: data/universe/sources/uk_candidates.csv
-  global_equity_turkey: data/universe/sources/turkey_candidates.csv
-  global_equity_china: data/universe/sources/china_candidates.csv
-  global_equity_japan: data/universe/sources/japan_candidates.csv
 online:
   enabled: false

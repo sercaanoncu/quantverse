@@ -13,19 +13,36 @@ import yaml
 REQUIRED_COLUMNS = [
     "ticker",
     "name",
-    "exchange",
+    "sleeve",
+    "region",
     "country",
+    "exchange",
     "currency",
+    "asset_type",
+    "sector",
+    "industry",
+    "market_cap_usd",
+    "market_cap_rank",
     "source",
     "source_url",
     "as_of_date",
     "data_provider",
-    "market_cap_usd",
-    "market_cap_rank",
-    "sector",
-    "industry",
+    "investable",
+    "benchmark_only",
+    "signal_only",
+    "include",
+    "proxy_type",
+    "source_method",
     "notes",
 ]
+
+ALLOWED_SOURCE_METHODS = {
+    "exact_market_cap_rank",
+    "index_proxy",
+    "manual_review_required",
+    "api_market_cap_enriched",
+    "yfinance_enriched",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -185,6 +202,7 @@ def _row_issues(
             )
         if not str(row.get("source_url", "") or "").strip() and (
             "manual_review_required" not in notes
+            and str(row.get("source_method", "") or "") != "manual_review_required"
         ):
             issues.append(
                 _issue(
@@ -200,6 +218,11 @@ def _row_issues(
         if allowed_currencies and currency not in allowed_currencies:
             issues.append(
                 _issue(sleeve, path, idx, "invalid_currency", "error", ticker)
+            )
+        source_method = str(row.get("source_method", "") or "").strip()
+        if source_method not in ALLOWED_SOURCE_METHODS:
+            issues.append(
+                _issue(sleeve, path, idx, "invalid_source_method", "error", ticker)
             )
         market_cap = pd.to_numeric(row.get("market_cap_usd"), errors="coerce")
         rank = pd.to_numeric(row.get("market_cap_rank"), errors="coerce")

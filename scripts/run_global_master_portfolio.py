@@ -57,6 +57,7 @@ def main() -> int:
     returns = _load_returns(returns_path)
     selection = config.get("selection", {}) or {}
     random_cfg = config.get("random_portfolios", {}) or {}
+    constraints = config.get("portfolio_constraints", {}) or {}
     result = run_master_portfolio_research(
         returns,
         metadata,
@@ -65,6 +66,7 @@ def main() -> int:
         max_weight=float(selection.get("max_weight", 0.10)),
         n_random_portfolios=int(random_cfg.get("n_portfolios", 10000)),
         random_state=int(selection.get("random_state", 42)),
+        portfolio_constraints=constraints,
     )
     write_master_portfolio_outputs(result, output_dir)
     print(result["decision_summary"]["promotion_decision"])
