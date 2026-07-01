@@ -36,6 +36,7 @@ def run_audit(
     issues.extend(_portfolio_sanity(processed))
     issues.extend(_model_sanity(processed))
     issues.extend(_reporting_sanity())
+    issues.extend(_governance_readiness_sanity(processed, universe))
     issue_frame = pd.DataFrame(
         issues,
         columns=[
@@ -700,6 +701,82 @@ def _reporting_sanity() -> list[dict[str, Any]]:
                     False,
                 )
             )
+    return issues
+
+
+def _governance_readiness_sanity(
+    processed: Path,
+    universe_path: Path,
+) -> list[dict[str, Any]]:
+    """Flag governance blockers for historical promotion claims."""
+    issues = []
+    universe = _read_csv(universe_path)
+    decision = _decision(processed)
+    promoted = str(decision.get("promotion_decision", "")).lower() == "promoted"
+    has_equities = (
+        not universe.empty
+        and "sleeve" in universe
+        and universe["sleeve"].astype(str).str.startswith("global_equity").any()
+    )
+    if not has_equities:
+        return issues
+
+    pit_columns = {
+        "membership_effective_start",
+        "membership_effective_end",
+        "point_in_time_source_url",
+    }
+    if not pit_columns.issubset(universe.columns):
+        issues.append(
+            _issue(
+                "critical" if promoted else "high",
+                "backtest_validation",
+                str(universe_path),
+                "point_in_time_membership",
+                "point_in_time_membership_evidence_missing",
+                "Current constituent files cannot support historical stock-selection or walk-forward promotion claims.",
+                "Add dated membership tables with effective dates, source URLs and no-look-ahead controls before historical promotion.",
+                True,
+            )
+        )
+
+    corporate_action_columns = {
+        "delisting_status",
+        "corporate_action_source",
+        "corporate_action_adjustment_status",
+    }
+    if not corporate_action_columns.issubset(universe.columns):
+        issues.append(
+            _issue(
+                "high",
+                "backtest_validation",
+                str(universe_path),
+                "delisting_corporate_actions",
+                "delisting_and_corporate_action_evidence_missing",
+                "Institutional-quality equity backtests need delisting, split, dividend and corporate-action coverage.",
+                "Add delisting/corporate-action audit fields or keep the global stock backtest research-only.",
+                True,
+            )
+        )
+
+    walk_forward_files = [
+        processed / "global_walk_forward_validation.csv",
+        processed / "global_walk_forward_returns.csv",
+        processed / "global_walk_forward_weights.csv",
+    ]
+    if not all(path.exists() for path in walk_forward_files):
+        issues.append(
+            _issue(
+                "high",
+                "backtest_validation",
+                "data/processed/global_walk_forward_validation.csv",
+                "file",
+                "global_walk_forward_evidence_missing",
+                "A current-only candidate cannot be promoted as a historical or out-of-sample global stock strategy without chronological validation.",
+                "Build point-in-time walk-forward returns, weights and validation outputs before historical promotion.",
+                True,
+            )
+        )
     return issues
 
 

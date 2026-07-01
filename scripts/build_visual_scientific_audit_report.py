@@ -59,6 +59,16 @@ def _report_sections(
     universe = str(
         decision.get("promotion_universe", "current global proxy research candidate")
     )
+    exact_supported = (
+        int(
+            classification["classification"]
+            .astype(str)
+            .eq("exact_market_cap_rank_supported")
+            .sum()
+        )
+        if not classification.empty and "classification" in classification
+        else 0
+    )
     return [
         {
             "heading": "Decision",
@@ -67,6 +77,21 @@ def _report_sections(
                 f"Universe label: {universe}",
                 "Global stock master portfolio is not promoted unless sourced equity universe, FX, market-cap/rank and validation gates pass.",
             ],
+        },
+        {
+            "heading": "Visual Decision Dashboard",
+            "body": [
+                "Chart: exact-supported sleeves, unsupported sleeves and promotion blockers.",
+                "The intended reading is conservative: zero exact-supported sleeves and many blockers means no global master promotion.",
+            ],
+            "chart": {
+                "labels": [
+                    "Exact-supported sleeves",
+                    "Unsupported sleeves",
+                    "Promotion blockers",
+                ],
+                "values": [exact_supported, len(unsupported), blockers],
+            },
         },
         {
             "heading": "Exact / Proxy Status",
@@ -94,14 +119,14 @@ def _report_sections(
             "body": [
                 f"Scientific sanity issues: {len(issues)}",
                 f"Promotion blockers: {blockers}",
-                "Black-Litterman remains blocked by data unless valid market-cap priors exist.",
+                "Black-Litterman remains diagnostic/governance-sensitive unless official point-in-time market-cap priors and documented views exist.",
             ],
         },
         {
             "heading": "Required Next Fix",
             "body": [
-                "Populate sourced current equity CSV files with ticker, source URL, provider, as-of date, market cap, rank universe and rank method.",
-                "Do not convert index proxies or templates into exact top-100 evidence.",
+                "Reconcile current public-provider candidate CSV files against official or vendor-grade top-100 sources.",
+                "Add point-in-time membership, delisting/corporate-action evidence and global walk-forward validation before promotion.",
             ],
         },
     ]
@@ -125,6 +150,10 @@ def _write_pdf(path: Path, title: str, sections: list[dict[str, object]]) -> Non
         story.append(Paragraph(str(section["heading"]), styles["Heading2"]))
         for line in section.get("body", []):
             story.append(Paragraph(str(line), styles["BodyText"]))
+        chart = section.get("chart")
+        if isinstance(chart, dict):
+            story.append(Spacer(1, 6))
+            story.append(_bar_chart(chart))
         table = section.get("table")
         if isinstance(table, pd.DataFrame) and not table.empty:
             cols = [
@@ -150,6 +179,38 @@ def _write_pdf(path: Path, title: str, sections: list[dict[str, object]]) -> Non
         story.append(Spacer(1, 12))
     doc = SimpleDocTemplate(str(path), pagesize=letter, rightMargin=36, leftMargin=36)
     doc.build(story)
+
+
+def _bar_chart(config: dict[str, object]):
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.lib import colors
+
+    labels = [str(value) for value in config.get("labels", [])]
+    values = [float(value) for value in config.get("values", [])]
+    max_value = max(values) if values else 1.0
+
+    drawing = Drawing(470, 170)
+    chart = VerticalBarChart()
+    chart.x = 40
+    chart.y = 45
+    chart.height = 90
+    chart.width = 380
+    chart.data = [values]
+    chart.valueAxis.valueMin = 0
+    chart.valueAxis.valueMax = max(1.0, max_value * 1.25)
+    chart.valueAxis.valueStep = max(1.0, round(max_value / 4) or 1.0)
+    chart.categoryAxis.categoryNames = labels
+    chart.categoryAxis.labels.fontSize = 7
+    chart.categoryAxis.labels.angle = 25
+    chart.categoryAxis.labels.boxAnchor = "ne"
+    chart.bars[0].fillColor = colors.HexColor("#1f77b4")
+    drawing.add(chart)
+
+    for index, value in enumerate(values):
+        x = 58 + index * (380 / max(1, len(values)))
+        drawing.add(String(x, 140, f"{value:g}", fontSize=8))
+    return drawing
 
 
 def _markdown(title: str, sections: list[dict[str, object]]) -> str:
