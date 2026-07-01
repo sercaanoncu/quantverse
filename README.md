@@ -117,6 +117,9 @@ protocol in `.codex/VALIDATION.md`.
 The permanent master roadmap is
 `docs/roadmap/QUANTVERSE_MASTER_PROJECT_PLAN.md`.
 
+The doctoral-style academic research package source is under
+`docs/thesis/`.
+
 ## Project Healthcheck
 
 Use `python scripts/quantverse_healthcheck.py` for a fast local readiness check.
@@ -140,7 +143,7 @@ python scripts/run_full_pipeline.py --config configs/base.yaml
 Expected pytest result after the global quant input gate sprint:
 
 ```text
-102 passed
+117 passed
 ```
 
 ## Main Outputs
