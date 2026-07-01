@@ -44,11 +44,11 @@ present locally:
 |---|---|---|---|---|
 | QuantVerse is research-grade. | Yes, with limits. | Tests, docs, audit gates and reproducible scripts. | Not equivalent to production trading. | Keep validation and blocker language current. |
 | QuantVerse is audit-ready. | Partially. | Scientific sanity outputs, evidence pack, red-team review. | Vendor-grade data lineage and access controls are absent. | Add institutional data controls and audit trail. |
-| Real stocks entered analysis. | Yes, if described as current/proxy research input. | Universe and candidate weights outputs. | Point-in-time membership and some source evidence remain incomplete. | Add sourced dated equity universe files. |
-| Global USD returns are FX-normalized. | Partially. | FX normalization reports and policy. | Current global master promotion still blocked/insufficient when source universe is missing. | Populate sourced universe and ensure all selected non-USD assets are FX-normalized. |
+| Real stocks entered analysis. | Yes, if described as current/proxy research input. | `data/universe/sources/*.csv`, universe and candidate weights outputs. | Point-in-time membership, official exact top-100 evidence and cross-listing review remain incomplete. | Add dated membership and official/vendor-grade rank evidence. |
+| Global USD returns are FX-normalized. | Yes for the current returns matrix where FX data is available, with limits. | FX normalization reports and policy. | Promotion still blocked by source-quality and historical-validation gates. | Keep FX coverage complete and add PIT/walk-forward validation. |
 | Exact top-100 equities are supported. | No. | Market-cap/rank evidence report and blockers. | Missing market-cap/rank evidence for required sleeves. | Add sourced market-cap/rank fields with provider, URL and as-of date. |
-| Black-Litterman is valid allocation evidence. | No. | Black-Litterman prerequisite report. | Sourced market-cap priors are missing. | Add market-cap priors and documented views, then validate. |
-| Global USD master portfolio is promoted. | No. | `global_master_decision_summary.json`. | Insufficient sourced global equity universe and evidence blockers. | Populate source CSVs, rebuild returns, pass FX/market-cap/promotion gates. |
+| Black-Litterman is valid allocation evidence. | No, not as promotion-grade evidence. | Black-Litterman prerequisite report. | Current public-provider market-cap fields are not official point-in-time priors and documented views are absent. | Add official/vendor-grade market-cap priors, views and PIT support, then validate. |
+| Global USD master portfolio is promoted. | No. | `global_master_decision_summary.json`. | Exact top-100, point-in-time, delisting/corporate-action and walk-forward blockers remain. | Add official/PIT evidence, rebuild returns and pass all promotion gates. |
 | Point-in-time historical claims are valid. | No. | Source population docs. | Current constituents are not point-in-time history. | Add dated historical constituents, delistings and corporate actions. |
 | Project gives investment advice. | No. | README and thesis disclaimer. | The system is a research pipeline. | Keep non-advice language in user-facing outputs. |
 | Project guarantees outperformance. | No. | Model governance and limitations. | No guarantee exists in financial markets. | Never use guarantee language. |
@@ -71,10 +71,10 @@ It is not yet ready to defend a promoted global USD master portfolio.
 Promotion requires all of the following:
 
 1. sourced global equity CSVs for all required sleeves,
-2. market-cap/rank evidence for exact top-100 claims,
+2. official or vendor-grade market-cap/rank evidence for exact top-100 claims,
 3. point-in-time membership for historical claims,
 4. FX-normalized USD returns for all selected non-USD assets,
-5. valid adjusted-price/corporate-action handling,
+5. valid adjusted-price/corporate-action and delisting handling,
 6. long-only/cap/weight constraints passing,
 7. random portfolio and Equal Weight comparisons,
 8. drawdown, VaR/CVaR, stress and transaction-cost checks,

@@ -21,11 +21,11 @@ methodological reference category and translated into practical project rules.
 
 | Methodological principle | QuantVerse implementation rule | Current evidence | Status | Remaining blocker |
 |---|---|---|---|---|
-| A portfolio is a constrained weight vector, not a label. | Every full portfolio must show weights, sum-to-one status, long-only status and cap status. | `data/processed/global_master_candidate_weights.csv`, `data/processed/global_master_constraint_audit.csv` | Partially satisfied | Some generated candidate outputs remain research-only while universe inputs are insufficient. |
+| A portfolio is a constrained weight vector, not a label. | Every full portfolio must show weights, sum-to-one status, long-only status and cap status. | `data/processed/global_master_candidate_weights.csv`, `data/processed/global_master_constraint_audit.csv` | Partially satisfied | Candidate outputs remain research-only until exact/PIT/delisting/walk-forward gates pass. |
 | Mean-variance and Max Sharpe are sensitive to expected-return estimation error. | Max Sharpe must be diagnostic unless validated out of sample and not blocked by data. | `data/processed/model_applicability_matrix.csv`, `data/processed/global_master_model_comparison.csv` | Satisfied as governance | Global walk-forward evidence is still missing. |
 | Risk allocation models can reduce concentration but do not guarantee higher return. | HRP, Risk Parity and Min CVaR must be labelled by actual run status and risk objective. | `data/processed/model_applicability_matrix.csv` | Partially satisfied | Global report must keep blocked/not-run status explicit. |
 | CVaR is tail-aware and should be interpreted with data limits. | CVaR must be shown with drawdown and stress results, not as a standalone success metric. | `data/processed/global_master_risk_report.csv`, `data/processed/global_stress_test_results.csv` | Partially satisfied | Tail estimates are weak while source/FX blockers remain. |
-| Black-Litterman requires defensible priors and views. | Do not present Black-Litterman as valid allocation evidence without sourced market-cap priors or documented views. | `data/processed/global_black_litterman_prerequisite_report.csv` | Satisfied as blocker | Equity market-cap/rank priors remain missing. |
+| Black-Litterman requires defensible priors and views. | Do not present Black-Litterman as promotion-grade allocation evidence without official/vendor-grade point-in-time market-cap priors or documented views. | `data/processed/global_black_litterman_prerequisite_report.csv` | Satisfied as governance-sensitive diagnostic | Current public-provider priors are not enough for promoted global allocation. |
 
 ## Risk Rules
 
@@ -58,7 +58,7 @@ methodological reference category and translated into practical project rules.
 
 | Methodological principle | QuantVerse implementation rule | Current evidence | Status | Remaining blocker |
 |---|---|---|---|---|
-| Source provenance is part of model validity. | Every sourced row needs provider, source URL and as-of date. | `docs/data/sourced_top100_universe_population.md`, source validation outputs | Partially satisfied | Missing sourced equity CSVs. |
+| Source provenance is part of model validity. | Every sourced row needs provider, source URL and as-of date. | `docs/data/sourced_top100_universe_population.md`, source validation outputs | Partially satisfied | Public-provider current inputs need official/vendor reconciliation for exact top-100 promotion. |
 | Current constituents are not point-in-time historical evidence. | Do not claim historical top-100 support from current lists. | `docs/data/sourced_top100_universe_population.md` | Satisfied as policy | Need dated historical memberships. |
-| Mixed currencies invalidate a global USD portfolio claim. | Convert non-USD local returns into USD or block promotion. | `docs/data/global_returns_fx_policy.md`, FX reports | Partially satisfied | Current global master promotion remains blocked/insufficient input. |
+| Mixed currencies invalidate a global USD portfolio claim. | Convert non-USD local returns into USD or block promotion. | `docs/data/global_returns_fx_policy.md`, FX reports | Partially satisfied | Current global master promotion remains blocked by source-quality and historical-validation gates. |
 | Market-cap-ranked top-100 requires market-cap or rank evidence. | Exact top-100 claims are forbidden without market-cap/rank evidence. | `data/processed/global_market_cap_rank_evidence_report.csv` | Satisfied as gate | Exact top-100 support is not available for required equity sleeves. |

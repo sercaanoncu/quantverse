@@ -16,12 +16,12 @@ a claim that a global USD master portfolio has been promoted.
 |---|---|---|
 | Does the thesis hide blockers? | Pass | Blockers are listed in Results, Limitations, Red-Team Review and Evidence Pack. |
 | Does it overclaim exact top-100? | Pass | It states that exact top-100 market-cap support is not available without market-cap/rank evidence. |
-| Does it overclaim global USD promotion? | Pass | Current decision is `insufficient_inputs` / not promoted. |
+| Does it overclaim global USD promotion? | Pass | Current decision is `not promoted`. |
 | Does it confuse current universe with point-in-time history? | Pass | Current universe is described as forward-looking/current research input only. |
 | Does it present ML as allocation signal? | Pass | ML is diagnostic unless strict validation exists. |
-| Does it present Black-Litterman as valid without priors? | Pass | Black-Litterman is blocked by missing market-cap priors. |
+| Does it present Black-Litterman as valid without promotion-grade priors? | Pass | Black-Litterman is diagnostic/governance-sensitive while current public-provider priors lack official PIT support. |
 | Does it use raw table dumps instead of explanation? | Pass | Main thesis uses narrative summaries and evidence references; long tables remain in generated evidence files. |
-| Does it mention limitations clearly? | Pass | Missing source CSVs, FX, market-cap/rank evidence, point-in-time constituents, delistings and corporate actions are explicit. |
+| Does it mention limitations clearly? | Pass | Public-provider source limits, exact top-100 gaps, point-in-time constituents, delistings, corporate actions and walk-forward blockers are explicit. |
 | Does it include reproducibility commands? | Pass | Commands are included in the reproducibility chapter and appendices. |
 | Does it distinguish local returns from USD returns? | Pass | FX chapter states the local-to-USD simple-return formula. |
 | Does it cite internal methodology and web thesis standards? | Pass | `thesis_style_source_audit.md` and `methodology_literature_mapping.md` are referenced. |
@@ -29,10 +29,10 @@ a claim that a global USD master portfolio has been promoted.
 
 ## Remaining Unresolved Risks
 
-- Missing sourced global equity CSVs prevent a real global master portfolio
-  promotion.
-- Exact top-100 market-cap claims are unsupported until dated market-cap/rank
-  evidence exists.
+- Public-provider current candidate CSVs are research inputs, not official
+  exact top-100 evidence.
+- Exact top-100 market-cap claims are unsupported until dated official or
+  vendor-grade market-cap/rank evidence exists.
 - Point-in-time historical validation is unavailable without dated constituents,
   delistings and corporate actions.
 - Public data-provider limitations remain; institutional reconciliation is not

@@ -8,8 +8,10 @@ Branch: `integrate-fx-marketcap-gates`
 Date: 2026-07-02  
 Disclaimer: Bu çalışma yatırım tavsiyesi değildir. Bulgular araştırma,
 doğrulama ve metodoloji değerlendirmesi amacı taşır.
-Current promotion decision: global USD master portfolio is not promoted;
-active decision layer reports `insufficient_inputs`.
+Current promotion decision: global USD master portfolio is not promoted.
+The active decision layer now uses sourced current candidate equity inputs, but
+it still reports `not promoted` because exact top-100, point-in-time,
+delisting/corporate-action and walk-forward evidence gates remain unresolved.
 
 ## Table of Contents
 
@@ -64,13 +66,13 @@ metrikleri, random benchmark, Equal Weight karşılaştırması, model governanc
 bilimsel sanity audit sonuçlarıyla değerlendirir.
 
 Mevcut kanıt katmanı global USD master portfolio için promosyon vermez.
-`global_master_decision_summary.json` çıktısı `insufficient_inputs` sonucunu
-göstermektedir. Bunun nedeni kaynaklı güncel global equity evreninin eksikliği
-ve market-cap/rank kanıtı, exact top-100 desteği, Black-Litterman önseli,
-point-in-time tarihsel üyelik ve global USD geçerliliği gibi kritik kanıtların
-tamamlanmamış olmasıdır. Bu sonuç bir başarısızlık olarak değil, bilimsel
-dürüstlüğün gereği olarak yorumlanmalıdır: proje desteklenmeyen iddiaları
-promote etmemektedir.
+Kaynaklı güncel aday equity CSV'leri oluşturulmuş ve global evren artık boş
+değildir; ancak bu aday dosyalar resmi exchange/index-provider exact top-100
+kanıtı değildir. `global_master_decision_summary.json` çıktısı `not promoted`
+sonucunu göstermektedir. Bunun nedeni exact top-100 desteği, point-in-time
+tarihsel üyelik, delisting/corporate-action kanıtı ve global walk-forward
+doğrulamasının tamamlanmamış olmasıdır. Bu sonuç bilimsel dürüstlüğün gereğidir:
+proje desteklenmeyen iddiaları promote etmemektedir.
 
 ## 2. English Abstract
 
@@ -82,15 +84,15 @@ diagnostics and reporting layer are sufficient to support a named portfolio
 claim. The system is designed to produce candidates and then allow the evidence
 gate to say "not promoted" when blockers remain.
 
-The current evidence does not promote a global USD master portfolio.
-`global_master_decision_summary.json` reports `insufficient_inputs`, because a
-sourced current global equity universe is missing or has zero investable equity
-rows in the active decision layer. Exact top-100 market-cap claims remain
-unsupported without sourced market-cap/rank evidence; Black-Litterman remains
-blocked without defensible market-cap priors; point-in-time historical claims
-remain unsupported without dated constituents, delistings and corporate-action
-handling. The main contribution is therefore an auditable research framework
-that refuses unsupported portfolio promotion.
+The current evidence does not promote a global USD master portfolio. Sourced
+current candidate equity files now populate the active global equity universe,
+but the source class is public-provider current research input, not official
+exchange or index-provider exact top-100 evidence. Exact top-100 claims remain
+unsupported; Black-Litterman can only be read as diagnostic/governance-sensitive
+while priors come from current public-provider market-cap fields; and
+point-in-time historical claims remain unsupported without dated constituents,
+delistings and corporate-action handling. The main contribution is therefore an
+auditable research framework that refuses unsupported portfolio promotion.
 
 ## 3. Extended Executive Summary
 
@@ -104,12 +106,12 @@ global equities require source provenance, market-cap/rank evidence, currency
 normalization, calendar alignment, corporate-action treatment and point-in-time
 constituent discipline.
 
-The present result is deliberately conservative. Real/proxy rows and research
-outputs exist locally, but the active master decision summary says
-`insufficient_inputs`. That means the current output must not be described as a
-promoted global USD master portfolio. Proxy-only or incomplete research output
-may be useful for debugging and methodology design, but it is not final
-investment evidence.
+The present result is deliberately conservative. Real current candidate equity
+rows and proxy rows exist locally, and USD-normalized research outputs can be
+rebuilt. The active master decision summary still says `not promoted`. That
+means the current output must not be described as a promoted global USD master
+portfolio. Public-provider current research input is useful for debugging and
+methodology design, but it is not final investment evidence.
 
 The scientifically valid part of the project is the evidence-gated framework:
 it shows what was attempted, what data exists, what data is missing, which
@@ -254,10 +256,12 @@ and positive market-cap or rank evidence. Example CSV files are schema
 templates only. They do not prove current rank, market cap or investability.
 
 The market-cap/rank evidence gate prevents three errors. First, it prevents
-manual or index-proxy lists from being described as exact top-100. Second, it
-prevents Black-Litterman from being run as if market-cap priors existed. Third,
-it prevents current constituent lists from being treated as point-in-time
-historical memberships.
+public-provider, manual-review or index-proxy lists from being described as
+official exact top-100 lists. Second, it prevents Black-Litterman output from
+being treated as promotion-grade allocation evidence when priors come from
+current public-provider fields rather than institutional point-in-time market
+capitalization data. Third, it prevents current constituent lists from being
+treated as point-in-time historical memberships.
 
 Crypto market-cap evidence also cannot be generalized to equities. A top crypto
 ranking and an equity market-cap ranking have different data providers,
@@ -273,13 +277,15 @@ answer. Equal Weight is the transparent benchmark. Random portfolios are a
 benchmark distribution, not future proof. Inverse Volatility is a simple risk
 scaling baseline. Min Variance is defensive and covariance-sensitive. Max
 Sharpe is diagnostic when expected-return estimates are weak. Min CVaR is
-tail-aware but data-sensitive. Black-Litterman is blocked without priors.
+tail-aware but data-sensitive. Black-Litterman is computed only as a
+governance-sensitive diagnostic while current public-provider market-cap fields
+are used instead of official point-in-time priors.
 
 The weight audit is central. Generated candidate weights show weight sums of
 1.0 for the listed candidate models, no negative weights in the inspected
 weights, and model-specific max-weight/dust-weight behavior. However, these
 weights are not a promoted global USD master portfolio because the active
-decision layer is `insufficient_inputs`.
+decision layer is `not promoted`.
 
 ## 12. Risk and Statistical Diagnostics
 
@@ -307,7 +313,9 @@ Model governance assigns each method a status:
 Under this governance, ML diagnostics are not trading signals. ARIMA, GARCH,
 LSTM, RNN, Transformer and reinforcement learning are not promoted allocation
 engines in the current global master portfolio layer. Black-Litterman is
-blocked because market-cap priors are not available in the required form.
+diagnostic/governance-sensitive because promotion-grade market-cap priors,
+views and point-in-time support are not available in the required institutional
+form.
 
 ## 14. System Architecture
 
@@ -374,23 +382,27 @@ rebuilt.
 Current branch: `integrate-fx-marketcap-gates`.
 
 Current key decision: `global_master_decision_summary.json` reports
-`insufficient_inputs`, with the reason that the sourced current global equity
-universe is missing or has zero investable equity rows. Therefore the global
-USD master portfolio is not promoted.
+`not promoted`. The sourced current candidate equity universe is no longer
+empty, but it is public-provider current research input rather than official
+exact top-100 evidence. Therefore the global USD master portfolio is not
+promoted.
 
-Scientific sanity audit summary shows 31 issues, including 10 critical issues,
-6 high issues and 16 promotion blockers in the locally inspected evidence.
-These counts are evidence of a functioning blocker system, not a claim that the
-portfolio is ready.
+Scientific sanity audit issue counts are generated locally and should be read
+from `data/processed/global_scientific_sanity_summary.csv` after each run. The
+important decision is qualitative and stable: promotion blockers remain for
+exact top-100 support, point-in-time membership, delisting/corporate-action
+evidence and global walk-forward validation.
 
 FX status: FX policy and reports exist, including USD-native and non-USD FX
-coverage fields. However global USD promotion remains blocked until the active
-selected universe has all required FX-normalized returns and source inputs.
+coverage fields. The current returns matrix is USD-normalized where FX data is
+available, but global USD promotion remains blocked until the source-quality
+and historical-validation gates pass.
 
-Market-cap/rank status: exact top-100 market-cap support is not available for
-the required sleeves in the current evidence layer. Market-cap/rank blockers
-include missing market-cap, missing rank, missing source URL and missing
-as-of-date fields. Black-Litterman remains blocked by missing market-cap priors.
+Market-cap/rank status: current public-provider market-cap and computed rank
+fields exist for the sourced equity candidate files. Exact top-100 market-cap
+support is still not available for the required sleeves because official or
+vendor-grade rank evidence is missing. Black-Litterman output is therefore
+diagnostic/governance-sensitive, not promotion-grade allocation proof.
 
 Model results are available in local generated tables, but they must be read
 under the current decision state. Generated model comparison tables may show
@@ -415,11 +427,12 @@ structure needed to prevent unsupported promotion.
 
 ## 18. Validity Threats and Limitations
 
-The largest validity threat is missing sourced equity CSVs. Without them, the
-active global decision layer cannot support a complete global equity universe.
-The second threat is the absence of exact market-cap/rank evidence for required
-equity sleeves. The third threat is missing point-in-time membership, delisting
-and corporate-action reconciliation. These block historical top-100 claims.
+The largest remaining validity threat is not a missing current universe; it is
+that the populated current candidate universe is not official point-in-time
+exact top-100 evidence. The second threat is the absence of dated historical
+membership, delisting and corporate-action reconciliation. The third threat is
+global walk-forward validation without look-ahead. These block historical
+top-100 claims and promotion-grade global stock-selection claims.
 
 Currency is another threat. Non-USD assets must be converted to USD with
 appropriate FX series, calendar alignment and compounding logic. Public data
@@ -443,9 +456,10 @@ blocks this. It could use ML diagnostics as allocation signals. Model
 governance blocks this. It could present high returns while hiding outliers.
 Scientific sanity audit blocks this.
 
-Remaining unresolved risks are not hidden: sourced equity universe population,
-point-in-time data, delistings, corporate actions, vendor reconciliation,
-walk-forward validation and final promotion-gate hardening remain future work.
+Remaining unresolved risks are not hidden: official/vendor-grade exact top-100
+reconciliation, point-in-time data, delistings, corporate actions,
+cross-listing/domicile review, walk-forward validation and final promotion-gate
+hardening remain future work.
 
 ## 20. Conclusion
 
@@ -456,17 +470,18 @@ defended as an evidence-gated architecture, methodology and reporting system.
 It cannot be defended as a proof of investable superiority.
 
 The correct final decision is: global stock master portfolio is not promoted
-because sourced top-100 equity inputs, exact market-cap/rank support,
-point-in-time historical evidence and complete promotion-gate evidence remain
-blocked.
+because exact top-100 support, point-in-time historical evidence,
+delisting/corporate-action evidence, walk-forward validation and complete
+promotion-gate evidence remain blocked.
 
 ## 21. Future Work
 
-The next sprint should populate sourced equity CSVs with provider, source URL,
-as-of date, market cap and rank fields. After that, the returns matrix should
-be rebuilt with FX normalization, then the global master portfolio should be
-rerun. Only then should walk-forward validation, transaction-cost checks,
-random portfolio percentile tests and final promotion gates be interpreted.
+The next sprint should replace or reconcile public-provider current candidate
+CSV files with official or vendor-grade market-cap-ranked sources, add
+point-in-time membership effective dates, add delisting/corporate-action
+evidence, and then build global stock walk-forward validation. Only then should
+transaction-cost checks, random portfolio percentile tests and final promotion
+gates be interpreted as promotion-grade evidence.
 
 Additional future work includes point-in-time constituents, delistings,
 corporate-action reconciliation, vendor data comparison, institutional audit
