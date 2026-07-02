@@ -80,6 +80,8 @@ def build_demo_summary() -> dict[str, object]:
     weights = _read_csv(PROCESSED / "global_portfolio_league_weights.csv")
     risk = _read_csv(PROCESSED / "global_portfolio_risk_report.csv")
     walk_summary = _read_json(PROCESSED / "global_walk_forward_summary.json")
+    risk_sanity = _read_csv(PROCESSED / "global_risk_metric_sanity_checks.csv")
+    turnover = _read_csv(PROCESSED / "global_walk_forward_turnover.csv")
     decision = _read_json(PROCESSED / "global_master_decision_summary.json")
     selected = (
         scores.loc[scores["selection_flag"].astype(bool)]
@@ -133,14 +135,28 @@ def build_demo_summary() -> dict[str, object]:
             float(final_weights["weight"].sum()) if "weight" in final_weights else 0.0
         ),
         "expected_portfolio_return": _float(risk_row.get("annualized_return")),
+        "expected_portfolio_return_label": (
+            "annualized arithmetic mean daily simple return from realized "
+            "public-data sample; not guaranteed and not personal investment advice"
+        ),
+        "expected_portfolio_return_warning": str(
+            risk_row.get("extreme_metric_warning", "not available")
+        ),
         "expected_portfolio_volatility": _float(risk_row.get("annualized_volatility")),
+        "expected_portfolio_volatility_label": "annualized volatility of daily simple returns",
         "expected_portfolio_cvar": _float(risk_row.get("cvar_95")),
+        "expected_portfolio_cvar_label": "daily historical 95% CVaR; negative values are losses",
         "walk_forward_status": walk_summary.get("walk_forward_status", "missing"),
+        "walk_forward_leakage_audit_passed": walk_summary.get(
+            "leakage_audit_passed", False
+        ),
         "walk_forward_best_model": walk_summary.get("best_model", "missing"),
         "walk_forward_equal_weight_comparison": walk_summary.get(
             "equal_weight_comparison", {}
         ),
         "random_portfolio_percentile": _random_percentile(final_model),
+        "risk_metric_sanity_passed": _all_checks_passed(risk_sanity),
+        "transaction_cost_status": _transaction_cost_status(turnover),
         "promotion_decision": decision.get("promotion_decision", "not promoted"),
         "promotion_reason": _promotion_reason(
             decision.get("reason", "Public-data research output."),
@@ -212,6 +228,23 @@ def _promotion_reason(reason: object, final_model: str) -> str:
         "research final model; this is not a promoted institutional global USD "
         "master portfolio."
     )
+
+
+def _all_checks_passed(frame: pd.DataFrame) -> bool:
+    if frame.empty or "passed" not in frame:
+        return False
+    return bool(frame["passed"].map(lambda value: str(value).lower() == "true").all())
+
+
+def _transaction_cost_status(turnover: pd.DataFrame) -> str:
+    if turnover.empty or "transaction_cost_decimal" not in turnover:
+        return "not_available"
+    total_cost = pd.to_numeric(
+        turnover["transaction_cost_decimal"], errors="coerce"
+    ).fillna(0.0)
+    if float(total_cost.sum()) > 0:
+        return "applied_in_walk_forward_net_returns"
+    return "no_turnover_cost_observed"
 
 
 def _write_summary(summary: dict[str, object]) -> None:

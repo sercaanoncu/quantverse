@@ -19,6 +19,9 @@ FORECAST_COLUMNS = [
     "ticker",
     "horizon",
     "horizon_days",
+    "expected_return_unit",
+    "forecast_horizon_label",
+    "annualization_method",
     "observations",
     "naive_random_walk_expected_return",
     "momentum_expected_return",
@@ -36,6 +39,7 @@ FORECAST_COLUMNS = [
     "r2",
     "model_status",
     "diagnostic_warning",
+    "extreme_expected_return_warning",
 ]
 
 
@@ -92,10 +96,14 @@ def _forecast_one(
         else "low_data_diagnostic"
     )
     warning = _warning(observations, sigma, errors)
+    extreme_warning = _extreme_expected_return_warning(ensemble, horizon_days)
     return {
         "ticker": ticker,
         "horizon": horizon,
         "horizon_days": horizon_days,
+        "expected_return_unit": "decimal cumulative simple return over forecast horizon",
+        "forecast_horizon_label": f"{horizon_days} trading days",
+        "annualization_method": "not annualized; horizon return estimated from trailing simple returns",
         "observations": observations,
         "naive_random_walk_expected_return": random_walk,
         "momentum_expected_return": float(momentum),
@@ -115,6 +123,7 @@ def _forecast_one(
         "r2": errors.get("r2", np.nan),
         "model_status": status,
         "diagnostic_warning": warning,
+        "extreme_expected_return_warning": extreme_warning,
     }
 
 
@@ -190,6 +199,13 @@ def _warning(
     if errors and np.isfinite(errors.get("r2", np.nan)) and errors["r2"] < 0:
         flags.append("ridge_underperforms_mean")
     return "; ".join(flags) if flags else "forecast_is_diagnostic_not_advice"
+
+
+def _extreme_expected_return_warning(ensemble: float, horizon_days: int) -> str:
+    threshold = 1.0 if int(horizon_days) >= 252 else 0.50
+    if abs(float(ensemble)) > threshold:
+        return "extreme_horizon_expected_return_review_required"
+    return "none"
 
 
 def _period_return(series: pd.Series, window: int) -> float:

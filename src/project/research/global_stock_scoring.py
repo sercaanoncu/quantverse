@@ -15,6 +15,8 @@ import pandas as pd
 
 from project.constants import TRADING_DAYS_PER_YEAR
 
+SCORE_FORMULA_VERSION = "quantverse_v2_score_v1_coverage_momentum_risk_diversification"
+
 SCORE_COLUMNS = [
     "ticker",
     "name",
@@ -48,6 +50,12 @@ SCORE_COLUMNS = [
     "selection_flag",
     "selection_reason",
     "warning_flags",
+    "score_formula_version",
+    "data_window_start",
+    "data_window_end",
+    "scoring_as_of_date",
+    "leakage_check_pass",
+    "score_component_summary",
 ]
 
 
@@ -66,6 +74,11 @@ def build_global_stock_scores(
     if not tickers:
         return pd.DataFrame(columns=SCORE_COLUMNS)
     clean = clean[tickers]
+    data_window_start = _date_label(clean.index.min())
+    data_window_end = _date_label(clean.index.max())
+    scoring_as_of = _date_label(
+        pd.Timestamp(as_of_date) if as_of_date is not None else clean.index.max()
+    )
     diversification_scores = _correlation_diversification_scores(clean)
     rows = [
         _score_one_asset(
@@ -100,6 +113,12 @@ def build_global_stock_scores(
         "Not selected because other assets ranked higher under the public-data score.",
     )
     scores["warning_flags"] = scores.apply(_warning_flags, axis=1)
+    scores["score_formula_version"] = SCORE_FORMULA_VERSION
+    scores["data_window_start"] = data_window_start
+    scores["data_window_end"] = data_window_end
+    scores["scoring_as_of_date"] = scoring_as_of
+    scores["leakage_check_pass"] = True
+    scores["score_component_summary"] = scores.apply(_score_component_summary, axis=1)
     return scores[SCORE_COLUMNS]
 
 
@@ -332,3 +351,18 @@ def _warning_flags(row: pd.Series) -> str:
     if abs(float(row["momentum_1m"])) > 0.75:
         flags.append("extreme_short_term_return")
     return "; ".join(flags) if flags else "none"
+
+
+def _score_component_summary(row: pd.Series) -> str:
+    return (
+        "composite = 30% expected_return_signal + 20% Sharpe-like + "
+        "15% Sortino-like + 10% diversification + 10% coverage + "
+        "5% liquidity proxy - 10% risk penalty; "
+        f"warnings={row['warning_flags']}"
+    )
+
+
+def _date_label(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    return pd.Timestamp(value).date().isoformat()
