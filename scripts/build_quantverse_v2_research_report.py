@@ -34,6 +34,8 @@ def _sections() -> list[dict[str, object]]:
     risk = _read_csv(PROCESSED / "global_portfolio_risk_report.csv")
     walk = _read_csv(PROCESSED / "global_walk_forward_model_comparison.csv")
     weights = _read_csv(PROCESSED / "global_portfolio_league_weights.csv")
+    leakage = _read_csv(PROCESSED / "global_walk_forward_leakage_audit.csv")
+    sanity = _read_csv(PROCESSED / "global_risk_metric_sanity_checks.csv")
     selected = (
         scores.loc[scores["selection_flag"].astype(bool)]
         if not scores.empty and "selection_flag" in scores
@@ -95,9 +97,12 @@ def _sections() -> list[dict[str, object]]:
             "bullets": [
                 f"Final selected model: {final_model}.",
                 f"Final weight sum: {summary.get('weight_sum', 'not available')}.",
-                f"Expected portfolio return: {summary.get('expected_portfolio_return', 'not available')}.",
-                f"Expected portfolio volatility: {summary.get('expected_portfolio_volatility', 'not available')}.",
-                f"Expected portfolio CVaR: {summary.get('expected_portfolio_cvar', 'not available')}.",
+                "Return label: "
+                + str(summary.get("expected_portfolio_return_label", "not available")),
+                f"Annualized realized return estimate: {summary.get('expected_portfolio_return', 'not available')}.",
+                f"Return warning: {summary.get('expected_portfolio_return_warning', 'not available')}.",
+                f"Annualized volatility: {summary.get('expected_portfolio_volatility', 'not available')}.",
+                f"Daily historical CVaR: {summary.get('expected_portfolio_cvar', 'not available')}.",
             ],
             "table": (
                 final_weights.head(15) if not final_weights.empty else risk.head(10)
@@ -109,8 +114,19 @@ def _sections() -> list[dict[str, object]]:
                 "Walk-forward uses chronological train and next-period test windows.",
                 "Because point-in-time membership is unavailable, this is a current-universe public-data walk-forward, not an institutional PIT backtest.",
                 f"Walk-forward status: {summary.get('walk_forward_status', 'not available')}.",
+                f"Leakage audit passed: {summary.get('walk_forward_leakage_audit_passed', 'not available')}.",
+                f"Transaction-cost status: {summary.get('transaction_cost_status', 'not available')}.",
             ],
             "table": walk.head(12),
+        },
+        {
+            "title": "Sanity Checks and Claim Controls",
+            "bullets": [
+                f"Risk metric sanity passed: {summary.get('risk_metric_sanity_passed', 'not available')}.",
+                f"Random portfolio percentile: {summary.get('random_portfolio_percentile', 'not available')}.",
+                "Extreme return/risk values are warnings requiring review, not success claims.",
+            ],
+            "table": leakage.head(12) if not leakage.empty else sanity.head(12),
         },
         {
             "title": "CV/GitHub Interpretation",

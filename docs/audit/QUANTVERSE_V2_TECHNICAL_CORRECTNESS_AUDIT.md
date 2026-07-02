@@ -1,0 +1,56 @@
+# QuantVerse v2 Technical Correctness Audit
+
+This audit records the mathematical, statistical, financial, leakage and
+claim-language review performed after the first QuantVerse v2 engine build. It
+uses the local methodology mapping from the eight finance/statistics/ML books as
+validation guidance and translates those principles into code, output and test
+checks. It does not claim investment advice, official exact top-100 support or
+institutional point-in-time backtest validity.
+
+| Issue | Severity | File/function | Evidence | Why it matters | Fix applied | Test added | Status |
+|---|---|---|---|---|---|---|---|
+| Annualized return field was labeled as expected return without enough context. | High | `scripts/run_quantverse_v2_demo.py::build_demo_summary` | Demo summary reported `expected_portfolio_return` around 2.48 from `annualized_return`. | A realized arithmetic annualized estimate can be misread as a guaranteed forecast. | Added explicit return label and extreme warning fields. | `tests/test_annualization_and_scaling.py` | Fixed |
+| Extreme annualized return values lacked first-class warning metadata. | High | `global_portfolio_risk.py` | Public-data selected stocks can produce very high annualized estimates. | Extreme metrics must be red flags, not marketing claims. | Added `extreme_metric_warning` and risk sanity output. | `tests/test_annualization_and_scaling.py`, `tests/test_report_interpretation_contract.py` | Fixed |
+| GMV model used inverse diagonal variance approximation while labeled as global minimum variance. | High | `global_portfolio_league.py::_gmv_weights` | Prior implementation ignored off-diagonal covariance. | GMV should minimize portfolio variance under constraints. | Replaced with constrained SLSQP covariance minimization with finite/PSD-stabilized covariance fallback. | `tests/test_portfolio_model_validity.py` | Fixed |
+| Forecast horizon return labels were ambiguous. | Medium | `global_return_forecasting.py::_forecast_one` | 1M/3M/6M/12M outputs did not state whether values were annualized. | Forecast scaling errors are common and materially change interpretation. | Added unit, horizon label and annualization-method columns. | `tests/test_annualization_and_scaling.py` | Fixed |
+| 12M forecast could be confused with double annualization. | Medium | `global_return_forecasting.py::_forecast_one` | Rolling mean is `daily_mean * horizon_days`; this is a horizon estimate. | Prevents mixing horizon return and annualized return. | Added explicit label and known-case test. | `tests/test_annualization_and_scaling.py` | Fixed |
+| Stock score output lacked scoring window metadata. | Medium | `global_stock_scoring.py::build_global_stock_scores` | Scores did not expose start/end/as-of dates. | A reviewer must see what data window produced each score. | Added formula version, data-window, scoring-as-of, leakage flag and component summary. | Existing scoring tests plus final demo regeneration | Fixed |
+| VaR/CVaR sign convention needed explicit generated evidence. | Medium | `global_portfolio_risk.py` | Negative CVaR values can be misread without labels. | Tail metrics should state that negative values are losses. | Added metric definitions and sanity checks. | `tests/test_quant_math_correctness.py` | Fixed |
+| Risk metric sanity checks were not generated as output artifacts. | Medium | `global_portfolio_risk.py::write_risk_outputs` | Reports had metrics but no machine-readable sanity pass/fail. | Auditability requires generated checks. | Added `global_risk_metric_definitions.csv` and `global_risk_metric_sanity_checks.csv`. | `tests/test_quant_math_correctness.py` | Fixed |
+| Walk-forward leakage controls were implicit but not evidenced. | High | `global_walk_forward.py` | Scores were recomputed inside folds, but no audit file proved it. | Leakage prevention must be visible and testable. | Added leakage audit and window-summary outputs. | `tests/test_walk_forward_no_leakage.py` | Fixed |
+| Transaction cost application was not visible in turnover output. | Medium | `global_walk_forward.py` | Costs were applied to first net test return but turnover file omitted cost amount. | Cost drag must be inspectable. | Added `transaction_cost_decimal` and summary status. | `tests/test_walk_forward_no_leakage.py` | Fixed |
+| Report used "Expected portfolio return" wording too loosely. | High | `build_quantverse_v2_research_report.py` | PDF section showed expected return without full label. | Report readers may treat a historical estimate as a forecast. | Changed report wording to annualized realized return estimate with warning. | `tests/test_report_interpretation_contract.py` | Fixed |
+| Excel lacked formula/dictionary sheet for key interpretations. | Medium | `build_quantverse_v2_excel_output.py` | Workbook had raw sheets but no formula appendix. | Non-expert readers need metric definitions before interpreting outputs. | Added `APPENDIX_FORMULAS`, `RISK_METRICS`, `WARNINGS`, benchmark and random portfolio sheets. | `tests/test_report_interpretation_contract.py` | Fixed |
+| Return scaling and CAGR/arithmetic annual return needed known-case tests. | Medium | `global_portfolio_risk.py::evaluate_return_series` | Formula looked correct but lacked direct test. | Annualization bugs can create large false signals. | Added deterministic known-case annualization test. | `tests/test_annualization_and_scaling.py` | Fixed |
+| Simple return portfolio aggregation checked. | Low | `global_portfolio_league.py`, `global_portfolio_risk.py` | Portfolio returns use `returns @ weights`. | Simple returns aggregate linearly over portfolio weights for one period. | Kept implementation; added formula dictionary. | `tests/test_report_interpretation_contract.py` | Verified |
+| Log returns not used for direct portfolio aggregation. | Low | v2 modules | v2 model league reads simple USD returns. | Mixing log/simple returns would distort weights and performance. | No code change needed. | Existing v2 demo and global returns tests | Verified |
+| Volatility annualization checked. | Low | `global_portfolio_risk.py::_annualized_volatility` | Uses daily standard deviation times `sqrt(252)`. | Correct scaling is required for Sharpe and risk reporting. | Kept implementation; added known-case tests. | `tests/test_annualization_and_scaling.py` | Verified |
+| Sharpe formula checked. | Low | `global_portfolio_risk.py::evaluate_return_series` | Uses arithmetic annual return over annualized volatility. | Sharpe interpretation depends on consistent units. | Kept implementation and labels. | Existing risk tests | Verified |
+| Sortino formula checked. | Low | `global_portfolio_risk.py::evaluate_return_series` | Uses arithmetic annual return over annualized downside volatility. | Downside-risk denominator must be explicit. | Kept implementation. | Existing risk tests | Verified |
+| Drawdown formula checked. | Low | `global_portfolio_risk.py::_max_drawdown` | Wealth divided by running max minus one. | Drawdown must be non-positive and compounding-based. | Kept implementation; added known-case test. | `tests/test_quant_math_correctness.py` | Verified |
+| Covariance handling hardened. | Medium | `global_portfolio_league.py::_finite_covariance` | Raw covariance may be singular or non-finite. | Optimizers can fail or return unstable weights. | Added finite symmetric covariance and eigenvalue jitter before GMV optimization. | `tests/test_portfolio_model_validity.py` | Fixed |
+| Weight sum, long-only and max-weight constraints checked. | Medium | `global_portfolio_league.py::_league_row` | League rows carry weight sum, negative count and max weight. | Portfolio feasibility is a first-order correctness condition. | Kept checks; extended model validity tests. | `tests/test_portfolio_model_validity.py` | Verified |
+| HRP implementation validity checked. | Medium | `optimization/hierarchical.py` | Uses correlation distance, linkage, quasi-diagonalization and recursive bisection. | HRP label is defensible only if core HRP steps exist. | No relabel required; remains `actually_run`. | Existing league tests | Verified |
+| Risk Parity implementation validity checked. | Medium | `optimization/risk_parity.py` | Uses SLSQP equal-risk-contribution objective. | Risk Parity label requires risk contribution balancing objective. | No relabel required; remains `actually_run`. | Existing and new league tests | Verified |
+| Risk Parity zero-volatility edge case emitted divide-by-zero warnings. | Low | `optimization/risk_parity.py::_risk_contributions` and `optimize` | Synthetic one-asset/near-zero variance walk-forward test exposed runtime warning. | Degenerate covariance cases should not produce noisy or non-finite diagnostics. | Added finite positive-volatility guards and zero contribution fallback. | `tests/test_walk_forward_no_leakage.py` | Fixed |
+| Black-Litterman status checked. | High | `global_portfolio_league.py` | Public-provider current caps are not PIT priors/views. | BL must not be promotion-grade without defensible priors and views. | Kept `diagnostic_only` with missing-prior block when caps unavailable. | `tests/test_portfolio_model_validity.py` | Verified |
+| ML Forecast and Ensemble status checked. | High | `global_portfolio_league.py` | Forecasts are diagnostics, not direct allocation proof. | ML/forecast overclaiming is a major model-governance risk. | Kept `diagnostic_only` unless data is missing, then blocked. | Existing claim guards | Verified |
+| Random portfolio benchmark validity checked. | Medium | `global_portfolio_league.py`, `run_quantverse_v2_demo.py` | Random portfolios are reproducible and percentile is computed from benchmark distribution when available. | Random benchmark is context, not proof of future superiority. | Kept seeded simulation; retained percentile computation. | Existing and new demo tests | Verified |
+| Selected-stock reason logic checked. | Low | `global_stock_scoring.py` | Each row explains selected/not selected reason. | Users need a readable answer for why a stock entered the candidate set. | Added component summary and scoring metadata. | Existing scoring tests | Fixed |
+| Report outputs not overclaiming checked. | High | README, report, Excel, showcase docs | Public docs say public-data research, not advice or PIT proof. | Claim language is part of scientific validity. | Strengthened report/Excel contract tests. | `tests/test_report_interpretation_contract.py`, claim guards | Fixed |
+
+## Three Review Passes
+
+1. Mathematical/statistical correctness pass: annualization, CAGR, volatility,
+   VaR/CVaR, drawdown and GMV covariance handling were reviewed and hardened.
+2. Walk-forward/leakage pass: fold scoring and forecasts are recomputed inside
+   the train window; leakage and window summaries are now generated.
+3. Reporting/claim-language pass: high realized annualized return estimates are
+   labeled and warned; public-data and non-advice boundaries remain explicit.
+
+## Remaining Non-Code Blockers
+
+- Official exact top-100 market-cap evidence remains unavailable.
+- Point-in-time historical constituents remain unavailable.
+- Delisting and corporate-action reconciliation remains unavailable.
+- Public-provider data should not be treated as institutional vendor evidence.

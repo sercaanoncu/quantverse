@@ -20,12 +20,13 @@ SHEETS = {
     "RETURN_FORECASTS": "data/processed/global_stock_return_forecasts.csv",
     "MODEL_LEAGUE": "data/processed/global_portfolio_league.csv",
     "FINAL_WEIGHTS": "data/processed/global_portfolio_league_weights.csv",
-    "RISK_REPORT": "data/processed/global_portfolio_risk_report.csv",
+    "RISK_METRICS": "data/processed/global_portfolio_risk_report.csv",
     "RISK_CONTRIBUTIONS": "data/processed/global_risk_contribution_report.csv",
     "STRESS_TESTS": "data/processed/global_stress_test_results.csv",
     "WALK_FORWARD": "data/processed/global_walk_forward_model_comparison.csv",
-    "RANDOM_BENCHMARK": "data/processed/global_master_random_portfolio_benchmark.csv",
-    "AUDIT_RED_FLAGS": "data/processed/global_scientific_sanity_issues.csv",
+    "BENCHMARK_COMPARISON": "data/processed/global_master_equal_weight_comparison.csv",
+    "RANDOM_PORTFOLIOS": "data/processed/global_master_random_portfolio_benchmark.csv",
+    "WARNINGS": "data/processed/global_risk_metric_sanity_checks.csv",
     "CLAIM_CONTROL": "data/processed/global_exact_proxy_classification_report.csv",
 }
 
@@ -52,6 +53,9 @@ def main() -> int:
         pd.DataFrame(_appendix()).to_excel(
             writer, sheet_name="APPENDIX_RAW_TABLES", index=False
         )
+        pd.DataFrame(_formula_dictionary()).to_excel(
+            writer, sheet_name="APPENDIX_FORMULAS", index=False
+        )
     print(f"QuantVerse v2 Excel written: {OUTPUT}")
     return 0
 
@@ -60,7 +64,7 @@ def _start_here() -> list[dict[str, str]]:
     return [
         {
             "section": "What to inspect first",
-            "message": "Read EXECUTIVE_SUMMARY, MODEL_LEAGUE, FINAL_WEIGHTS and WALK_FORWARD before raw tables.",
+            "message": "Read EXECUTIVE_SUMMARY, MODEL_LEAGUE, FINAL_WEIGHTS, RISK_METRICS, WARNINGS and WALK_FORWARD before raw tables.",
         },
         {
             "section": "Trust status",
@@ -73,6 +77,10 @@ def _start_here() -> list[dict[str, str]]:
         {
             "section": "Weights",
             "message": "Full model weights are in FINAL_WEIGHTS; final model is reported in EXECUTIVE_SUMMARY.",
+        },
+        {
+            "section": "Return label",
+            "message": "The v2 portfolio return field is an annualized arithmetic estimate from realized daily simple returns, not a guaranteed forecast.",
         },
     ]
 
@@ -90,6 +98,41 @@ def _appendix() -> list[dict[str, str]]:
             "note": "Generated local evidence; not committed.",
         }
         for path in sorted(PROCESSED.glob("global_*.csv"))
+    ]
+
+
+def _formula_dictionary() -> list[dict[str, str]]:
+    return [
+        {
+            "metric": "portfolio daily return",
+            "formula": "sum_i(weight_i * simple_return_i)",
+            "interpretation": "Simple returns aggregate linearly across portfolio weights for one period.",
+        },
+        {
+            "metric": "annualized_return",
+            "formula": "mean(daily_simple_return) * 252",
+            "interpretation": "Arithmetic annualized estimate, not a guaranteed future return.",
+        },
+        {
+            "metric": "CAGR",
+            "formula": "(1 + total_return) ** (252 / observations) - 1",
+            "interpretation": "Compounded realized growth over the sample.",
+        },
+        {
+            "metric": "volatility",
+            "formula": "std(daily_simple_return) * sqrt(252)",
+            "interpretation": "Annualized dispersion of daily simple returns.",
+        },
+        {
+            "metric": "VaR/CVaR",
+            "formula": "5th percentile and mean below that percentile",
+            "interpretation": "Daily historical tail loss metrics; negative values indicate losses.",
+        },
+        {
+            "metric": "walk-forward",
+            "formula": "train on historical window, test on the next chronological window",
+            "interpretation": "Public-data current-universe validation, not institutional point-in-time proof.",
+        },
     ]
 
 
