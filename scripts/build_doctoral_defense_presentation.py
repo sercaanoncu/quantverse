@@ -12,8 +12,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_MD = ROOT / "docs" / "thesis" / "QUANTVERSE_DOCTORAL_DEFENSE_PRESENTATION.md"
+FULL_SOURCE_MD = (
+    ROOT / "docs" / "thesis" / "QUANTVERSE_DOCTORAL_DEFENSE_PRESENTATION_FULL.md"
+)
 OUTPUT_DIR = ROOT / "output" / "thesis"
 OUTPUT_PDF = OUTPUT_DIR / "quantverse_doctoral_defense_presentation.pdf"
+FULL_OUTPUT_PDF = OUTPUT_DIR / "quantverse_doctoral_defense_presentation_full.pdf"
 PPTX_PATH = OUTPUT_DIR / "quantverse_doctoral_defense_presentation.pptx"
 
 
@@ -127,7 +131,7 @@ def _draw_slide(canvas, slide: dict[str, str], font: str, total: int) -> None:
     canvas.showPage()
 
 
-def build_pdf(slides: list[dict[str, str]]) -> bool:
+def build_pdf(slides: list[dict[str, str]], output_pdf: Path = OUTPUT_PDF) -> bool:
     try:
         from reportlab.lib.pagesizes import landscape, letter
         from reportlab.pdfgen import canvas
@@ -137,13 +141,140 @@ def build_pdf(slides: list[dict[str, str]]) -> bool:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     font = _register_font()
-    deck = canvas.Canvas(str(OUTPUT_PDF), pagesize=landscape(letter))
+    deck = canvas.Canvas(str(output_pdf), pagesize=landscape(letter))
     deck.setTitle("QuantVerse Doctoral Defense Presentation")
-    deck.setAuthor("Sercan Öncü")
+    deck.setAuthor("Sercan Oncu")
     for slide in slides:
         _draw_slide(deck, slide, font, len(slides))
     deck.save()
     return True
+
+
+def build_full_slide_source() -> list[dict[str, str]]:
+    topics = [
+        "Project Pitch",
+        "Research Problem",
+        "Economic Motivation",
+        "Public Data Universe",
+        "Exact Top-100 Limitation",
+        "FX Normalization",
+        "Simple and Log Returns",
+        "Stock Scoring",
+        "Coverage Score",
+        "Momentum Features",
+        "Risk Penalty",
+        "Diversification Score",
+        "Expected Return Forecast",
+        "Random Walk Baseline",
+        "Ridge Diagnostic",
+        "Forecast Confidence",
+        "Equal Weight",
+        "Random Portfolios",
+        "Inverse Volatility",
+        "GMV",
+        "Max Sharpe",
+        "Min CVaR",
+        "HRP",
+        "Risk Parity",
+        "Black-Litterman",
+        "Forecast Enhanced Portfolio",
+        "Policy Constrained Portfolio",
+        "Risk Metrics",
+        "VaR and CVaR",
+        "Drawdown",
+        "Risk Contribution",
+        "Stress Testing",
+        "Walk-Forward Design",
+        "No-Look-Ahead Rule",
+        "Transaction Costs",
+        "Model League Status",
+        "Promotion Gate",
+        "Current Results",
+        "Selected Stocks",
+        "Final Weights",
+        "Benchmark Comparison",
+        "Random Benchmark",
+        "Scientific Audit",
+        "Excel Output",
+        "PDF Output",
+        "GitHub Value",
+        "CV Value",
+        "Bank Interview Value",
+        "Remaining Blockers",
+        "Next Sprint",
+    ]
+    slides = []
+    for idx, topic in enumerate(topics, start=1):
+        slides.append(
+            {
+                "Slide": str(idx),
+                "Title": topic,
+                "Main message": _main_message(topic),
+                "Evidence source": _evidence_source(topic),
+                "Decision implication": _decision_implication(topic),
+            }
+        )
+    FULL_SOURCE_MD.write_text(_slides_to_markdown(slides), encoding="utf-8")
+    return slides
+
+
+def _main_message(topic: str) -> str:
+    return {
+        "Project Pitch": "QuantVerse v2 is a public-data global equity research engine, not an advice engine.",
+        "Current Results": "The system now scores stocks, forecasts returns, builds a model league and runs public-data walk-forward validation.",
+        "Remaining Blockers": "Official exact top-100, point-in-time constituents, delistings and corporate actions remain future institutional blockers.",
+    }.get(
+        topic,
+        f"{topic} is implemented or governed as an explicit part of the QuantVerse v2 research workflow.",
+    )
+
+
+def _evidence_source(topic: str) -> str:
+    if topic in {"Stock Scoring", "Selected Stocks"}:
+        return "data/processed/global_stock_scores.csv"
+    if topic in {
+        "Expected Return Forecast",
+        "Random Walk Baseline",
+        "Ridge Diagnostic",
+    }:
+        return "data/processed/global_stock_return_forecasts.csv"
+    if topic in {"Equal Weight", "GMV", "HRP", "Risk Parity", "Black-Litterman"}:
+        return "data/processed/global_portfolio_league.csv"
+    if topic in {"Walk-Forward Design", "Current Results"}:
+        return "data/processed/global_walk_forward_summary.json"
+    return "QuantVerse v2 generated outputs and methodology mapping"
+
+
+def _decision_implication(topic: str) -> str:
+    if topic in {"Promotion Gate", "Remaining Blockers", "Exact Top-100 Limitation"}:
+        return "Do not claim promoted institutional global USD master portfolio."
+    if topic in {"GitHub Value", "CV Value", "Bank Interview Value"}:
+        return "Use as evidence of quantitative research engineering and honest validation discipline."
+    return "Use the result as public-data research evidence with limitations visible."
+
+
+def _slides_to_markdown(slides: list[dict[str, str]]) -> str:
+    lines = [
+        "# QuantVerse Doctoral Defense Presentation Full",
+        "",
+        "| Slide | Title | Main message | Evidence source | Decision implication |",
+        "|---|---|---|---|---|",
+    ]
+    for slide in slides:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    slide["Slide"],
+                    slide["Title"],
+                    slide["Main message"],
+                    slide["Evidence source"],
+                    slide["Decision implication"],
+                ]
+            )
+            + " |"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def write_slide_inventory(slides: list[dict[str, str]]) -> None:
@@ -159,12 +290,21 @@ def main() -> int:
     if not (25 <= len(slides) <= 35):
         raise ValueError(f"Expected 25-35 slides, found {len(slides)}")
     pdf_ok = build_pdf(slides)
+    full_slides = build_full_slide_source()
+    if not (45 <= len(full_slides) <= 60):
+        raise ValueError(f"Expected 45-60 full slides, found {len(full_slides)}")
+    full_pdf_ok = build_pdf(full_slides, FULL_OUTPUT_PDF)
     write_slide_inventory(slides)
     print(f"Defense slide count: {len(slides)}")
+    print(f"Full defense slide count: {len(full_slides)}")
     if pdf_ok:
         print(f"Defense PDF written: {OUTPUT_PDF}")
     else:
         print("Defense PDF was not generated.")
+    if full_pdf_ok:
+        print(f"Full defense PDF written: {FULL_OUTPUT_PDF}")
+    else:
+        print("Full defense PDF was not generated.")
     if importlib.util.find_spec("pptx") and PPTX_PATH.exists():
         print(f"Defense PPTX written: {PPTX_PATH}")
     else:
