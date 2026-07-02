@@ -52,7 +52,16 @@ def build_portfolio_risk_report(
         aligned = aligned / aligned.sum()
         portfolio_returns = clean @ aligned
         metrics = evaluate_return_series(portfolio_returns)
-        risk_rows.append({"model_name": model, **metrics})
+        risk_rows.append(
+            {
+                "model_name": model,
+                **metrics,
+                "annualized_return_label": "arithmetic annualized mean daily simple return",
+                "cagr_label": "compound annual growth rate from realized daily simple returns",
+                "var_cvar_label": "daily historical simple-return tail metrics; negative values are losses",
+                "extreme_metric_warning": _extreme_metric_warning(metrics),
+            }
+        )
         contribution_rows.extend(_risk_contributions(clean, aligned, model))
         stress_rows.extend(_stress_tests(aligned, model))
         tail_rows.append(
@@ -116,6 +125,114 @@ def write_risk_outputs(
     risk_contributions.to_csv(path / "global_risk_contribution_report.csv", index=False)
     stress_tests.to_csv(path / "global_stress_test_results.csv", index=False)
     tail_risk.to_csv(path / "global_tail_risk_report.csv", index=False)
+    build_risk_metric_definitions().to_csv(
+        path / "global_risk_metric_definitions.csv", index=False
+    )
+    build_risk_metric_sanity_checks(portfolio_report, tail_risk).to_csv(
+        path / "global_risk_metric_sanity_checks.csv", index=False
+    )
+
+
+def build_risk_metric_definitions() -> pd.DataFrame:
+    """Return a small data dictionary for generated v2 risk metrics."""
+    return pd.DataFrame(
+        [
+            {
+                "metric": "annualized_return",
+                "formula": "mean(daily_simple_return) * 252",
+                "unit": "decimal annualized arithmetic return",
+                "interpretation": "Realized public-data estimate; not a forecast guarantee.",
+            },
+            {
+                "metric": "cagr",
+                "formula": "(1 + total_return) ** (252 / observations) - 1",
+                "unit": "decimal compound annual growth rate",
+                "interpretation": "Compounded realized growth rate over available sample.",
+            },
+            {
+                "metric": "annualized_volatility",
+                "formula": "std(daily_simple_return, ddof=1) * sqrt(252)",
+                "unit": "decimal annualized volatility",
+                "interpretation": "Dispersion estimate from historical daily simple returns.",
+            },
+            {
+                "metric": "var_95",
+                "formula": "5th percentile of daily simple returns",
+                "unit": "decimal daily return",
+                "interpretation": "Negative values indicate loss threshold.",
+            },
+            {
+                "metric": "cvar_95",
+                "formula": "mean of returns less than or equal to VaR_95",
+                "unit": "decimal daily return",
+                "interpretation": "More negative than VaR when the tail is adverse.",
+            },
+            {
+                "metric": "max_drawdown",
+                "formula": "wealth / running_max(wealth) - 1",
+                "unit": "decimal drawdown",
+                "interpretation": "Non-positive historical peak-to-trough loss.",
+            },
+        ]
+    )
+
+
+def build_risk_metric_sanity_checks(
+    portfolio_report: pd.DataFrame,
+    tail_risk: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build deterministic sanity checks for final risk outputs."""
+    checks = []
+    if portfolio_report.empty:
+        return pd.DataFrame(
+            [
+                {
+                    "check": "portfolio_report_non_empty",
+                    "passed": False,
+                    "details": "No portfolio risk rows were generated.",
+                }
+            ]
+        )
+    numeric = portfolio_report.select_dtypes(include=[np.number])
+    checks.append(
+        {
+            "check": "finite_numeric_metrics",
+            "passed": bool(np.isfinite(numeric.to_numpy(dtype=float)).all()),
+            "details": "All numeric portfolio risk metrics must be finite.",
+        }
+    )
+    checks.append(
+        {
+            "check": "cvar_not_greater_than_var",
+            "passed": bool(
+                (portfolio_report["cvar_95"] <= portfolio_report["var_95"]).all()
+            ),
+            "details": "Historical CVaR should be at least as adverse as VaR.",
+        }
+    )
+    checks.append(
+        {
+            "check": "drawdown_non_positive",
+            "passed": bool((portfolio_report["max_drawdown"] <= 0.0).all()),
+            "details": "Drawdown is expressed as a non-positive loss.",
+        }
+    )
+    checks.append(
+        {
+            "check": "volatility_non_negative",
+            "passed": bool((portfolio_report["annualized_volatility"] >= 0.0).all()),
+            "details": "Volatility cannot be negative.",
+        }
+    )
+    if not tail_risk.empty:
+        checks.append(
+            {
+                "check": "tail_report_consistent",
+                "passed": bool((tail_risk["cvar_95"] <= tail_risk["var_95"]).all()),
+                "details": "Tail-risk report uses the same VaR/CVaR sign convention.",
+            }
+        )
+    return pd.DataFrame(checks)
 
 
 def _weights_by_model(weights: pd.DataFrame | pd.Series) -> dict[str, pd.Series]:
@@ -254,6 +371,17 @@ def _ulcer_index(series: pd.Series) -> float:
     wealth = (1.0 + clean).cumprod()
     drawdown = wealth / wealth.cummax() - 1.0
     return float(np.sqrt((drawdown.clip(upper=0.0) ** 2).mean()))
+
+
+def _extreme_metric_warning(metrics: dict[str, float]) -> str:
+    warnings = []
+    if abs(float(metrics.get("annualized_return", 0.0))) > 1.0:
+        warnings.append("extreme_annualized_return_review_required")
+    if abs(float(metrics.get("cagr", 0.0))) > 2.0:
+        warnings.append("extreme_cagr_review_required")
+    if abs(float(metrics.get("sharpe", 0.0))) > 5.0:
+        warnings.append("extreme_sharpe_review_required")
+    return "; ".join(warnings) if warnings else "none"
 
 
 def _empty_metrics() -> dict[str, float]:

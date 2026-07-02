@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 
 from project.optimization.black_litterman import black_litterman_weights
 from project.optimization.constraints import PortfolioConstraints
@@ -473,9 +474,27 @@ def _market_caps(metadata: pd.DataFrame | None, selected: list[str]) -> pd.Serie
 
 
 def _gmv_weights(returns: pd.DataFrame, max_weight: float) -> pd.Series:
-    cov = returns.cov().to_numpy(dtype=float)
+    cov = _finite_covariance(returns)
+    n_assets = cov.shape[0]
+    if max_weight * n_assets < 1.0 - 1e-12:
+        raise ValueError("max_weight is infeasible for selected assets.")
     inv_diag = 1.0 / np.clip(np.diag(cov), 1e-12, None)
-    return _cap_and_normalize(pd.Series(inv_diag, index=returns.columns), max_weight)
+    x0 = _cap_and_normalize(pd.Series(inv_diag, index=returns.columns), max_weight)
+
+    def objective(weights: np.ndarray) -> float:
+        return float(weights @ cov @ weights)
+
+    result = minimize(
+        objective,
+        x0=x0.to_numpy(dtype=float),
+        bounds=[(0.0, float(max_weight)) for _ in range(n_assets)],
+        constraints={"type": "eq", "fun": lambda weights: np.sum(weights) - 1.0},
+        method="SLSQP",
+        options={"maxiter": 500, "ftol": 1e-12},
+    )
+    if not result.success:
+        return x0.rename("weight")
+    return _cap_and_normalize(pd.Series(result.x, index=returns.columns), max_weight)
 
 
 def _forecast_enhanced_weights(
@@ -539,6 +558,16 @@ def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
     clean = clean.loc[clean.index.notna()]
     clean = clean.apply(pd.to_numeric, errors="coerce")
     return clean.dropna(axis=1, how="all").dropna(how="all")
+
+
+def _finite_covariance(returns: pd.DataFrame) -> np.ndarray:
+    cov = returns.cov().to_numpy(dtype=float)
+    cov = np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
+    cov = 0.5 * (cov + cov.T)
+    min_eigenvalue = float(np.linalg.eigvalsh(cov).min()) if cov.size else 0.0
+    if min_eigenvalue < 1e-12:
+        cov = cov + np.eye(cov.shape[0]) * (abs(min_eigenvalue) + 1e-8)
+    return cov
 
 
 def _status(actual_status: str, reason: str) -> dict[str, object]:
