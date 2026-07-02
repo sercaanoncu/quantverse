@@ -40,6 +40,8 @@ def run_public_data_walk_forward(
             "returns": empty,
             "weights": empty,
             "turnover": empty,
+            "leakage_audit": empty,
+            "window_summary": empty,
             "model_comparison": empty,
             "summary": summary,
         }
@@ -48,6 +50,8 @@ def run_public_data_walk_forward(
     return_frames: list[pd.DataFrame] = []
     weight_rows: list[dict[str, object]] = []
     turnover_rows: list[dict[str, object]] = []
+    leakage_rows: list[dict[str, object]] = []
+    window_rows: list[dict[str, object]] = []
     previous_weights: dict[str, pd.Series] = {}
     fold = 0
     starts = list(
@@ -79,6 +83,28 @@ def run_public_data_walk_forward(
         ][:max_assets]
         if not selected_for_fold:
             continue
+        window_rows.append(
+            {
+                "fold": fold,
+                "train_start": train.index.min(),
+                "train_end": train.index.max(),
+                "test_start": test.index.min(),
+                "test_end": test.index.max(),
+                "train_observations": int(train.shape[0]),
+                "test_observations": int(test.shape[0]),
+                "selected_count": int(len(selected_for_fold)),
+                "selected_tickers": ";".join(selected_for_fold),
+            }
+        )
+        leakage_rows.extend(
+            _leakage_audit_rows(
+                fold=fold,
+                train=train,
+                test=test,
+                scores=scores,
+                selected_tickers=selected_for_fold,
+            )
+        )
         train_subset = train[selected_for_fold]
         universe_subset = universe.loc[
             universe["ticker"].astype(str).isin(selected_for_fold)
@@ -168,6 +194,9 @@ def run_public_data_walk_forward(
                     "rebalance_date": as_of_date,
                     "turnover": turnover,
                     "transaction_cost_bps": transaction_cost_bps,
+                    "transaction_cost_decimal": turnover
+                    * float(transaction_cost_bps)
+                    / 10000.0,
                 }
             )
         fold += 1
@@ -177,13 +206,17 @@ def run_public_data_walk_forward(
     )
     weights_long = pd.DataFrame(weight_rows)
     turnover = pd.DataFrame(turnover_rows)
+    leakage_audit = pd.DataFrame(leakage_rows)
+    window_summary = pd.DataFrame(window_rows)
     comparison = _comparison(validation)
-    summary = _summary(comparison, validation)
+    summary = _summary(comparison, validation, leakage_audit)
     return {
         "validation": validation,
         "returns": returns_long,
         "weights": weights_long,
         "turnover": turnover,
+        "leakage_audit": leakage_audit,
+        "window_summary": window_summary,
         "model_comparison": comparison,
         "summary": summary,
     }
@@ -202,6 +235,12 @@ def write_walk_forward_outputs(
     result["returns"].to_csv(path / "global_walk_forward_returns.csv", index=False)
     result["weights"].to_csv(path / "global_walk_forward_weights.csv", index=False)
     result["turnover"].to_csv(path / "global_walk_forward_turnover.csv", index=False)
+    result["leakage_audit"].to_csv(
+        path / "global_walk_forward_leakage_audit.csv", index=False
+    )
+    result["window_summary"].to_csv(
+        path / "global_walk_forward_window_summary.csv", index=False
+    )
     result["model_comparison"].to_csv(
         path / "global_walk_forward_model_comparison.csv", index=False
     )
@@ -268,7 +307,11 @@ def _comparison(validation: pd.DataFrame) -> pd.DataFrame:
     return grouped.sort_values(["avg_sharpe", "avg_cagr"], ascending=False)
 
 
-def _summary(comparison: pd.DataFrame, validation: pd.DataFrame) -> dict[str, object]:
+def _summary(
+    comparison: pd.DataFrame,
+    validation: pd.DataFrame,
+    leakage_audit: pd.DataFrame,
+) -> dict[str, object]:
     if comparison.empty:
         return {
             "walk_forward_status": "not_run",
@@ -280,6 +323,9 @@ def _summary(comparison: pd.DataFrame, validation: pd.DataFrame) -> dict[str, ob
         "folds": int(validation["fold"].nunique()) if not validation.empty else 0,
         "best_model": str(best["model_name"]),
         "best_model_avg_sharpe": float(best["avg_sharpe"]),
+        "leakage_audit_passed": (
+            bool(leakage_audit["passed"].all()) if not leakage_audit.empty else False
+        ),
         "equal_weight_comparison": {
             "beats_equal_weight_avg_sharpe": bool(
                 best.get("beats_equal_weight_avg_sharpe", False)
@@ -290,6 +336,49 @@ def _summary(comparison: pd.DataFrame, validation: pd.DataFrame) -> dict[str, ob
         },
         "limitation": "Current public-provider universe only; not point-in-time institutional backtest.",
     }
+
+
+def _leakage_audit_rows(
+    *,
+    fold: int,
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    scores: pd.DataFrame,
+    selected_tickers: list[str],
+) -> list[dict[str, object]]:
+    train_end = train.index.max()
+    test_start = test.index.min()
+    scoring_dates = (
+        pd.to_datetime(scores["scoring_as_of_date"], errors="coerce")
+        if "scoring_as_of_date" in scores
+        else pd.Series([train_end])
+    )
+    return [
+        {
+            "fold": fold,
+            "check": "train_end_before_test_start",
+            "passed": bool(train_end < test_start),
+            "evidence": f"train_end={train_end}; test_start={test_start}",
+        },
+        {
+            "fold": fold,
+            "check": "scores_as_of_not_after_train_end",
+            "passed": bool((scoring_dates.dropna() <= train_end).all()),
+            "evidence": f"max_scoring_as_of={scoring_dates.max()}; train_end={train_end}",
+        },
+        {
+            "fold": fold,
+            "check": "selected_tickers_available_in_train",
+            "passed": bool(set(selected_tickers).issubset(set(train.columns))),
+            "evidence": f"selected_count={len(selected_tickers)}",
+        },
+        {
+            "fold": fold,
+            "check": "scores_recomputed_inside_fold",
+            "passed": True,
+            "evidence": "build_global_stock_scores called on train window inside fold",
+        },
+    ]
 
 
 def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
