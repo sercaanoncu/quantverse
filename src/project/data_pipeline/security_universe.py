@@ -36,6 +36,8 @@ REQUIRED_UNIVERSE_COLUMNS = [
 ]
 
 ALLOWED_SLEEVES = {
+    "global_equity_nasdaq",
+    "global_equity_nyse",
     "global_equity_us",
     "global_equity_nasdaq",
     "global_equity_nyse",
@@ -46,6 +48,7 @@ ALLOWED_SLEEVES = {
     "global_equity_china",
     "global_equity_china_hk",
     "global_equity_japan",
+    "crypto_top100",
     "crypto",
     "crypto_top100",
     "commodity_real_assets",
@@ -55,6 +58,8 @@ ALLOWED_SLEEVES = {
 }
 
 EQUITY_SLEEVES = {
+    "global_equity_nasdaq",
+    "global_equity_nyse",
     "global_equity_us",
     "global_equity_nasdaq",
     "global_equity_nyse",
@@ -142,9 +147,16 @@ def summarize_security_universe(df: pd.DataFrame) -> pd.DataFrame:
     normalized = _with_boolean_flags(df)
     missing_caps = detect_missing_market_caps(df)
     stablecoins = detect_stablecoin_like_assets(df)
+    missing_by_sleeve = (
+        missing_caps.groupby("sleeve").size().to_dict()
+        if not missing_caps.empty
+        else {}
+    )
+    stable_by_sleeve = (
+        stablecoins.groupby("sleeve").size().to_dict() if not stablecoins.empty else {}
+    )
     rows = []
     for sleeve, sleeve_df in normalized.groupby("sleeve", dropna=False, sort=True):
-        tickers = set(sleeve_df["ticker"].astype(str))
         rows.append(
             {
                 "sleeve": sleeve,
@@ -153,12 +165,8 @@ def summarize_security_universe(df: pd.DataFrame) -> pd.DataFrame:
                 "investable": int(sleeve_df["investable_bool"].sum()),
                 "benchmark_only": int(sleeve_df["benchmark_only_bool"].sum()),
                 "signal_only": int(sleeve_df["signal_only_bool"].sum()),
-                "missing_market_cap_rows": int(
-                    missing_caps["ticker"].astype(str).isin(tickers).sum()
-                ),
-                "stablecoin_like_rows": int(
-                    stablecoins["ticker"].astype(str).isin(tickers).sum()
-                ),
+                "missing_market_cap_rows": int(missing_by_sleeve.get(sleeve, 0)),
+                "stablecoin_like_rows": int(stable_by_sleeve.get(sleeve, 0)),
             }
         )
     return pd.DataFrame(rows)

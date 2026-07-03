@@ -1,87 +1,603 @@
-"""Build an explainable Excel workbook for global exact/proxy audit outputs."""
+"""Build an explainable Turkish Excel workbook through artifact-tool."""
 
 from __future__ import annotations
 
+import argparse
 import json
-import sys
+import os
+import subprocess
+import textwrap
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pandas as pd
 
-WORKBOOK_PATH = Path("output/excel/quantverse_explainable_global_stock_output.xlsx")
+PROCESSED = Path("data/processed")
+OUTPUT_XLSX = Path("output/excel/quantverse_explainable_global_stock_output.xlsx")
+TMP_DIR = Path("tmp/explainable_excel_build")
+FIG_DIR = Path("output/figures/global_audit")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--processed-dir", default=str(PROCESSED))
+    parser.add_argument("--output", default=str(OUTPUT_XLSX))
+    return parser.parse_args()
 
 
 def main() -> int:
-    output_dir = Path("data/processed")
-    WORKBOOK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    classification = _read_csv(
-        output_dir / "global_exact_proxy_classification_report.csv"
+    args = parse_args()
+    processed = Path(args.processed_dir)
+    output = Path(args.output)
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    payload = _workbook_payload(processed)
+    payload_path = TMP_DIR / "workbook_payload.json"
+    payload_path.write_text(
+        json.dumps(payload, ensure_ascii=False, default=_json_default),
+        encoding="utf-8",
     )
-    issues = _read_csv(output_dir / "global_scientific_sanity_issues.csv")
-    bl_report = _read_csv(output_dir / "global_black_litterman_prerequisite_report.csv")
-    blockers = _read_csv(output_dir / "global_market_cap_rank_blockers.csv")
-    decision = _read_json(output_dir / "global_master_decision_summary.json")
-
-    start_here = pd.DataFrame(
+    builder_path = TMP_DIR / "build_workbook.mjs"
+    builder_path.write_text(_js_builder(), encoding="utf-8")
+    _ensure_artifact_tool_node_modules(TMP_DIR)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
         [
-            {
-                "item": "Decision",
-                "value": decision.get("promotion_decision", "not available"),
-                "explanation": "Global master portfolio is not promoted unless source, FX, market-cap/rank and validation gates pass.",
-            },
-            {
-                "item": "First sheet to inspect",
-                "value": "EXACT_PROXY_STATUS",
-                "explanation": "This sheet shows which sleeves are exact, proxy, manual-review or blocked.",
-            },
-            {
-                "item": "Critical rule",
-                "value": "Exact top-100 market-cap claim is not supported for incomplete sleeves.",
-                "explanation": "Missing market cap, rank, source URL/provider or as-of date blocks exact status.",
-            },
-            {
-                "item": "Black-Litterman",
-                "value": "blocked_by_data unless valid priors exist",
-                "explanation": "Positive market cap alone is not enough; source-backed priors are required.",
-            },
-        ]
+            str(_node_executable()),
+            str(builder_path.resolve()),
+            str(payload_path.resolve()),
+            str(output.resolve()),
+        ],
+        check=True,
+        cwd=str(TMP_DIR.resolve()),
     )
-
-    try:
-        with pd.ExcelWriter(WORKBOOK_PATH) as writer:
-            start_here.to_excel(writer, sheet_name="START_HERE", index=False)
-            _safe_sheet(classification, writer, "EXACT_PROXY_STATUS")
-            _safe_sheet(issues, writer, "RED_FLAGS")
-            _safe_sheet(bl_report, writer, "BLACK_LITTERMAN")
-            _safe_sheet(blockers, writer, "BLOCKERS")
-        print(f"Excel workbook written: {WORKBOOK_PATH}")
-    except ImportError as exc:
-        fallback = WORKBOOK_PATH.with_suffix(".start_here.csv")
-        start_here.to_csv(fallback, index=False)
-        print(f"Excel dependency unavailable ({exc}); CSV fallback written: {fallback}")
+    print(f"Excel workbook written: {output}")
     return 0
 
 
-def _safe_sheet(frame: pd.DataFrame, writer: pd.ExcelWriter, sheet_name: str) -> None:
-    if frame.empty:
-        frame = pd.DataFrame([{"status": "not available"}])
-    frame.to_excel(writer, sheet_name=sheet_name, index=False)
+def _workbook_payload(processed: Path) -> dict[str, Any]:
+    decision = _read_json(processed / "global_master_decision_summary.json")
+    sheets = [
+        _sheet(
+            "START_HERE",
+            _start_here(decision),
+            "Bu dosya nasıl okunur? İlk buradan başla.",
+        ),
+        _sheet(
+            "EXECUTIVE_SUMMARY",
+            _executive_summary(processed, decision),
+            "Kısa hüküm ve kritik sonuçlar.",
+        ),
+        _sheet(
+            "RED_FLAGS",
+            _csv(processed / "global_scientific_sanity_issues.csv", 250),
+            "Bilimsel kırmızı bayraklar. Critical/high satırlar promotion bloklayabilir.",
+        ),
+        _sheet(
+            "REQUIREMENT_TRACEABILITY",
+            _csv(processed / "user_requirement_traceability_matrix.csv", 200),
+            "Kullanıcı talepleri ve karşılanma durumu.",
+        ),
+        _sheet(
+            "UNIVERSE",
+            _csv(processed / "real_global_universe_population_summary.csv", 100),
+            "Kaynak evren satır sayıları.",
+        ),
+        _sheet(
+            "DATA_QUALITY",
+            _data_quality(processed),
+            "Source, market-cap, FX ve price coverage özeti.",
+        ),
+        _sheet(
+            "MODEL_COMPARISON",
+            _csv(processed / "global_master_model_comparison.csv", 50),
+            "Model karşılaştırması. Extreme metrikler kırmızı bayrakla okunmalı.",
+        ),
+        _sheet(
+            "MODEL_APPLICABILITY",
+            _model_applicability(processed),
+            "Her modelin actually run, not available, blocked by data, not appropriate veya diagnostic only statüsü.",
+        ),
+        _sheet(
+            "CONSTRAINT_AUDIT",
+            _csv(processed / "global_master_constraint_audit.csv", 50),
+            "Hard constraints geçiş/kalış denetimi.",
+        ),
+        _sheet(
+            "WEIGHT_AUDIT",
+            _weight_audit(processed, decision),
+            "Final adayın full weight sum, negative weight, cap, exposure sum, dust ve max-cap denetimi.",
+        ),
+        _sheet(
+            "FINAL_WEIGHTS",
+            _final_weights(processed, decision),
+            "Final modelin full ağırlıkları. Top holdings partial değildir; bu sheet final full listedir.",
+        ),
+        _sheet(
+            "ASSET_CLASS_WEIGHTS",
+            _csv(processed / "global_master_asset_class_weights.csv", 100),
+            "Final aday sleeve ağırlıkları.",
+        ),
+        _sheet(
+            "REGION_WEIGHTS",
+            _csv(processed / "global_master_region_weights.csv", 100),
+            "Final aday region ağırlıkları.",
+        ),
+        _sheet(
+            "CLUSTER_WEIGHTS",
+            _csv(processed / "global_master_cluster_weights.csv", 100),
+            "Final aday correlation cluster ağırlıkları.",
+        ),
+        _sheet(
+            "RANDOM_BENCHMARK",
+            _random_summary(processed),
+            "10.000 random portfolio benchmark özeti.",
+        ),
+        _sheet(
+            "PROJECTIONS",
+            _csv(processed / "global_monte_carlo_projection.csv", 50),
+            "Monte Carlo 1/3/6/12 ay projection aralıkları.",
+        ),
+        _sheet(
+            "METHODOLOGY_SOURCE_BASIS",
+            _csv(processed / "methodology_source_check.csv", 200),
+            "Metodoloji alanı, kaynak ve doğru kullanım.",
+        ),
+        _sheet(
+            "APPENDIX_RAW_TABLES",
+            _appendix_paths(),
+            "Uzun ham tabloların dosya yolları. Ana yorumlar önceki sheet'lerde.",
+        ),
+    ]
+    return {
+        "title": "QuantVerse Explainable Global Stock Output",
+        "generated_by": "scripts/build_explainable_excel_output.py",
+        "chart_folder": str(FIG_DIR.resolve()),
+        "sheets": sheets,
+    }
+
+
+def _sheet(name: str, rows: list[list[Any]], explanation: str) -> dict[str, Any]:
+    return {"name": name, "explanation": explanation, "rows": rows}
+
+
+def _start_here(decision: dict[str, Any]) -> list[list[Any]]:
+    return [
+        ["Soru", "Kısa cevap"],
+        [
+            "Bu dosya ne?",
+            "QuantVerse global stock/proxy araştırma çıktılarının Türkçe, açıklanabilir Excel özetidir.",
+        ],
+        [
+            "İlk hangi sayfaya bakmalıyım?",
+            "START_HERE, EXECUTIVE_SUMMARY, RED_FLAGS, WEIGHT_AUDIT, FINAL_WEIGHTS ve PROJECTIONS.",
+        ],
+        [
+            "Hangi sonuç güvenilir?",
+            "Ağırlık toplamı, constraint audit, source coverage ve not promoted kararı güvenilir audit çıktılarıdır.",
+        ],
+        [
+            "Hangi sonuç güvenilir değil?",
+            "Exact top-100 market-cap ve global USD promoted portfolio iddiası güvenilir değildir; veri blokları var.",
+        ],
+        [
+            "Karar hangi evren için?",
+            "Bu karar current global proxy research candidate içindir; ETF/multi-asset pipeline kararı veya promoted global USD master portfolio kararı değildir.",
+        ],
+        ["Neden not promoted?", _decision_reason(decision)],
+        [
+            "Neden FX blocker var?",
+            "Global USD master portfolio promotion is blocked until non-USD local returns are converted into USD with appropriate FX series, calendars and compounding logic.",
+        ],
+        [
+            "Neden exact top-100 claim yok?",
+            "Exact top-100 market-cap claim is not supported for these sleeves; equity sleeves market_cap_usd/market_cap_rank kanıtı taşımıyor.",
+        ],
+        [
+            "Ağırlıklar nerede?",
+            "WEIGHT_AUDIT ve FINAL_WEIGHTS sheet'leri; full source path: data/processed/global_master_candidate_weights.csv.",
+        ],
+        [
+            "Grafikler nerede?",
+            "output/figures/global_audit klasörü ve PDF rapor içinde.",
+        ],
+    ]
+
+
+def _executive_summary(processed: Path, decision: dict[str, Any]) -> list[list[Any]]:
+    sanity = _read_csv(processed / "global_scientific_sanity_summary.csv")
+    coverage = _read_csv(processed / "global_returns_coverage_report.csv")
+    fx = _read_csv(processed / "global_fx_normalization_report.csv")
+    included = (
+        int(coverage["included_in_returns"].astype(bool).sum())
+        if "included_in_returns" in coverage
+        else 0
+    )
+    excluded = (
+        int((~coverage["included_in_returns"].astype(bool)).sum())
+        if "included_in_returns" in coverage
+        else 0
+    )
+    fx_blocked = (
+        int(fx["fx_normalization_status"].astype(str).eq("not_implemented").sum())
+        if "fx_normalization_status" in fx
+        else 0
+    )
+    return [
+        ["Metrik", "Değer", "Yorum"],
+        ["Final model", decision.get("final_model", ""), "Araştırma adayıdır."],
+        [
+            "Promotion decision",
+            decision.get("promotion_decision", ""),
+            "Current global proxy research candidate içindir; promoted global USD master portfolio değildir.",
+        ],
+        [
+            "Selected holdings",
+            decision.get("selected_holdings", ""),
+            "Full ağırlıklar FINAL_WEIGHTS sheet'indedir.",
+        ],
+        ["Price included assets", included, "Fiyat kapsamı yeterli olan varlıklar."],
+        ["Price excluded assets", excluded, "Ticker/provider coverage problemi."],
+        ["FX not implemented rows", fx_blocked, "Promotion blocker."],
+        [
+            "Total red flags",
+            _cell(sanity, "total_issues"),
+            "Bilimsel sanity audit issue sayısı.",
+        ],
+        [
+            "Promotion blockers",
+            _cell(sanity, "promotion_blockers"),
+            "Critical/high blocker sayısı değil, promotion blocker flag toplamıdır.",
+        ],
+    ]
+
+
+def _data_quality(processed: Path) -> list[list[Any]]:
+    rows = [["Area", "Metric", "Value", "Interpretation"]]
+    market = _read_csv(processed / "real_global_universe_market_cap_coverage.csv")
+    fx = _read_csv(processed / "global_fx_normalization_report.csv")
+    coverage = _read_csv(processed / "global_returns_coverage_report.csv")
+    source = _read_csv(processed / "real_global_universe_source_coverage.csv")
+    if not market.empty and {"sleeve", "market_cap_rows"}.issubset(market.columns):
+        equity_zero_cap = market.loc[
+            market["sleeve"].astype(str).str.startswith("global_equity")
+            & pd.to_numeric(market["market_cap_rows"], errors="coerce").eq(0)
+        ]
+        rows.append(
+            [
+                "Market-cap",
+                "Equity sleeves with zero cap rows",
+                int(equity_zero_cap.shape[0]),
+                "Exact top-100 market-cap claim is not supported for these sleeves.",
+            ]
+        )
+    if not fx.empty:
+        rows.append(
+            [
+                "FX",
+                "not_implemented",
+                int(
+                    fx["fx_normalization_status"]
+                    .astype(str)
+                    .eq("not_implemented")
+                    .sum()
+                ),
+                "Global USD master portfolio promotion is blocked until FX conversion is implemented.",
+            ]
+        )
+    if not coverage.empty:
+        rows.append(
+            [
+                "Price",
+                "excluded assets",
+                int((~coverage["included_in_returns"].astype(bool)).sum()),
+                "Coverage/ticker mapping review needed.",
+            ]
+        )
+    if not source.empty and "source_urls" in source:
+        rows.append(
+            [
+                "Source",
+                "rows with source URLs",
+                int(pd.to_numeric(source["source_urls"], errors="coerce").sum()),
+                "Source path exists; quality still depends on method.",
+            ]
+        )
+    return rows
+
+
+def _model_applicability(processed: Path) -> list[list[Any]]:
+    rows = [["Model", "Evidence_Status", "Interpretation"]]
+    comparison = _read_csv(processed / "global_master_model_comparison.csv")
+    if not comparison.empty and {"Model", "Status"}.issubset(comparison.columns):
+        for row in comparison[["Model", "Status"]].itertuples(index=False):
+            status = _model_status_label(str(row.Status))
+            rows.append([row.Model, status, _model_status_interpretation(status)])
+    applicability = _read_csv(processed / "model_applicability_matrix.csv")
+    model_col = "model" if "model" in applicability.columns else None
+    status_col = "current_status" if "current_status" in applicability.columns else None
+    if model_col and status_col:
+        for row in applicability[[model_col, status_col]].itertuples(index=False):
+            status = _model_status_label(str(row[1]))
+            rows.append([row[0], status, _model_status_interpretation(status)])
+    return rows
+
+
+def _model_status_label(status: str) -> str:
+    text = status.lower()
+    if "diagnostic" in text:
+        return "diagnostic only"
+    if "computed" in text or "implemented" in text:
+        return "actually run"
+    if "missing_market" in text or "blocked" in text:
+        return "blocked by data"
+    if "not_appropriate" in text or "not scientifically" in text:
+        return "not appropriate"
+    if "not_available" in text or "optional" in text or "not_run" in text:
+        return "not available"
+    return "diagnostic only"
+
+
+def _model_status_interpretation(status: str) -> str:
+    mapping = {
+        "actually run": "Generated evidence exists in this run, but promotion still depends on gates.",
+        "blocked by data": "Prerequisite data is missing; do not present as valid allocation evidence.",
+        "not appropriate": "Method is not scientifically justified for the current data/task.",
+        "diagnostic only": "Useful for interpretation, not a direct allocation decision.",
+        "not available": "Not executed in this global run; do not present as result evidence.",
+    }
+    return mapping.get(status, "Review model applicability before interpretation.")
+
+
+def _weight_audit(processed: Path, decision: dict[str, Any]) -> list[list[Any]]:
+    rows = [["Check", "Value", "Status", "Evidence"]]
+    weights = _read_csv(processed / "global_master_candidate_weights.csv")
+    final_model = str(decision.get("final_model", ""))
+    path = processed / "global_master_candidate_weights.csv"
+    if weights.empty or "Weight" not in weights or "Model" not in weights:
+        return rows + [["Full candidate weights path", str(path), "missing", path.name]]
+    final = weights.loc[weights["Model"].astype(str).eq(final_model)].copy()
+    numeric = pd.to_numeric(final["Weight"], errors="coerce")
+    weight_sum = float(numeric.sum()) if not numeric.empty else 0.0
+    negative_count = int((numeric < -1e-9).sum())
+    max_weight = float(numeric.max()) if not numeric.empty else 0.0
+    dust_count = int(((numeric > 0) & (numeric < 0.001)).sum())
+    max_cap_count = int((numeric >= 0.099).sum())
+    rows.extend(
+        [
+            [
+                "Full candidate weights path",
+                str(path),
+                "available" if not final.empty else "missing",
+                path.name,
+            ],
+            [
+                "Full weight sum",
+                weight_sum,
+                _ok(abs(weight_sum - 1.0) <= 1e-6),
+                "Weight",
+            ],
+            [
+                "Negative weight check",
+                negative_count,
+                _ok(negative_count == 0),
+                "Weight",
+            ],
+            [
+                "Max weight cap check",
+                max_weight,
+                _ok(max_weight <= 0.1000001),
+                "Weight",
+            ],
+            [
+                "Dust weights count",
+                dust_count,
+                "warning" if dust_count else "ok",
+                "Weight",
+            ],
+            [
+                "Max-cap weights count",
+                max_cap_count,
+                "warning" if max_cap_count else "ok",
+                "Weight",
+            ],
+        ]
+    )
+    for filename, label in [
+        ("global_master_asset_class_weights.csv", "Asset-class weight sum"),
+        ("global_master_region_weights.csv", "Region weight sum"),
+        ("global_master_cluster_weights.csv", "Cluster weight sum"),
+    ]:
+        frame = _read_csv(processed / filename)
+        total = (
+            float(pd.to_numeric(frame["Weight"], errors="coerce").sum())
+            if not frame.empty and "Weight" in frame
+            else 0.0
+        )
+        rows.append([label, total, _ok(abs(total - 1.0) <= 1e-6), filename])
+    return rows
+
+
+def _ok(condition: bool) -> str:
+    return "ok" if condition else "warning"
+
+
+def _final_weights(processed: Path, decision: dict[str, Any]) -> list[list[Any]]:
+    weights = _read_csv(processed / "global_master_candidate_weights.csv")
+    final_model = str(decision.get("final_model", ""))
+    if weights.empty:
+        return [["Message"], ["No final weights found."]]
+    final = weights.loc[weights["Model"].astype(str).eq(final_model)].copy()
+    final["Weight_Percent"] = pd.to_numeric(final["Weight"], errors="coerce")
+    final = final.sort_values("Weight", ascending=False)
+    return _frame_to_rows(final[["Model", "Ticker", "Weight", "Weight_Percent"]], 200)
+
+
+def _random_summary(processed: Path) -> list[list[Any]]:
+    randoms = _read_csv(processed / "global_master_random_portfolio_benchmark.csv")
+    cols = [
+        col
+        for col in ["CAGR", "Volatility", "Sharpe", "Max_Drawdown", "CVaR_95"]
+        if col in randoms
+    ]
+    if randoms.empty or not cols:
+        return [["Message"], ["Random benchmark missing."]]
+    summary = randoms[cols].describe().reset_index()
+    return _frame_to_rows(summary, 20)
+
+
+def _appendix_paths() -> list[list[Any]]:
+    files = sorted(PROCESSED.glob("global_*.csv")) + sorted(
+        PROCESSED.glob("real_global_*.csv")
+    )
+    rows = [["File", "Purpose"]]
+    rows.extend([str(path), "Raw generated output; not committed."] for path in files)
+    return rows
+
+
+def _csv(path: Path, max_rows: int) -> list[list[Any]]:
+    return _frame_to_rows(_read_csv(path), max_rows)
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
-        return pd.DataFrame()
-    return pd.read_csv(path)
+        return pd.DataFrame({"status": [f"missing: {path}"]})
+    return pd.read_csv(path).drop(columns=["Unnamed: 0"], errors="ignore")
 
 
-def _read_json(path: Path) -> dict[str, object]:
+def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _frame_to_rows(frame: pd.DataFrame, max_rows: int) -> list[list[Any]]:
+    if frame.empty:
+        return [["status"], ["No rows available."]]
+    clean = (
+        frame.head(max_rows)
+        .replace([np.inf, -np.inf], np.nan)
+        .where(pd.notna(frame.head(max_rows)), "")
+    )
+    return [list(clean.columns)] + clean.astype(object).values.tolist()
+
+
+def _cell(frame: pd.DataFrame, column: str) -> Any:
+    if frame.empty or column not in frame:
+        return ""
+    return frame[column].iloc[0]
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if pd.isna(value):
+        return ""
+    return str(value)
+
+
+def _decision_reason(decision: dict[str, Any]) -> str:
+    reason = str(
+        decision.get("reason", "FX, market-cap ve data quality blocker devam ediyor.")
+    )
+    return reason.replace(
+        "net CAGR greater than Equal Weight",
+        "net CAGR is not greater than Equal Weight",
+    )
+
+
+def _ensure_artifact_tool_node_modules(tmp_dir: Path) -> None:
+    node_modules = tmp_dir / "node_modules"
+    if node_modules.exists():
+        return
+    provided = (
+        Path.home()
+        / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules"
+    )
+    if not provided.exists():
+        raise RuntimeError(
+            "artifact-tool node_modules not found in Codex runtime cache."
+        )
+    if os.name == "nt":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(node_modules), str(provided)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        os.symlink(provided, node_modules, target_is_directory=True)
+
+
+def _node_executable() -> Path | str:
+    bundled = (
+        Path.home()
+        / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe"
+    )
+    return bundled if bundled.exists() else "node"
+
+
+def _js_builder() -> str:
+    return textwrap.dedent(r"""
+        import fs from "node:fs/promises";
+        import { SpreadsheetFile, Workbook } from "@oai/artifact-tool";
+
+        const [payloadPath, outputPath] = process.argv.slice(2);
+        const payload = JSON.parse(await fs.readFile(payloadPath, "utf8"));
+        const workbook = Workbook.create();
+        workbook.comments.setSelf({displayName: "QuantVerse"});
+
+        function colLetter(n) {
+          let s = "";
+          while (n >= 0) {
+            s = String.fromCharCode((n % 26) + 65) + s;
+            n = Math.floor(n / 26) - 1;
+          }
+          return s;
+        }
+
+        for (const spec of payload.sheets) {
+          const sheet = workbook.worksheets.add(spec.name);
+          sheet.showGridLines = false;
+          const rows = spec.rows.length ? spec.rows : [["status"], ["No rows available"]];
+          const width = Math.max(...rows.map(r => r.length));
+          const normalized = rows.map(r => {
+            const copy = [...r];
+            while (copy.length < width) copy.push("");
+            return copy;
+          });
+          sheet.getRange("A1:D1").merge();
+          sheet.getRange("A1").values = [[spec.name]];
+          sheet.getRange("A1").format = {fill: "#102F45", font: {bold: true, color: "#FFFFFF", size: 14}};
+          sheet.getRange("A2:D3").merge();
+          sheet.getRange("A2").values = [[spec.explanation + " Kaynak grafik klasörü: " + payload.chart_folder]];
+          sheet.getRange("A2").format = {fill: "#EAF3F8", wrapText: true, font: {color: "#102F45"}};
+          const rowCount = normalized.length;
+          const endCol = colLetter(width - 1);
+          const tableRange = `A5:${endCol}${4 + rowCount}`;
+          sheet.getRangeByIndexes(4, 0, rowCount, width).values = normalized;
+          sheet.getRange(`A5:${endCol}5`).format = {fill: "#2F6F8F", font: {bold: true, color: "#FFFFFF"}, wrapText: true};
+          sheet.getRange(tableRange).format.borders = {preset: "inside", style: "thin", color: "#D9E2E8"};
+          sheet.getRange(tableRange).format.autofitColumns();
+          sheet.getRange(tableRange).format.autofitRows();
+          sheet.freezePanes.freezeRows(5);
+        }
+
+        const errors = await workbook.inspect({
+          kind: "match",
+          searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A",
+          options: {useRegex: true, maxResults: 300},
+          summary: "formula error scan",
+        });
+        await fs.writeFile(outputPath + ".inspect.ndjson", errors.ndjson);
+        const output = await SpreadsheetFile.exportXlsx(workbook);
+        await output.save(outputPath);
+        """)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

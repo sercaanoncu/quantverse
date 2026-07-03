@@ -12,9 +12,12 @@ def _valid_source_frame() -> pd.DataFrame:
         {
             "ticker": ["AAA", "BBB"],
             "name": ["Alpha A", "Beta B"],
+            "sleeve": ["global_equity_us", "global_equity_us"],
+            "region": ["North America", "North America"],
             "exchange": ["NYSE", "NYSE"],
             "country": ["United States", "United States"],
             "currency": ["USD", "USD"],
+            "asset_type": ["equity", "equity"],
             "source": ["Unit Source", "Unit Source"],
             "source_url": ["https://example.com/a", "https://example.com/b"],
             "as_of_date": ["2026-01-31", "2026-01-31"],
@@ -23,6 +26,12 @@ def _valid_source_frame() -> pd.DataFrame:
             "market_cap_rank": [1, None],
             "sector": ["Technology", "Industrials"],
             "industry": ["Software", "Machinery"],
+            "investable": [True, True],
+            "benchmark_only": [False, False],
+            "signal_only": [False, False],
+            "include": [True, True],
+            "proxy_type": ["direct_listing", "direct_listing"],
+            "source_method": ["exact_market_cap_rank", "exact_market_cap_rank"],
             "notes": ["unit test", "unit test"],
         }
     )
