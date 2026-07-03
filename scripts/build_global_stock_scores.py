@@ -9,10 +9,13 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.research.global_stock_scoring import (
     build_global_stock_scores,
     write_global_stock_scores,
-)
+)  # noqa: E402
 
 
 def main() -> int:
@@ -24,11 +27,14 @@ def main() -> int:
     if not paths["universe"].exists() or not paths["returns"].exists():
         print("Missing universe or returns; global stock scores not built.")
         return 0
+    v2 = config.get("v2", {})
     scores = build_global_stock_scores(
         _read_returns(paths["returns"]),
         pd.read_csv(paths["universe"]),
         _read_optional_csv(paths["coverage"]),
-        max_selected=int(config.get("v2", {}).get("max_selected_stocks", 40)),
+        max_selected=int(v2.get("max_selected_stocks", 40)),
+        default_scope=str(v2.get("default_scope", "equity_only")),
+        include_crypto=bool(v2.get("include_crypto", False)),
     )
     write_global_stock_scores(scores, paths["output"] / "global_stock_scores.csv")
     print(f"Global stock scores written: {len(scores)} rows")

@@ -132,11 +132,19 @@ def _by_horizon(frame: pd.DataFrame) -> pd.DataFrame:
             if not comparable.empty
             else 0.0
         )
-        status = (
-            "validated_diagnostic"
-            if beat_fraction >= 0.55 and np.isfinite(improvement) and improvement > 0
-            else "diagnostic_only"
+        scale_failed = _scale_failed(
+            mean_mae=mean_mae,
+            mean_rmse=(
+                float(group["rmse"].mean()) if group["rmse"].notna().any() else np.nan
+            ),
+            mean_random_walk=mean_rw,
         )
+        if scale_failed:
+            status = "failed_scale_sanity"
+        elif beat_fraction >= 0.55 and np.isfinite(improvement) and improvement > 0:
+            status = "validated_diagnostic"
+        else:
+            status = "diagnostic_only"
         rows.append(
             {
                 "horizon": horizon,
@@ -164,7 +172,9 @@ def _by_horizon(frame: pd.DataFrame) -> pd.DataFrame:
                     else np.nan
                 ),
                 "forecast_validation_status": status,
-                "allocation_signal_status": "diagnostic_only",
+                "allocation_signal_status": (
+                    "blocked_failed_scale_sanity" if scale_failed else "diagnostic_only"
+                ),
                 "interpretation": (
                     "Forecasts are validation diagnostics only; they cannot promote "
                     "a portfolio unless net decision quality improves out of sample."
@@ -276,7 +286,23 @@ def _warnings(by_horizon: pd.DataFrame) -> pd.DataFrame:
         )
     rows = []
     for _, row in by_horizon.iterrows():
-        if str(row["forecast_validation_status"]) == "diagnostic_only":
+        if str(row["forecast_validation_status"]) == "failed_scale_sanity":
+            rows.append(
+                {
+                    "horizon": row["horizon"],
+                    "warning_type": "forecast_error_scale_failed",
+                    "severity": "high",
+                    "evidence": (
+                        f"mean_mae={row['mean_mae']}; "
+                        f"mean_random_walk_mae={row['mean_random_walk_mae']}"
+                    ),
+                    "allocation_use_allowed": False,
+                    "required_next_fix": (
+                        "Inspect forecast target units, outliers and input universe before any allocation use."
+                    ),
+                }
+            )
+        elif str(row["forecast_validation_status"]) == "diagnostic_only":
             rows.append(
                 {
                     "horizon": row["horizon"],
@@ -303,3 +329,19 @@ def _warnings(by_horizon: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows, columns=WARNING_COLUMNS)
+
+
+def _scale_failed(
+    *,
+    mean_mae: float,
+    mean_rmse: float,
+    mean_random_walk: float,
+) -> bool:
+    model_error = np.nanmax([mean_mae, mean_rmse])
+    if not np.isfinite(model_error):
+        return False
+    if model_error > 2.0:
+        return True
+    if np.isfinite(mean_random_walk) and mean_random_walk > 0:
+        return bool(model_error > 10.0 * mean_random_walk and model_error > 0.50)
+    return False

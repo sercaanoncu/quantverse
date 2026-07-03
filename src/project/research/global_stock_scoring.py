@@ -16,6 +16,18 @@ import pandas as pd
 from project.constants import TRADING_DAYS_PER_YEAR
 
 SCORE_FORMULA_VERSION = "quantverse_v2_score_v1_coverage_momentum_risk_diversification"
+STABLECOIN_TOKENS = {
+    "USDT",
+    "USDC",
+    "DAI",
+    "BUSD",
+    "TUSD",
+    "FDUSD",
+    "USDE",
+    "USDP",
+    "PYUSD",
+    "GUSD",
+}
 
 SCORE_COLUMNS = [
     "ticker",
@@ -66,10 +78,16 @@ def build_global_stock_scores(
     *,
     as_of_date: str | pd.Timestamp | None = None,
     max_selected: int = 40,
+    default_scope: str = "equity_only",
+    include_crypto: bool = False,
 ) -> pd.DataFrame:
     """Build transparent stock-selection scores from past available returns."""
     clean = _clean_returns(returns, as_of_date=as_of_date)
-    metadata = _metadata(universe)
+    metadata = _filter_metadata_scope(
+        _metadata(universe),
+        default_scope=default_scope,
+        include_crypto=include_crypto,
+    )
     tickers = [ticker for ticker in metadata["ticker"].astype(str) if ticker in clean]
     if not tickers:
         return pd.DataFrame(columns=SCORE_COLUMNS)
@@ -255,6 +273,50 @@ def _metadata(universe: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Universe must contain a ticker column.")
     metadata["ticker"] = metadata["ticker"].astype(str)
     return metadata.drop_duplicates("ticker", keep="first")
+
+
+def _filter_metadata_scope(
+    metadata: pd.DataFrame,
+    *,
+    default_scope: str,
+    include_crypto: bool,
+) -> pd.DataFrame:
+    frame = metadata.copy()
+    scope = str(default_scope or "equity_only").strip().lower()
+    if "include" in frame:
+        include_mask = frame["include"].map(_truthy)
+        if include_mask.any():
+            frame = frame.loc[include_mask].copy()
+    if "investable" in frame:
+        frame = frame.loc[frame["investable"].map(_truthy)].copy()
+    if "signal_only" in frame:
+        frame = frame.loc[~frame["signal_only"].map(_truthy)].copy()
+    sleeve = frame.get("sleeve", pd.Series("", index=frame.index)).astype(str)
+    if scope == "equity_only":
+        frame = frame.loc[sleeve.str.startswith("global_equity", na=False)].copy()
+    elif scope == "multi_asset_no_crypto":
+        frame = frame.loc[~sleeve.str.contains("crypto", case=False, na=False)].copy()
+    if not include_crypto:
+        sleeve = frame.get("sleeve", pd.Series("", index=frame.index)).astype(str)
+        frame = frame.loc[~sleeve.str.contains("crypto", case=False, na=False)].copy()
+    else:
+        frame = frame.loc[~_stablecoin_like_mask(frame)].copy()
+    return frame
+
+
+def _stablecoin_like_mask(frame: pd.DataFrame) -> pd.Series:
+    ticker = (
+        frame.get("ticker", pd.Series("", index=frame.index)).astype(str).str.upper()
+    )
+    name = frame.get("name", pd.Series("", index=frame.index)).astype(str).str.upper()
+    text = ticker + " " + name
+    token_match = ticker.str.replace("-USD", "", regex=False).isin(STABLECOIN_TOKENS)
+    stable_word = text.str.contains("STABLECOIN|STABLE COIN", regex=True, na=False)
+    return token_match.astype(bool) | stable_word.astype(bool)
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 def _clean_returns(

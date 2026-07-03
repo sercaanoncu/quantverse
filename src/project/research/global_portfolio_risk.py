@@ -8,6 +8,10 @@ import numpy as np
 import pandas as pd
 
 from project.constants import TRADING_DAYS_PER_YEAR
+from project.research.global_numerical_integrity import (
+    portfolio_return_series,
+    return_series_diagnostics,
+)
 
 
 def build_stock_risk_metrics(returns: pd.DataFrame) -> pd.DataFrame:
@@ -50,12 +54,15 @@ def build_portfolio_risk_report(
         if aligned.sum() <= 0:
             continue
         aligned = aligned / aligned.sum()
-        portfolio_returns = clean @ aligned
+        portfolio_returns = portfolio_return_series(clean, aligned)
         metrics = evaluate_return_series(portfolio_returns)
+        diagnostics = return_series_diagnostics(portfolio_returns)
         risk_rows.append(
             {
                 "model_name": model,
                 **metrics,
+                "portfolio_return_observations": diagnostics["observations"],
+                "portfolio_return_nonzero_count": diagnostics["nonzero_count"],
                 "annualized_return_label": "arithmetic annualized mean daily simple return",
                 "cagr_label": "compound annual growth rate from realized daily simple returns",
                 "var_cvar_label": "daily historical simple-return tail metrics; negative values are losses",
@@ -69,8 +76,16 @@ def build_portfolio_risk_report(
                 "model_name": model,
                 "var_95": metrics["var_95"],
                 "cvar_95": metrics["cvar_95"],
-                "worst_daily_return": float(portfolio_returns.min()),
-                "best_daily_return": float(portfolio_returns.max()),
+                "worst_daily_return": (
+                    float(portfolio_returns.min())
+                    if not portfolio_returns.empty
+                    else 0.0
+                ),
+                "best_daily_return": (
+                    float(portfolio_returns.max())
+                    if not portfolio_returns.empty
+                    else 0.0
+                ),
             }
         )
     return (
@@ -81,7 +96,7 @@ def build_portfolio_risk_report(
     )
 
 
-def evaluate_return_series(series: pd.Series) -> dict[str, float]:
+def evaluate_return_series(series: pd.Series) -> dict[str, object]:
     """Evaluate a daily return series with portfolio risk metrics."""
     clean = pd.Series(series).dropna().astype(float)
     if clean.empty:
@@ -95,6 +110,11 @@ def evaluate_return_series(series: pd.Series) -> dict[str, float]:
     max_drawdown = _max_drawdown(clean)
     cvar = _cvar_95(clean)
     return {
+        "observations": int(clean.shape[0]),
+        "nonzero_observations": int((clean.abs() > 1e-12).sum()),
+        "metric_status": (
+            "valid" if int((clean.abs() > 1e-12).sum()) > 0 else "zero_return_series"
+        ),
         "cagr": cagr,
         "annualized_return": annual_return,
         "annualized_volatility": volatility,
@@ -224,6 +244,24 @@ def build_risk_metric_sanity_checks(
             "details": "Volatility cannot be negative.",
         }
     )
+    metric_columns = [
+        "cagr",
+        "annualized_return",
+        "annualized_volatility",
+        "sharpe",
+        "max_drawdown",
+        "var_95",
+        "cvar_95",
+    ]
+    present = [column for column in metric_columns if column in portfolio_report]
+    numeric = portfolio_report[present].apply(pd.to_numeric, errors="coerce")
+    checks.append(
+        {
+            "check": "portfolio_metrics_not_all_zero",
+            "passed": bool((numeric.abs().sum(axis=1) > 1e-12).any()),
+            "details": "Executable portfolio metrics must not collapse to all zero.",
+        }
+    )
     if not tail_risk.empty:
         checks.append(
             {
@@ -275,6 +313,12 @@ def _risk_contributions(
         marginal = sigma @ w / vol
         component = w * marginal
     total = float(component.sum())
+    abs_total = float(np.abs(component).sum())
+    contribution_note = (
+        "standard positive component risk contribution"
+        if total > 0 and np.all(component >= -1e-12)
+        else "contains negative covariance hedge effects; absolute contribution also reported"
+    )
     rows = []
     for ticker, weight, mrc, crc in zip(weights.index, w, marginal, component):
         rows.append(
@@ -285,6 +329,10 @@ def _risk_contributions(
                 "marginal_risk_contribution": float(mrc),
                 "component_risk_contribution": float(crc),
                 "risk_contribution_pct": float(crc / total) if total else 0.0,
+                "absolute_risk_contribution_pct": (
+                    float(abs(crc) / abs_total) if abs_total else 0.0
+                ),
+                "risk_contribution_note": contribution_note,
             }
         )
     return rows
@@ -384,8 +432,11 @@ def _extreme_metric_warning(metrics: dict[str, float]) -> str:
     return "; ".join(warnings) if warnings else "none"
 
 
-def _empty_metrics() -> dict[str, float]:
+def _empty_metrics() -> dict[str, object]:
     return {
+        "observations": 0,
+        "nonzero_observations": 0,
+        "metric_status": "insufficient_data",
         "cagr": 0.0,
         "annualized_return": 0.0,
         "annualized_volatility": 0.0,

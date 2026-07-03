@@ -73,6 +73,7 @@ def _forecast_one(
     horizon: str,
     horizon_days: int,
 ) -> dict[str, object]:
+    series = _forecast_safe_series(series)
     observations = int(series.shape[0])
     random_walk = 0.0
     momentum = _period_return(series, min(horizon_days, observations))
@@ -231,3 +232,15 @@ def _clean_returns(
         clean = clean.loc[clean.index <= pd.Timestamp(as_of_date)]
     clean = clean.apply(pd.to_numeric, errors="coerce")
     return clean.dropna(axis=1, how="all").dropna(how="all")
+
+
+def _forecast_safe_series(series: pd.Series) -> pd.Series:
+    """Clip extreme simple-return outliers for diagnostic forecasting only."""
+    clean = pd.to_numeric(series, errors="coerce").dropna().astype(float)
+    if clean.empty:
+        return clean
+    lower = max(float(clean.quantile(0.001)), -0.95)
+    upper = min(float(clean.quantile(0.999)), 1.00)
+    if lower >= upper:
+        lower, upper = -0.95, 1.00
+    return clean.clip(lower=lower, upper=upper)

@@ -9,10 +9,13 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.research.global_portfolio_league import (
     build_portfolio_league,
     write_portfolio_league_outputs,
-)
+)  # noqa: E402
 
 
 def main() -> int:

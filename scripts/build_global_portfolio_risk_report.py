@@ -8,11 +8,14 @@ from pathlib import Path
 
 import pandas as pd
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.research.global_portfolio_risk import (
     build_portfolio_risk_report,
     build_stock_risk_metrics,
     write_risk_outputs,
-)
+)  # noqa: E402
 
 
 def main() -> int:

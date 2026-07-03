@@ -9,6 +9,12 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from project.research.global_numerical_integrity import (
+    validate_v2_numerical_integrity,
+)  # noqa: E402
+
 PROCESSED = ROOT / "data" / "processed"
 OUTPUT = ROOT / "output" / "excel" / "quantverse_v2_research_output.xlsx"
 
@@ -46,6 +52,7 @@ def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     summary = _summary_rows()
     with pd.ExcelWriter(OUTPUT, engine="xlsxwriter") as writer:
+        _write_dashboard(writer)
         pd.DataFrame(_start_here()).to_excel(
             writer, sheet_name="START_HERE", index=False
         )
@@ -69,6 +76,157 @@ def main() -> int:
         )
     print(f"QuantVerse v2 Excel written: {OUTPUT}")
     return 0
+
+
+def _write_dashboard(writer: pd.ExcelWriter) -> None:
+    summary = _read_json(PROCESSED / "quantverse_v2_demo_summary.json")
+    risk = _read_csv(PROCESSED / "global_portfolio_risk_report.csv")
+    weights = _read_csv(PROCESSED / "global_portfolio_league_weights.csv")
+    integrity = validate_v2_numerical_integrity(ROOT)
+    final_model = str(summary.get("final_selected_model", "not available"))
+    risk_row = (
+        risk.loc[risk["model_name"].astype(str).eq(final_model)].iloc[0].to_dict()
+        if not risk.empty
+        and "model_name" in risk
+        and risk["model_name"].astype(str).eq(final_model).any()
+        else {}
+    )
+    dashboard = pd.DataFrame(
+        [
+            {"metric": "final_selected_model", "value": final_model},
+            {
+                "metric": "promotion_decision",
+                "value": summary.get("final_model_selection_decision", "not promoted"),
+            },
+            {
+                "metric": "final_holdings_count",
+                "value": summary.get("final_selected_holdings"),
+            },
+            {"metric": "weight_sum", "value": summary.get("weight_sum")},
+            {"metric": "annualized_return", "value": risk_row.get("annualized_return")},
+            {
+                "metric": "annualized_volatility",
+                "value": risk_row.get("annualized_volatility"),
+            },
+            {"metric": "sharpe", "value": risk_row.get("sharpe")},
+            {"metric": "max_drawdown", "value": risk_row.get("max_drawdown")},
+            {"metric": "var_95", "value": risk_row.get("var_95")},
+            {"metric": "cvar_95", "value": risk_row.get("cvar_95")},
+            {
+                "metric": "walk_forward_status",
+                "value": summary.get("walk_forward_status"),
+            },
+            {
+                "metric": "forecast_validation_status",
+                "value": summary.get("forecast_validation_status"),
+            },
+            {
+                "metric": "numerical_integrity_status",
+                "value": integrity["overall_status"],
+            },
+            {
+                "metric": "numerical_integrity_failed_checks",
+                "value": integrity["failed_check_count"],
+            },
+        ]
+    )
+    dashboard.to_excel(writer, sheet_name="PORTFOLIO_DASHBOARD", index=False)
+    workbook = writer.book
+    worksheet = writer.sheets["PORTFOLIO_DASHBOARD"]
+    header = workbook.add_format(
+        {"bold": True, "bg_color": "#1F2937", "font_color": "white"}
+    )
+    warning = workbook.add_format({"bg_color": "#FEE2E2"})
+    worksheet.set_row(0, None, header)
+    worksheet.set_column("A:A", 30)
+    worksheet.set_column("B:B", 48)
+    if integrity["overall_status"] != "passed":
+        worksheet.write(13, 1, integrity["overall_status"], warning)
+
+    final_weights = (
+        weights.loc[weights["model_name"].astype(str).eq(final_model)].copy()
+        if not weights.empty and "model_name" in weights
+        else pd.DataFrame()
+    )
+    if not final_weights.empty:
+        top = final_weights.sort_values("weight", ascending=False).head(10)
+        start_row = len(dashboard) + 3
+        top[["ticker", "weight"]].to_excel(
+            writer,
+            sheet_name="PORTFOLIO_DASHBOARD",
+            startrow=start_row,
+            index=False,
+        )
+        worksheet.write(start_row - 1, 0, "Top holdings by weight")
+        chart = workbook.add_chart({"type": "bar"})
+        chart.add_series(
+            {
+                "name": "Weight",
+                "categories": [
+                    "PORTFOLIO_DASHBOARD",
+                    start_row + 1,
+                    0,
+                    start_row + len(top),
+                    0,
+                ],
+                "values": [
+                    "PORTFOLIO_DASHBOARD",
+                    start_row + 1,
+                    1,
+                    start_row + len(top),
+                    1,
+                ],
+            }
+        )
+        chart.set_title({"name": "Top Holdings Weight"})
+        chart.set_x_axis({"name": "Weight"})
+        chart.set_y_axis({"name": "Ticker"})
+        worksheet.insert_chart("D4", chart, {"x_scale": 1.25, "y_scale": 1.15})
+
+    risk_chart_data = pd.DataFrame(
+        [
+            {
+                "metric": "Annual Return",
+                "value": _float(risk_row.get("annualized_return")),
+            },
+            {
+                "metric": "Volatility",
+                "value": _float(risk_row.get("annualized_volatility")),
+            },
+            {"metric": "Sharpe", "value": _float(risk_row.get("sharpe"))},
+            {"metric": "Max Drawdown", "value": _float(risk_row.get("max_drawdown"))},
+            {"metric": "CVaR 95", "value": _float(risk_row.get("cvar_95"))},
+        ]
+    )
+    risk_start = len(dashboard) + 18
+    risk_chart_data.to_excel(
+        writer,
+        sheet_name="PORTFOLIO_DASHBOARD",
+        startrow=risk_start,
+        index=False,
+    )
+    chart = workbook.add_chart({"type": "column"})
+    chart.add_series(
+        {
+            "name": "Risk/Return",
+            "categories": [
+                "PORTFOLIO_DASHBOARD",
+                risk_start + 1,
+                0,
+                risk_start + len(risk_chart_data),
+                0,
+            ],
+            "values": [
+                "PORTFOLIO_DASHBOARD",
+                risk_start + 1,
+                1,
+                risk_start + len(risk_chart_data),
+                1,
+            ],
+        }
+    )
+    chart.set_title({"name": "Final Model Metrics"})
+    worksheet.insert_chart("D22", chart, {"x_scale": 1.25, "y_scale": 1.0})
 
 
 def _start_here() -> list[dict[str, str]]:
@@ -163,6 +321,15 @@ def _read_json(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _float(value: object) -> float:
+    try:
+        if value is None or pd.isna(value):
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 if __name__ == "__main__":
