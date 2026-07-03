@@ -47,6 +47,10 @@ def main() -> int:
             "--config",
             "configs/global_master_portfolio.yaml",
         ],
+        ["scripts/build_global_model_selection_report.py", "--config", config],
+        ["scripts/run_global_robustness_analysis.py", "--config", config],
+        ["scripts/build_global_exposure_report.py", "--config", config],
+        ["scripts/validate_global_forecasts.py", "--config", config],
         ["scripts/audit_global_scientific_sanity.py"],
         ["scripts/build_visual_scientific_audit_report.py"],
         ["scripts/build_explainable_excel_output.py"],
@@ -83,12 +87,19 @@ def build_demo_summary() -> dict[str, object]:
     risk_sanity = _read_csv(PROCESSED / "global_risk_metric_sanity_checks.csv")
     turnover = _read_csv(PROCESSED / "global_walk_forward_turnover.csv")
     decision = _read_json(PROCESSED / "global_master_decision_summary.json")
+    model_decision = _read_json(PROCESSED / "global_final_model_decision.json")
+    model_selection = _read_csv(PROCESSED / "global_model_selection_report.csv")
+    robustness = _read_json(PROCESSED / "global_parameter_sensitivity_summary.json")
+    forecast_validation = _read_csv(
+        PROCESSED / "global_forecast_validation_by_horizon.csv"
+    )
+    exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
     selected = (
         scores.loc[scores["selection_flag"].astype(bool)]
         if "selection_flag" in scores
         else scores.head(0)
     )
-    final_model = _final_model(league)
+    final_model = _final_model(league, model_decision)
     final_weights = (
         weights.loc[weights["model_name"].astype(str).eq(final_model)]
         if not weights.empty and "model_name" in weights
@@ -154,7 +165,32 @@ def build_demo_summary() -> dict[str, object]:
         "walk_forward_equal_weight_comparison": walk_summary.get(
             "equal_weight_comparison", {}
         ),
-        "random_portfolio_percentile": _random_percentile(final_model),
+        "final_model_selection_method": model_decision.get(
+            "final_model_selection_method", "legacy_sharpe_cagr_sort"
+        ),
+        "final_model_selection_score": model_decision.get(
+            "final_model_selection_score"
+        ),
+        "final_model_selection_decision": model_decision.get(
+            "final_decision", "not promoted"
+        ),
+        "final_model_selection_reason": model_decision.get(
+            "final_decision_reason", "Model-selection report is not available."
+        ),
+        "equal_weight_comparison": model_decision.get(
+            "equal_weight_comparison",
+            walk_summary.get("equal_weight_comparison", {}),
+        ),
+        "random_portfolio_percentile": _random_percentile(
+            final_model, model_selection=model_selection
+        ),
+        "robustness_status": robustness.get("robustness_status", "missing"),
+        "sensitivity_status": robustness.get("sensitivity_status", "missing"),
+        "forecast_validation_status": _forecast_validation_status(forecast_validation),
+        "exposure_warnings": _exposure_warnings(exposure_warnings),
+        "publish_readiness_status": model_decision.get(
+            "publish_readiness_status", "research_with_limitations"
+        ),
         "risk_metric_sanity_passed": _all_checks_passed(risk_sanity),
         "transaction_cost_status": _transaction_cost_status(turnover),
         "promotion_decision": decision.get("promotion_decision", "not promoted"),
@@ -167,6 +203,7 @@ def build_demo_summary() -> dict[str, object]:
             "Point-in-time historical membership remains unavailable.",
             "Delisting/corporate-action institutional evidence remains unavailable.",
             "Walk-forward is current-universe public-data research, not institutional PIT backtest.",
+            "Model selection is publish-ready research evidence, not a promoted institutional allocation.",
         ],
         "report_paths": {
             "pdf": "output/pdf/quantverse_v2_research_report.pdf",
@@ -176,7 +213,13 @@ def build_demo_summary() -> dict[str, object]:
     }
 
 
-def _final_model(league: pd.DataFrame) -> str:
+def _final_model(
+    league: pd.DataFrame, model_decision: dict[str, object] | None = None
+) -> str:
+    if model_decision:
+        final = str(model_decision.get("final_selected_model", "")).strip()
+        if final:
+            return final
     if league.empty:
         return "Policy Constrained"
     constraints_pass = league["constraints_pass"].map(
@@ -192,7 +235,19 @@ def _final_model(league: pd.DataFrame) -> str:
     return str(candidates.iloc[0]["model_name"])
 
 
-def _random_percentile(model: str) -> float | None:
+def _random_percentile(
+    model: str,
+    *,
+    model_selection: pd.DataFrame | None = None,
+) -> float | None:
+    if (
+        model_selection is not None
+        and not model_selection.empty
+        and {"model_name", "random_sharpe_percentile"}.issubset(model_selection)
+    ):
+        row = model_selection.loc[model_selection["model_name"].astype(str).eq(model)]
+        if not row.empty:
+            return _float(row["random_sharpe_percentile"].iloc[0])
     league = _read_csv(PROCESSED / "global_portfolio_league.csv")
     if league.empty or "model_name" not in league:
         return None
@@ -245,6 +300,23 @@ def _transaction_cost_status(turnover: pd.DataFrame) -> str:
     if float(total_cost.sum()) > 0:
         return "applied_in_walk_forward_net_returns"
     return "no_turnover_cost_observed"
+
+
+def _forecast_validation_status(frame: pd.DataFrame) -> str:
+    if frame.empty or "forecast_validation_status" not in frame:
+        return "missing"
+    statuses = frame["forecast_validation_status"].dropna().astype(str)
+    if statuses.empty:
+        return "missing"
+    if statuses.eq("diagnostic_only").any():
+        return "diagnostic_only"
+    return str(statuses.mode().iloc[0])
+
+
+def _exposure_warnings(frame: pd.DataFrame) -> list[str]:
+    if frame.empty or "warning_type" not in frame:
+        return ["missing"]
+    return frame["warning_type"].dropna().astype(str).head(10).tolist()
 
 
 def _write_summary(summary: dict[str, object]) -> None:

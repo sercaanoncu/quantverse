@@ -14,6 +14,11 @@ keeps Equal Weight and random portfolios as benchmarks, labels Black-Litterman
 and ML forecasts carefully, and refuses unsupported exact-top-100 or
 point-in-time claims.
 
+The latest v2 hardening adds robust final-model selection, random portfolio
+percentile reporting, bounded sensitivity analysis, economic exposure
+interpretation and forecast validation. If the evidence does not support an
+active model, the output says so instead of forcing a winner.
+
 Core stack: Python, pandas, NumPy, SciPy, scikit-learn, reportlab, xlsxwriter,
 pytest, black and ruff.
 

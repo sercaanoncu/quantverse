@@ -412,6 +412,26 @@ def build_full_markdown() -> str:
         ROOT / "data" / "processed" / "global_portfolio_league.csv",
         limit=20,
     )
+    model_selection_rows = _first_csv_rows(
+        ROOT / "data" / "processed" / "global_model_selection_report.csv",
+        limit=20,
+    )
+    random_percentile_rows = _first_csv_rows(
+        ROOT / "data" / "processed" / "global_random_portfolio_percentile_report.csv",
+        limit=20,
+    )
+    robustness_rows = _first_csv_rows(
+        ROOT / "data" / "processed" / "global_model_stability_report.csv",
+        limit=12,
+    )
+    exposure_rows = _first_csv_rows(
+        ROOT / "data" / "processed" / "global_top_holdings_explanation.csv",
+        limit=15,
+    )
+    forecast_validation_rows = _first_csv_rows(
+        ROOT / "data" / "processed" / "global_forecast_validation_by_horizon.csv",
+        limit=12,
+    )
     walk_rows = _first_csv_rows(
         ROOT / "data" / "processed" / "global_walk_forward_model_comparison.csv",
         limit=12,
@@ -439,6 +459,14 @@ def build_full_markdown() -> str:
         ("Black-Litterman", "posterior return combines prior and views"),
         ("ML Forecast", "forecast is diagnostic unless walk-forward validated"),
         ("Ensemble Forecast", "combine transparent forecast components"),
+        (
+            "Robust Model Selection",
+            "score = validation + risk + benchmark - costs - warnings",
+        ),
+        ("Random Percentile", "percentile = share(random_metric <= candidate_metric)"),
+        ("Sensitivity Analysis", "vary constraints, costs and seeds on a bounded grid"),
+        ("Exposure Interpretation", "portfolio exposure = grouped sum of weights"),
+        ("Forecast Validation", "compare model error with random-walk baseline"),
         ("Walk-Forward", "train on past window, test on next chronological window"),
         ("Transaction Costs", "net return subtracts turnover times cost"),
         ("Risk Contribution", "CRC_i = w_i * marginal_risk_i"),
@@ -472,6 +500,53 @@ def build_full_markdown() -> str:
         "## QuantVerse v2 Model League Evidence",
         "",
         _rows_to_markdown(league_rows),
+        "",
+        "## Robust Model Selection Evidence",
+        "",
+        "The final public-data model is no longer selected by a simple in-sample "
+        "Sharpe or CAGR sort. The selection layer excludes diagnostic and blocked "
+        "models, then evaluates eligible models with walk-forward evidence, "
+        "transaction-cost-adjusted return, turnover, drawdown, CVaR, Equal Weight "
+        "and random portfolio percentiles. If no active model clears the gate, "
+        "Equal Weight remains the defensible benchmark and no active model is "
+        "promoted.",
+        "",
+        _rows_to_markdown(model_selection_rows),
+        "",
+        "## Random Portfolio Percentile Evidence",
+        "",
+        "Random portfolios are used as a benchmark distribution under the same "
+        "selected universe and max-weight constraint. They do not prove future "
+        "superiority, but they answer whether the candidate is unusual relative "
+        "to simple constrained alternatives.",
+        "",
+        _rows_to_markdown(random_percentile_rows),
+        "",
+        "## Sensitivity and Robustness Evidence",
+        "",
+        "The sensitivity layer varies max assets, max weight, transaction costs "
+        "and random seeds on a bounded grid. Fragile model choice or unstable "
+        "weights are reported as limitations rather than hidden behind the final "
+        "headline.",
+        "",
+        _rows_to_markdown(robustness_rows),
+        "",
+        "## Economic Exposure Interpretation",
+        "",
+        "The final model is interpreted by region, country, currency, sleeve, "
+        "sector and top holding. This converts weights into an economic story "
+        "that a reviewer can inspect before reading raw optimization tables.",
+        "",
+        _rows_to_markdown(exposure_rows),
+        "",
+        "## Forecast Validation Evidence",
+        "",
+        "Forecasts remain diagnostic unless they beat a random-walk baseline and "
+        "prove better net portfolio decision quality after risk and costs. "
+        "Validation output therefore reports errors, random-walk comparison and "
+        "allocation-signal status separately.",
+        "",
+        _rows_to_markdown(forecast_validation_rows),
         "",
         "## QuantVerse v2 Walk-Forward Evidence",
         "",

@@ -15,6 +15,8 @@ live trading system, or an institutional point-in-time backtest.
 - Produces expected-return diagnostics with a random-walk baseline, momentum,
   mean-reversion, rolling mean and ridge regression checks.
 - Compares a portfolio model league against Equal Weight and random portfolios.
+- Selects the final public-data model through a robust evidence gate using
+  walk-forward, risk, transaction-cost, random-benchmark and Equal Weight checks.
 - Reports portfolio return, volatility, Sharpe, Sortino, drawdown, VaR, CVaR,
   stress scenarios and risk contributions.
 - Runs current-universe public-data walk-forward validation with chronological
@@ -74,6 +76,11 @@ Each row carries an `actual_status` such as `actually_run`, `benchmark_only`,
 - Return forecasts: `data/processed/global_stock_return_forecasts.csv`
 - Model league: `data/processed/global_portfolio_league.csv`
 - Model weights: `data/processed/global_portfolio_league_weights.csv`
+- Robust model selection: `data/processed/global_model_selection_report.csv`
+- Final model decision: `data/processed/global_final_model_decision.json`
+- Random percentile benchmark: `data/processed/global_random_portfolio_percentile_report.csv`
+- Exposure interpretation: `data/processed/global_top_holdings_explanation.csv`
+- Forecast validation: `data/processed/global_forecast_validation_by_horizon.csv`
 - Risk report: `data/processed/global_portfolio_risk_report.csv`
 - Walk-forward comparison: `data/processed/global_walk_forward_model_comparison.csv`
 - Walk-forward summary: `data/processed/global_walk_forward_summary.json`
@@ -111,6 +118,9 @@ econometrics, machine-learning validation and risk management:
 - ML and return forecasts are diagnostic unless validation supports a stronger
   decision role.
 - Walk-forward validation is chronological and must not use future data.
+- Final model selection is conservative: diagnostic or blocked models cannot be
+  final selected models, and active models do not displace Equal Weight unless
+  return, risk, cost and benchmark evidence supports that decision.
 
 ## Legacy ETF/Multi-Asset Pipeline
 

@@ -36,6 +36,18 @@ def _sections() -> list[dict[str, object]]:
     weights = _read_csv(PROCESSED / "global_portfolio_league_weights.csv")
     leakage = _read_csv(PROCESSED / "global_walk_forward_leakage_audit.csv")
     sanity = _read_csv(PROCESSED / "global_risk_metric_sanity_checks.csv")
+    model_selection = _read_csv(PROCESSED / "global_model_selection_report.csv")
+    random_percentiles = _read_csv(
+        PROCESSED / "global_random_portfolio_percentile_report.csv"
+    )
+    robustness = _read_csv(PROCESSED / "global_robustness_sensitivity.csv")
+    model_stability = _read_csv(PROCESSED / "global_model_stability_report.csv")
+    exposure_region = _read_csv(PROCESSED / "global_region_exposure.csv")
+    exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
+    top_holdings = _read_csv(PROCESSED / "global_top_holdings_explanation.csv")
+    forecast_validation = _read_csv(
+        PROCESSED / "global_forecast_validation_by_horizon.csv"
+    )
     selected = (
         scores.loc[scores["selection_flag"].astype(bool)]
         if not scores.empty and "selection_flag" in scores
@@ -109,6 +121,68 @@ def _sections() -> list[dict[str, object]]:
             ),
         },
         {
+            "title": "Robust Model Selection Rationale",
+            "bullets": [
+                "The final model is selected by an evidence gate, not by highest in-sample return alone.",
+                f"Selection method: {summary.get('final_model_selection_method', 'not available')}.",
+                f"Selection score: {summary.get('final_model_selection_score', 'not available')}.",
+                f"Selection decision: {summary.get('final_model_selection_decision', 'not promoted')}.",
+                f"Selection reason: {summary.get('final_model_selection_reason', 'not available')}.",
+                "Diagnostic, blocked and future-candidate models are excluded from final selection.",
+            ],
+            "table": model_selection.head(12),
+        },
+        {
+            "title": "Benchmark and Random Portfolio Context",
+            "bullets": [
+                "Equal Weight remains the hard benchmark.",
+                "Random portfolios obey the same selected universe and max-weight constraint.",
+                f"Final random Sharpe percentile: {summary.get('random_portfolio_percentile', 'not available')}.",
+                "Random percentile is benchmark context, not proof of future superiority.",
+            ],
+            "table": random_percentiles.head(12),
+        },
+        {
+            "title": "Robustness and Sensitivity",
+            "bullets": [
+                f"Robustness status: {summary.get('robustness_status', 'not available')}.",
+                f"Sensitivity status: {summary.get('sensitivity_status', 'not available')}.",
+                "Sensitivity varies max assets, max weight, transaction costs and random seeds on a bounded grid.",
+                "If model choice changes across this grid, that fragility is a limitation rather than a hidden detail.",
+            ],
+            "table": (
+                model_stability.head(10)
+                if not model_stability.empty
+                else robustness.head(10)
+            ),
+        },
+        {
+            "title": "Forecast Validation",
+            "bullets": [
+                f"Forecast validation status: {summary.get('forecast_validation_status', 'not available')}.",
+                "Forecasts are compared with a random-walk baseline.",
+                "Forecast outputs remain diagnostic unless they improve net portfolio decision quality after costs and risk.",
+            ],
+            "table": forecast_validation.head(12),
+        },
+        {
+            "title": "Economic Exposure Interpretation",
+            "bullets": [
+                "A final model must be economically interpretable, not only mathematically optimized.",
+                f"Exposure warnings: {summary.get('exposure_warnings', 'not available')}.",
+                "Region, country, currency, sleeve and sector exposure reports are generated separately.",
+            ],
+            "table": (
+                top_holdings.head(12)
+                if not top_holdings.empty
+                else (
+                    exposure_region.head(12)
+                    if not exposure_region.empty
+                    else exposure_warnings.head(12)
+                )
+            ),
+        },
+        {
             "title": "Walk-Forward Validation",
             "bullets": [
                 "Walk-forward uses chronological train and next-period test windows.",
@@ -124,6 +198,7 @@ def _sections() -> list[dict[str, object]]:
             "bullets": [
                 f"Risk metric sanity passed: {summary.get('risk_metric_sanity_passed', 'not available')}.",
                 f"Random portfolio percentile: {summary.get('random_portfolio_percentile', 'not available')}.",
+                f"Publish-readiness status: {summary.get('publish_readiness_status', 'not available')}.",
                 "Extreme return/risk values are warnings requiring review, not success claims.",
             ],
             "table": leakage.head(12) if not leakage.empty else sanity.head(12),

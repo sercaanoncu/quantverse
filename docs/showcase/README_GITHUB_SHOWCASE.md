@@ -14,12 +14,17 @@ outputs.
 4. Review `data/processed/global_portfolio_league_weights.csv`.
 5. Open `output/pdf/quantverse_v2_research_report.pdf`.
 6. Open `output/excel/quantverse_v2_research_output.xlsx`.
+7. Review `data/processed/global_model_selection_report.csv`.
+8. Review `data/processed/global_final_model_decision.json`.
 
 ## Why The Project Is Credible
 
 - It uses explicit source, FX and market-cap evidence gates.
 - It refuses unsupported exact-top-100 and point-in-time claims.
 - It compares candidates with Equal Weight and random portfolios.
+- It selects a final public-data model through a conservative model-selection
+  gate that considers walk-forward evidence, costs, drawdown, CVaR, random
+  percentiles and Equal Weight.
 - It exposes model status labels instead of hiding blocked or diagnostic models.
 - It separates public-data research evidence from stronger institutional claims.
 

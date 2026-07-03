@@ -17,6 +17,9 @@
 - Designed a model league comparing Equal Weight, random portfolios, inverse
   volatility, GMV, Max Sharpe, Min CVaR, HRP, Risk Parity, Black-Litterman
   diagnostics and forecast-enhanced constrained candidates.
+- Added a robust model-selection layer that excludes diagnostic/blocked models
+  from final selection and evaluates candidates against Equal Weight, random
+  portfolios, turnover, drawdown, CVaR and transaction-cost evidence.
 
 ## Financial Data Scientist
 
@@ -29,3 +32,6 @@
 - Created explainable PDF and Excel outputs that surface selected stocks, model
   weights, benchmark comparisons, red flags, limitations and reproducibility
   commands.
+- Produced exposure and top-holding interpretation outputs so a reviewer can see
+  region, country, currency, sleeve and concentration drivers behind the final
+  public-data model.

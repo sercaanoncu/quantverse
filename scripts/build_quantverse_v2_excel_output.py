@@ -26,6 +26,17 @@ SHEETS = {
     "WALK_FORWARD": "data/processed/global_walk_forward_model_comparison.csv",
     "BENCHMARK_COMPARISON": "data/processed/global_master_equal_weight_comparison.csv",
     "RANDOM_PORTFOLIOS": "data/processed/global_master_random_portfolio_benchmark.csv",
+    "MODEL_SELECTION": "data/processed/global_model_selection_report.csv",
+    "ROBUSTNESS": "data/processed/global_robustness_sensitivity.csv",
+    "RANDOM_DISTRIBUTION": "data/processed/global_random_portfolio_distribution.csv",
+    "RANDOM_PERCENTILES": "data/processed/global_random_portfolio_percentile_report.csv",
+    "EXPOSURE_REGION": "data/processed/global_region_exposure.csv",
+    "EXPOSURE_COUNTRY": "data/processed/global_country_exposure.csv",
+    "EXPOSURE_CURRENCY": "data/processed/global_currency_exposure.csv",
+    "EXPOSURE_SECTOR": "data/processed/global_sector_exposure.csv",
+    "TOP_HOLDINGS_EXPLANATION": "data/processed/global_top_holdings_explanation.csv",
+    "FORECAST_VALIDATION": "data/processed/global_forecast_validation_by_horizon.csv",
+    "PUBLISH_READINESS": "data/processed/global_model_selection_report.csv",
     "WARNINGS": "data/processed/global_risk_metric_sanity_checks.csv",
     "CLAIM_CONTROL": "data/processed/global_exact_proxy_classification_report.csv",
 }
@@ -64,7 +75,7 @@ def _start_here() -> list[dict[str, str]]:
     return [
         {
             "section": "What to inspect first",
-            "message": "Read EXECUTIVE_SUMMARY, MODEL_LEAGUE, FINAL_WEIGHTS, RISK_METRICS, WARNINGS and WALK_FORWARD before raw tables.",
+            "message": "Read EXECUTIVE_SUMMARY, MODEL_SELECTION, FINAL_WEIGHTS, RISK_METRICS, RANDOM_PERCENTILES, ROBUSTNESS, FORECAST_VALIDATION and TOP_HOLDINGS_EXPLANATION before raw tables.",
         },
         {
             "section": "Trust status",
@@ -81,6 +92,14 @@ def _start_here() -> list[dict[str, str]]:
         {
             "section": "Return label",
             "message": "The v2 portfolio return field is an annualized arithmetic estimate from realized daily simple returns, not a guaranteed forecast.",
+        },
+        {
+            "section": "Final model selection",
+            "message": "MODEL_SELECTION explains why the final public-data model is chosen; blocked and diagnostic models are not eligible final models.",
+        },
+        {
+            "section": "Publish readiness",
+            "message": "PUBLISH_READINESS is evidence for GitHub/CV discussion only; it is not a promoted institutional portfolio approval.",
         },
     ]
 

@@ -6,10 +6,10 @@ This full manuscript is generated from the committed QuantVerse v2 engine, local
 
 - Run status: `completed`
 - Universe rows: `600`
-- Assets with USD returns: `582`
-- Stocks scored: `582`
+- Assets with USD returns: `589`
+- Stocks scored: `589`
 - Stocks selected: `40`
-- Final selected model: `GMV`
+- Final selected model: `Risk Parity`
 - Walk-forward status: `completed_public_data_current_universe`
 - Promotion decision: `not promoted`
 
@@ -616,20 +616,101 @@ financial, legal, tax or institutional risk review.
 | Forecast-Enhanced Constrained Portfolio | forecast_overlay | Use forecast under strict caps. | diagnostic_only | generated return forecasts and chronological validation | True | forecast engine ensemble | daily USD returns covariance |
 | Policy Constrained | policy_constraint | Use composite score under caps. | actually_run | returns and selected universe | True | none or historical risk model | daily USD returns covariance |
 
+## Robust Model Selection Evidence
+
+The final public-data model is no longer selected by a simple in-sample Sharpe or CAGR sort. The selection layer excludes diagnostic and blocked models, then evaluates eligible models with walk-forward evidence, transaction-cost-adjusted return, turnover, drawdown, CVaR, Equal Weight and random portfolio percentiles. If no active model clears the gate, Equal Weight remains the defensible benchmark and no active model is promoted.
+
+| model_name | model_status | eligible_final_model | constraint_pass | walk_forward_supported | walk_forward_annualized_return | walk_forward_volatility | walk_forward_sharpe |
+|---|---|---|---|---|---|---|---|
+| Risk Parity | actually_run | True | True | True | 0.7742845242708294 | 0.0910333145909781 | 3.0109967322029143 |
+| Policy Constrained | actually_run | True | True | True | 0.6902484461940706 | 0.0721153672826494 | 2.732264136280917 |
+| GMV | actually_run | True | True | True | 0.4823589420209151 | 0.0517858425316163 | 2.2780162435894726 |
+| Equal Weight | benchmark_only | True | True | True | 0.6092757046832314 | 0.0890991077073453 | 2.073119785122713 |
+| Inverse Volatility | actually_run | True | True | True | 0.5865272222076281 | 0.0815374937599306 | 2.047099607743197 |
+| HRP | actually_run | True | True | True | 0.4479618238113398 | 0.062637097574825 | 1.897971022584047 |
+| Min CVaR | actually_run | True | True | True | 0.2839948866623542 | 0.0580784777948997 | 1.2122156568416855 |
+| Random Portfolios | benchmark_only | False | True | False | 2.501290664767894 | 0.3600033880944903 | 6.952269835730042 |
+| Max Sharpe | diagnostic_only | False | True | True | 0.6602213653239355 | 0.0705589846404315 | 2.7853201229378897 |
+| Black-Litterman | diagnostic_only | False | True | True | 0.722508102261003 | 0.1332693429428027 | 2.371222953983978 |
+| ML Forecast | diagnostic_only | False | False | False | 0.0 | 0.0 | 0.0 |
+| Ensemble Forecast | diagnostic_only | False | False | False | 0.0 | 0.0 | 0.0 |
+| Forecast-Enhanced Constrained Portfolio | diagnostic_only | False | True | True | 0.6888280949782349 | 0.0842723916912876 | 2.5856710756183148 |
+
+## Random Portfolio Percentile Evidence
+
+Random portfolios are used as a benchmark distribution under the same selected universe and max-weight constraint. They do not prove future superiority, but they answer whether the candidate is unusual relative to simple constrained alternatives.
+
+| model_name | return_percentile | volatility_percentile | sharpe_percentile | max_drawdown_percentile | cvar_percentile | better_than_random_median_sharpe | better_than_random_75th_sharpe |
+|---|---|---|---|---|---|---|---|
+| Random Portfolios | 0.517 | 0.509 | 0.514 | 0.505 | 0.491 | True | False |
+| Equal Weight | 0.507 | 0.586 | 0.565 | 0.51 | 0.549 | True | False |
+| Inverse Volatility | 0.873 | 0.24 | 0.584 | 0.217 | 0.198 | True | False |
+| GMV | 0.994 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
+| Max Sharpe | 0.017 | 0.97 | 0.67 | 0.978 | 0.974 | True | False |
+| Min CVaR | 0.824 | 0.99 | 0.999 | 0.999 | 1.0 | True | True |
+| HRP | 0.001 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
+| Risk Parity | 0.897 | 0.972 | 0.998 | 0.988 | 0.969 | True | True |
+| Black-Litterman | 0.749 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
+| ML Forecast |  |  |  |  |  | False | False |
+| Ensemble Forecast |  |  |  |  |  | False | False |
+| Forecast-Enhanced Constrained Portfolio | 0.999 | 0.487 | 0.996 | 0.878 | 0.615 | True | True |
+| Policy Constrained | 0.013 | 0.993 | 0.839 | 0.988 | 0.999 | True | True |
+
+## Sensitivity and Robustness Evidence
+
+The sensitivity layer varies max assets, max weight, transaction costs and random seeds on a bounded grid. Fragile model choice or unstable weights are reported as limitations rather than hidden behind the final headline.
+
+| final_model | scenario_count | scenario_share | mean_selection_score | mean_net_annualized_return | mean_sharpe | mean_max_drawdown | mean_cvar_95 |
+|---|---|---|---|---|---|---|---|
+| Equal Weight | 48 | 1.0 | 23.76165673618968 | 2.347676017741427 | 6.944446218295849 | -0.04955617797824807 | -0.031131090221267876 |
+
+## Economic Exposure Interpretation
+
+The final model is interpreted by region, country, currency, sleeve, sector and top holding. This converts weights into an economic story that a reviewer can inspect before reading raw optimization tables.
+
+| model_name | ticker | name | weight | sleeve | region | country | currency |
+|---|---|---|---|---|---|---|---|
+| Risk Parity | IEYHO.IS | ISIKLAR ENERJI YAPI HOL. | 0.06345979901855693 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Risk Parity | ODINE.IS | ODINE TEKNOLOJI | 0.05948677650259161 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Risk Parity | ARMGD.IS | ARMADA GIDA | 0.0498910874613994 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Risk Parity | HEDEF.IS | HEDEF HOLDING | 0.04744048409524349 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Risk Parity | 601869.SS | YANGTZE OPTICAL FIBRE AND CABLE | 0.045687611514096484 | global_equity_china | Asia | China/Hong Kong listing | CNY |
+| Risk Parity | DSTKF.IS | DESTEK FINANS FAKTORING | 0.04403164040215048 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Risk Parity | OZATD.IS | OZATA DENIZCILIK | 0.043698020284509885 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Risk Parity | DELL | Dell Technologies Inc. | 0.040336508101708274 | global_equity_us | North America | United States | USD |
+| Risk Parity | BIGEN.IS | BIRLESIM GRUP ENERJI | 0.03241505128274516 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Risk Parity | 002384.SZ | SUZHOU DONGSHAN PRECISION MANUF | 0.030120027026370656 | global_equity_china | Asia | China/Hong Kong listing | CNY |
+| Risk Parity | GEV | GE Vernova Inc. | 0.029265619000605054 | global_equity_us | North America | United States | USD |
+| Risk Parity | 1AMD.MI | ADVANCED MICRO DEVICES | 0.029045568228365556 | global_equity_europe | Europe | Europe exchange listing | EUR |
+| Risk Parity | STX | Seagate Technology Holdings PLC | 0.028795365228219856 | global_equity_us | North America | United States | USD |
+| Risk Parity | 300308.SZ | ZHONGJI INNOLIGHT CO LTD | 0.028570716817986754 | global_equity_china | Asia | China/Hong Kong listing | CNY |
+| Risk Parity | AMD.F | ADVANCED MICRO DEVICES INC.   R | 0.028262864953657953 | global_equity_europe | Europe | Europe exchange listing | EUR |
+
+## Forecast Validation Evidence
+
+Forecasts remain diagnostic unless they beat a random-walk baseline and prove better net portfolio decision quality after risk and costs. Validation output therefore reports errors, random-walk comparison and allocation-signal status separately.
+
+| horizon | horizon_days | forecast_count | mean_rmse | mean_mae | mean_random_walk_mae | mae_improvement_vs_random_walk | fraction_beating_random_walk |
+|---|---|---|---|---|---|---|---|
+| 12M | 252 | 589 | 1.015092737114371 | 0.9454320323284939 | 0.9569682166057442 | 0.011536184277250228 | 0.6702127659574468 |
+| 1M | 21 | 589 | 0.1355952961359762 | 0.11226810223164795 | 0.11431764425144912 | 0.002049542019801176 | 0.5783132530120482 |
+| 3M | 63 | 589 | 0.24742728835925334 | 0.2137059336643709 | 0.22819781648376852 | 0.014491882819397617 | 0.553448275862069 |
+| 6M | 126 | 589 | 0.38447747331069754 | 0.3499198607430662 | 0.3793594256144302 | 0.02943956487136401 | 0.6045296167247387 |
+
 ## QuantVerse v2 Walk-Forward Evidence
 
 | model_name | folds | avg_cagr | avg_annualized_return | avg_volatility | avg_sharpe | avg_sortino | avg_max_drawdown |
 |---|---|---|---|---|---|---|---|
-| Max Sharpe | 12 | 3.427856188313863 | 0.663929682097696 | 0.06940527932564623 | 2.8571862664846 | 3.3597990402605915 | -0.003242201491877872 |
-| Risk Parity | 10 | 2.9285284794571522 | 0.7011558878368694 | 0.08151023425058354 | 2.735466601511407 | 6.921591008869503 | -0.0047954048458090145 |
-| Policy Constrained | 12 | 3.7460193767953576 | 0.6891005986481447 | 0.07222662885233165 | 2.7312191790007407 | 9.005455344752617 | -0.004729939341729393 |
-| Forecast-Enhanced Constrained Portfolio | 12 | 3.5768074816466684 | 0.6948170755633822 | 0.08273688359634336 | 2.6207447515964972 | 1.0511933462523546 | -0.00557471279269255 |
-| Black-Litterman | 12 | 10.189395930538238 | 0.7241926130546226 | 0.13025321043355853 | 2.380987894333296 | 0.2985373515473274 | -0.012969012363142601 |
-| GMV | 12 | 1.9796987073429246 | 0.4876204151784824 | 0.05133684823133814 | 2.322830603777223 | 6.585471861743393 | -0.0025305816393103864 |
-| Equal Weight | 12 | 2.5578100379806847 | 0.6155147954890542 | 0.08794691938310377 | 2.1020228141714057 | 273.05578522844434 | -0.006465045209707439 |
-| Inverse Volatility | 12 | 2.347532632622493 | 0.5913798256590147 | 0.08082049353875796 | 2.068327996783611 | 15.095833557456203 | -0.006015133258352188 |
-| HRP | 12 | 1.6369187649814145 | 0.4500704428781046 | 0.06291202482346665 | 1.896033048887113 | 3.068045511899222 | -0.004367267897960316 |
-| Min CVaR | 12 | 1.5719078828112556 | 0.28312583784816275 | 0.058524658840852596 | 1.188164413190731 | 7.067264222449694 | -0.003942351979371567 |
+| Risk Parity | 9 | 3.1732687850969095 | 0.7742845242708294 | 0.09103331459097816 | 3.0109967322029143 | 7.7111809171683525 | -0.005041812059825346 |
+| Max Sharpe | 12 | 3.339249410720886 | 0.6602213653239355 | 0.07055898464043155 | 2.7853201229378897 | 3.979981461008922 | -0.003587225495898738 |
+| Policy Constrained | 12 | 3.772071392062427 | 0.6902484461940706 | 0.07211536728264946 | 2.7322641362809166 | 9.465350361462283 | -0.004714228155845897 |
+| Forecast-Enhanced Constrained Portfolio | 12 | 3.4546744620540775 | 0.6888280949782349 | 0.08427239169128764 | 2.5856710756183148 | 1.003196606772506 | -0.005390391606862351 |
+| Black-Litterman | 12 | 10.175075603815294 | 0.722508102261003 | 0.1332693429428027 | 2.371222953983978 | 0.2804153502613837 | -0.013155601613915416 |
+| GMV | 12 | 1.8853726735369571 | 0.48235894202091517 | 0.05178584253161639 | 2.2780162435894726 | 6.562232716909565 | -0.0024134371893433835 |
+| Equal Weight | 12 | 2.4689834218694977 | 0.6092757046832314 | 0.0890991077073453 | 2.073119785122713 | 273.03341898772055 | -0.006351739259590418 |
+| Inverse Volatility | 12 | 2.285051228444275 | 0.5865272222076281 | 0.0815374937599306 | 2.047099607743197 | 15.031129810764858 | -0.0058856204225518904 |
+| HRP | 12 | 1.6064867554593871 | 0.4479618238113398 | 0.062637097574825 | 1.897971022584047 | 3.395236264617995 | -0.004017362387302474 |
+| Min CVaR | 12 | 1.561050044675885 | 0.28399488666235423 | 0.05807847779489977 | 1.2122156568416855 | 7.970500364746887 | -0.0038997966607041876 |
 
 ## Simple Return
 
@@ -895,6 +976,66 @@ In the codebase, this concept is reflected through deterministic functions, stab
 
 Interpretation for a banker, portfolio analyst, risk analyst or quant recruiter should be conservative. A high point estimate is not enough. The reader must ask whether the result survives costs, drawdown, CVaR, random portfolios, Equal Weight, source limitations and out-of-sample validation. QuantVerse v2 is designed to show those questions directly instead of hiding them in code.
 
+## Robust Model Selection
+
+Formula: `score = validation + risk + benchmark - costs - warnings`.
+
+Robust Model Selection is included because QuantVerse must explain the mathematical operation behind every portfolio result before the reader sees a model ranking. A quantitative portfolio report is not credible when it shows a table of returns without defining the return unit, the compounding rule, the risk convention and the decision boundary. The implementation therefore records the formula, the input file, the output file and the status label attached to the method.
+
+The public-data setting matters. The current universe is built from current public-provider candidates and not from an institutional point-in-time constituent database. That means the formula can be valid while the claim remains limited. This distinction is central to the project: correct mathematics is necessary, but it is not sufficient for promotion. Data lineage, FX treatment, survivorship controls and walk-forward validation must also pass.
+
+In the codebase, this concept is reflected through deterministic functions, stable CSV schemas and tests that check invariants such as weight sums, long-only constraints, ordered prediction intervals, chronological train/test splits and explicit model statuses. The methodology mapping translates portfolio theory, financial statistics, econometrics and machine-learning validation principles into these software checks.
+
+Interpretation for a banker, portfolio analyst, risk analyst or quant recruiter should be conservative. A high point estimate is not enough. The reader must ask whether the result survives costs, drawdown, CVaR, random portfolios, Equal Weight, source limitations and out-of-sample validation. QuantVerse v2 is designed to show those questions directly instead of hiding them in code.
+
+## Random Percentile
+
+Formula: `percentile = share(random_metric <= candidate_metric)`.
+
+Random Percentile is included because QuantVerse must explain the mathematical operation behind every portfolio result before the reader sees a model ranking. A quantitative portfolio report is not credible when it shows a table of returns without defining the return unit, the compounding rule, the risk convention and the decision boundary. The implementation therefore records the formula, the input file, the output file and the status label attached to the method.
+
+The public-data setting matters. The current universe is built from current public-provider candidates and not from an institutional point-in-time constituent database. That means the formula can be valid while the claim remains limited. This distinction is central to the project: correct mathematics is necessary, but it is not sufficient for promotion. Data lineage, FX treatment, survivorship controls and walk-forward validation must also pass.
+
+In the codebase, this concept is reflected through deterministic functions, stable CSV schemas and tests that check invariants such as weight sums, long-only constraints, ordered prediction intervals, chronological train/test splits and explicit model statuses. The methodology mapping translates portfolio theory, financial statistics, econometrics and machine-learning validation principles into these software checks.
+
+Interpretation for a banker, portfolio analyst, risk analyst or quant recruiter should be conservative. A high point estimate is not enough. The reader must ask whether the result survives costs, drawdown, CVaR, random portfolios, Equal Weight, source limitations and out-of-sample validation. QuantVerse v2 is designed to show those questions directly instead of hiding them in code.
+
+## Sensitivity Analysis
+
+Formula: `vary constraints, costs and seeds on a bounded grid`.
+
+Sensitivity Analysis is included because QuantVerse must explain the mathematical operation behind every portfolio result before the reader sees a model ranking. A quantitative portfolio report is not credible when it shows a table of returns without defining the return unit, the compounding rule, the risk convention and the decision boundary. The implementation therefore records the formula, the input file, the output file and the status label attached to the method.
+
+The public-data setting matters. The current universe is built from current public-provider candidates and not from an institutional point-in-time constituent database. That means the formula can be valid while the claim remains limited. This distinction is central to the project: correct mathematics is necessary, but it is not sufficient for promotion. Data lineage, FX treatment, survivorship controls and walk-forward validation must also pass.
+
+In the codebase, this concept is reflected through deterministic functions, stable CSV schemas and tests that check invariants such as weight sums, long-only constraints, ordered prediction intervals, chronological train/test splits and explicit model statuses. The methodology mapping translates portfolio theory, financial statistics, econometrics and machine-learning validation principles into these software checks.
+
+Interpretation for a banker, portfolio analyst, risk analyst or quant recruiter should be conservative. A high point estimate is not enough. The reader must ask whether the result survives costs, drawdown, CVaR, random portfolios, Equal Weight, source limitations and out-of-sample validation. QuantVerse v2 is designed to show those questions directly instead of hiding them in code.
+
+## Exposure Interpretation
+
+Formula: `portfolio exposure = grouped sum of weights`.
+
+Exposure Interpretation is included because QuantVerse must explain the mathematical operation behind every portfolio result before the reader sees a model ranking. A quantitative portfolio report is not credible when it shows a table of returns without defining the return unit, the compounding rule, the risk convention and the decision boundary. The implementation therefore records the formula, the input file, the output file and the status label attached to the method.
+
+The public-data setting matters. The current universe is built from current public-provider candidates and not from an institutional point-in-time constituent database. That means the formula can be valid while the claim remains limited. This distinction is central to the project: correct mathematics is necessary, but it is not sufficient for promotion. Data lineage, FX treatment, survivorship controls and walk-forward validation must also pass.
+
+In the codebase, this concept is reflected through deterministic functions, stable CSV schemas and tests that check invariants such as weight sums, long-only constraints, ordered prediction intervals, chronological train/test splits and explicit model statuses. The methodology mapping translates portfolio theory, financial statistics, econometrics and machine-learning validation principles into these software checks.
+
+Interpretation for a banker, portfolio analyst, risk analyst or quant recruiter should be conservative. A high point estimate is not enough. The reader must ask whether the result survives costs, drawdown, CVaR, random portfolios, Equal Weight, source limitations and out-of-sample validation. QuantVerse v2 is designed to show those questions directly instead of hiding them in code.
+
+## Forecast Validation
+
+Formula: `compare model error with random-walk baseline`.
+
+Forecast Validation is included because QuantVerse must explain the mathematical operation behind every portfolio result before the reader sees a model ranking. A quantitative portfolio report is not credible when it shows a table of returns without defining the return unit, the compounding rule, the risk convention and the decision boundary. The implementation therefore records the formula, the input file, the output file and the status label attached to the method.
+
+The public-data setting matters. The current universe is built from current public-provider candidates and not from an institutional point-in-time constituent database. That means the formula can be valid while the claim remains limited. This distinction is central to the project: correct mathematics is necessary, but it is not sufficient for promotion. Data lineage, FX treatment, survivorship controls and walk-forward validation must also pass.
+
+In the codebase, this concept is reflected through deterministic functions, stable CSV schemas and tests that check invariants such as weight sums, long-only constraints, ordered prediction intervals, chronological train/test splits and explicit model statuses. The methodology mapping translates portfolio theory, financial statistics, econometrics and machine-learning validation principles into these software checks.
+
+Interpretation for a banker, portfolio analyst, risk analyst or quant recruiter should be conservative. A high point estimate is not enough. The reader must ask whether the result survives costs, drawdown, CVaR, random portfolios, Equal Weight, source limitations and out-of-sample validation. QuantVerse v2 is designed to show those questions directly instead of hiding them in code.
+
 ## Walk-Forward
 
 Formula: `train on past window, test on next chronological window`.
@@ -1078,6 +1219,26 @@ For ML Forecast, the audit question is not only whether the formula was computed
 
 For Ensemble Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
 
+### Audit Expansion 1: Robust Model Selection
+
+For Robust Model Selection, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 1: Random Percentile
+
+For Random Percentile, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 1: Sensitivity Analysis
+
+For Sensitivity Analysis, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 1: Exposure Interpretation
+
+For Exposure Interpretation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 1: Forecast Validation
+
+For Forecast Validation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
 ### Audit Expansion 1: Walk-Forward
 
 For Walk-Forward, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
@@ -1189,6 +1350,26 @@ For ML Forecast, the audit question is not only whether the formula was computed
 ### Audit Expansion 2: Ensemble Forecast
 
 For Ensemble Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 2: Robust Model Selection
+
+For Robust Model Selection, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 2: Random Percentile
+
+For Random Percentile, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 2: Sensitivity Analysis
+
+For Sensitivity Analysis, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 2: Exposure Interpretation
+
+For Exposure Interpretation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 2: Forecast Validation
+
+For Forecast Validation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
 
 ### Audit Expansion 2: Walk-Forward
 
@@ -1302,6 +1483,26 @@ For ML Forecast, the audit question is not only whether the formula was computed
 
 For Ensemble Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
 
+### Audit Expansion 3: Robust Model Selection
+
+For Robust Model Selection, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 3: Random Percentile
+
+For Random Percentile, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 3: Sensitivity Analysis
+
+For Sensitivity Analysis, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 3: Exposure Interpretation
+
+For Exposure Interpretation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 3: Forecast Validation
+
+For Forecast Validation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
 ### Audit Expansion 3: Walk-Forward
 
 For Walk-Forward, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
@@ -1413,6 +1614,26 @@ For ML Forecast, the audit question is not only whether the formula was computed
 ### Audit Expansion 4: Ensemble Forecast
 
 For Ensemble Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 4: Robust Model Selection
+
+For Robust Model Selection, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 4: Random Percentile
+
+For Random Percentile, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 4: Sensitivity Analysis
+
+For Sensitivity Analysis, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 4: Exposure Interpretation
+
+For Exposure Interpretation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 4: Forecast Validation
+
+For Forecast Validation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
 
 ### Audit Expansion 4: Walk-Forward
 
@@ -1526,6 +1747,26 @@ For ML Forecast, the audit question is not only whether the formula was computed
 
 For Ensemble Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
 
+### Audit Expansion 5: Robust Model Selection
+
+For Robust Model Selection, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 5: Random Percentile
+
+For Random Percentile, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 5: Sensitivity Analysis
+
+For Sensitivity Analysis, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 5: Exposure Interpretation
+
+For Exposure Interpretation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 5: Forecast Validation
+
+For Forecast Validation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
 ### Audit Expansion 5: Walk-Forward
 
 For Walk-Forward, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
@@ -1638,6 +1879,26 @@ For ML Forecast, the audit question is not only whether the formula was computed
 
 For Ensemble Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
 
+### Audit Expansion 6: Robust Model Selection
+
+For Robust Model Selection, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 6: Random Percentile
+
+For Random Percentile, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 6: Sensitivity Analysis
+
+For Sensitivity Analysis, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 6: Exposure Interpretation
+
+For Exposure Interpretation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
+### Audit Expansion 6: Forecast Validation
+
+For Forecast Validation, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
+
 ### Audit Expansion 6: Walk-Forward
 
 For Walk-Forward, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
@@ -1659,229 +1920,5 @@ For Stress Testing, the audit question is not only whether the formula was compu
 For PCA and Clustering, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
 
 ### Audit Expansion 6: Model Governance
-
-For Model Governance, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Simple Return
-
-For Simple Return, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Log Return
-
-For Log Return, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: FX Conversion
-
-For FX Conversion, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Portfolio Return
-
-For Portfolio Return, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Covariance
-
-For Covariance, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Volatility
-
-For Volatility, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Sharpe
-
-For Sharpe, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Sortino
-
-For Sortino, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Drawdown
-
-For Drawdown, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: VaR
-
-For VaR, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: CVaR
-
-For CVaR, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Equal Weight
-
-For Equal Weight, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Random Portfolios
-
-For Random Portfolios, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Inverse Volatility
-
-For Inverse Volatility, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: GMV
-
-For GMV, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Max Sharpe
-
-For Max Sharpe, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Min CVaR
-
-For Min CVaR, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: HRP
-
-For HRP, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Risk Parity
-
-For Risk Parity, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Black-Litterman
-
-For Black-Litterman, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: ML Forecast
-
-For ML Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Ensemble Forecast
-
-For Ensemble Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Walk-Forward
-
-For Walk-Forward, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Transaction Costs
-
-For Transaction Costs, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Risk Contribution
-
-For Risk Contribution, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Stress Testing
-
-For Stress Testing, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: PCA and Clustering
-
-For PCA and Clustering, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 7: Model Governance
-
-For Model Governance, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Simple Return
-
-For Simple Return, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Log Return
-
-For Log Return, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: FX Conversion
-
-For FX Conversion, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Portfolio Return
-
-For Portfolio Return, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Covariance
-
-For Covariance, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Volatility
-
-For Volatility, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Sharpe
-
-For Sharpe, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Sortino
-
-For Sortino, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Drawdown
-
-For Drawdown, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: VaR
-
-For VaR, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: CVaR
-
-For CVaR, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Equal Weight
-
-For Equal Weight, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Random Portfolios
-
-For Random Portfolios, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Inverse Volatility
-
-For Inverse Volatility, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: GMV
-
-For GMV, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Max Sharpe
-
-For Max Sharpe, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Min CVaR
-
-For Min CVaR, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: HRP
-
-For HRP, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Risk Parity
-
-For Risk Parity, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Black-Litterman
-
-For Black-Litterman, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: ML Forecast
-
-For ML Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Ensemble Forecast
-
-For Ensemble Forecast, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Walk-Forward
-
-For Walk-Forward, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Transaction Costs
-
-For Transaction Costs, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Risk Contribution
-
-For Risk Contribution, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Stress Testing
-
-For Stress Testing, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: PCA and Clustering
-
-For PCA and Clustering, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.
-
-### Audit Expansion 8: Model Governance
 
 For Model Governance, the audit question is not only whether the formula was computed, but whether the claim attached to the formula is valid for the current evidence layer. The input must be named, the output must be reproducible, the model status must be explicit and the limitation must be visible in the report. If a metric is extreme, the correct interpretation is warning first, not marketing success. If the universe is current-only, the correct historical interpretation is public-data research, not institutional point-in-time proof. If the model uses expected returns, the correct validation question is whether those expectations helped net portfolio decision quality after risk, turnover and costs.

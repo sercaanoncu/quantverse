@@ -188,6 +188,11 @@ def build_full_slide_source() -> list[dict[str, str]]:
         "No-Look-Ahead Rule",
         "Transaction Costs",
         "Model League Status",
+        "Robust Model Selection",
+        "Random Portfolio Percentile",
+        "Sensitivity Analysis",
+        "Economic Exposure Interpretation",
+        "Forecast Validation",
         "Promotion Gate",
         "Current Results",
         "Selected Stocks",
@@ -242,11 +247,27 @@ def _evidence_source(topic: str) -> str:
         return "data/processed/global_portfolio_league.csv"
     if topic in {"Walk-Forward Design", "Current Results"}:
         return "data/processed/global_walk_forward_summary.json"
+    if topic == "Robust Model Selection":
+        return "data/processed/global_model_selection_report.csv"
+    if topic == "Random Portfolio Percentile":
+        return "data/processed/global_random_portfolio_percentile_report.csv"
+    if topic == "Sensitivity Analysis":
+        return "data/processed/global_parameter_sensitivity_summary.json"
+    if topic == "Economic Exposure Interpretation":
+        return "data/processed/global_top_holdings_explanation.csv"
+    if topic == "Forecast Validation":
+        return "data/processed/global_forecast_validation_by_horizon.csv"
     return "QuantVerse v2 generated outputs and methodology mapping"
 
 
 def _decision_implication(topic: str) -> str:
-    if topic in {"Promotion Gate", "Remaining Blockers", "Exact Top-100 Limitation"}:
+    if topic in {
+        "Promotion Gate",
+        "Remaining Blockers",
+        "Exact Top-100 Limitation",
+        "Robust Model Selection",
+        "Forecast Validation",
+    }:
         return "Do not claim promoted institutional global USD master portfolio."
     if topic in {"GitHub Value", "CV Value", "Bank Interview Value"}:
         return "Use as evidence of quantitative research engineering and honest validation discipline."
