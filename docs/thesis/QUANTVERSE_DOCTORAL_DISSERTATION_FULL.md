@@ -9,7 +9,7 @@ This full manuscript is generated from the committed QuantVerse v2 engine, local
 - Assets with USD returns: `589`
 - Stocks scored: `589`
 - Stocks selected: `40`
-- Final selected model: `Risk Parity`
+- Final selected model: `Policy Constrained`
 - Walk-forward status: `completed_public_data_current_universe`
 - Promotion decision: `not promoted`
 
@@ -622,19 +622,19 @@ The final public-data model is no longer selected by a simple in-sample Sharpe o
 
 | model_name | model_status | eligible_final_model | constraint_pass | walk_forward_supported | walk_forward_annualized_return | walk_forward_volatility | walk_forward_sharpe |
 |---|---|---|---|---|---|---|---|
-| Risk Parity | actually_run | True | True | True | 0.7742845242708294 | 0.0910333145909781 | 3.0109967322029143 |
-| Policy Constrained | actually_run | True | True | True | 0.6902484461940706 | 0.0721153672826494 | 2.732264136280917 |
-| GMV | actually_run | True | True | True | 0.4823589420209151 | 0.0517858425316163 | 2.2780162435894726 |
+| Policy Constrained | actually_run | True | True | True | 0.6902484870688234 | 0.072115337472777 | 2.7322648279755115 |
+| Risk Parity | actually_run | True | True | True | 0.6968560574178227 | 0.0819299817816758 | 2.7098970048954696 |
+| GMV | actually_run | True | True | True | 0.4823590639539034 | 0.0517858440149857 | 2.278016880047272 |
 | Equal Weight | benchmark_only | True | True | True | 0.6092757046832314 | 0.0890991077073453 | 2.073119785122713 |
-| Inverse Volatility | actually_run | True | True | True | 0.5865272222076281 | 0.0815374937599306 | 2.047099607743197 |
-| HRP | actually_run | True | True | True | 0.4479618238113398 | 0.062637097574825 | 1.897971022584047 |
-| Min CVaR | actually_run | True | True | True | 0.2839948866623542 | 0.0580784777948997 | 1.2122156568416855 |
-| Random Portfolios | benchmark_only | False | True | False | 2.501290664767894 | 0.3600033880944903 | 6.952269835730042 |
-| Max Sharpe | diagnostic_only | False | True | True | 0.6602213653239355 | 0.0705589846404315 | 2.7853201229378897 |
-| Black-Litterman | diagnostic_only | False | True | True | 0.722508102261003 | 0.1332693429428027 | 2.371222953983978 |
+| Inverse Volatility | actually_run | True | True | True | 0.5865272266873832 | 0.0815374934799282 | 2.047099591980376 |
+| HRP | actually_run | True | True | True | 0.4479618002227921 | 0.0626370961928234 | 1.8979708957161217 |
+| Min CVaR | actually_run | True | True | True | 0.283895051160752 | 0.0580972252439665 | 1.2109201460238623 |
+| Random Portfolios | benchmark_only | False | True | False | 2.5012907077053184 | 0.3600033916750189 | 6.952269895993722 |
+| Max Sharpe | diagnostic_only | False | True | True | 0.6602214290872263 | 0.0705590379554826 | 2.7853196837905347 |
+| Black-Litterman | diagnostic_only | False | True | True | 0.7225080475194483 | 0.1332693416981858 | 2.3712230546674413 |
 | ML Forecast | diagnostic_only | False | False | False | 0.0 | 0.0 | 0.0 |
 | Ensemble Forecast | diagnostic_only | False | False | False | 0.0 | 0.0 | 0.0 |
-| Forecast-Enhanced Constrained Portfolio | diagnostic_only | False | True | True | 0.6888280949782349 | 0.0842723916912876 | 2.5856710756183148 |
+| Forecast-Enhanced Constrained Portfolio | diagnostic_only | False | True | True | 0.6888281051229556 | 0.0842723908617595 | 2.585671061329047 |
 
 ## Random Portfolio Percentile Evidence
 
@@ -647,14 +647,14 @@ Random portfolios are used as a benchmark distribution under the same selected u
 | Inverse Volatility | 0.873 | 0.24 | 0.584 | 0.217 | 0.198 | True | False |
 | GMV | 0.994 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
 | Max Sharpe | 0.017 | 0.97 | 0.67 | 0.978 | 0.974 | True | False |
-| Min CVaR | 0.824 | 0.99 | 0.999 | 0.999 | 1.0 | True | True |
+| Min CVaR | 0.825 | 0.99 | 0.999 | 0.999 | 1.0 | True | True |
 | HRP | 0.001 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
 | Risk Parity | 0.897 | 0.972 | 0.998 | 0.988 | 0.969 | True | True |
 | Black-Litterman | 0.749 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
 | ML Forecast |  |  |  |  |  | False | False |
 | Ensemble Forecast |  |  |  |  |  | False | False |
 | Forecast-Enhanced Constrained Portfolio | 0.999 | 0.487 | 0.996 | 0.878 | 0.615 | True | True |
-| Policy Constrained | 0.013 | 0.993 | 0.839 | 0.988 | 0.999 | True | True |
+| Policy Constrained | 0.016 | 0.993 | 0.839 | 0.988 | 0.999 | True | True |
 
 ## Sensitivity and Robustness Evidence
 
@@ -662,7 +662,7 @@ The sensitivity layer varies max assets, max weight, transaction costs and rando
 
 | final_model | scenario_count | scenario_share | mean_selection_score | mean_net_annualized_return | mean_sharpe | mean_max_drawdown | mean_cvar_95 |
 |---|---|---|---|---|---|---|---|
-| Equal Weight | 48 | 1.0 | 23.76165673618968 | 2.347676017741427 | 6.944446218295849 | -0.04955617797824807 | -0.031131090221267876 |
+| Equal Weight | 48 | 1.0 | 23.663878956942103 | 2.3476760170812154 | 6.9444462180057505 | -0.04955617797824774 | -0.031131090221267876 |
 
 ## Economic Exposure Interpretation
 
@@ -670,21 +670,21 @@ The final model is interpreted by region, country, currency, sleeve, sector and 
 
 | model_name | ticker | name | weight | sleeve | region | country | currency |
 |---|---|---|---|---|---|---|---|
-| Risk Parity | IEYHO.IS | ISIKLAR ENERJI YAPI HOL. | 0.06345979901855693 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Risk Parity | ODINE.IS | ODINE TEKNOLOJI | 0.05948677650259161 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Risk Parity | ARMGD.IS | ARMADA GIDA | 0.0498910874613994 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Risk Parity | HEDEF.IS | HEDEF HOLDING | 0.04744048409524349 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Risk Parity | 601869.SS | YANGTZE OPTICAL FIBRE AND CABLE | 0.045687611514096484 | global_equity_china | Asia | China/Hong Kong listing | CNY |
-| Risk Parity | DSTKF.IS | DESTEK FINANS FAKTORING | 0.04403164040215048 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Risk Parity | OZATD.IS | OZATA DENIZCILIK | 0.043698020284509885 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Risk Parity | DELL | Dell Technologies Inc. | 0.040336508101708274 | global_equity_us | North America | United States | USD |
-| Risk Parity | BIGEN.IS | BIRLESIM GRUP ENERJI | 0.03241505128274516 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Risk Parity | 002384.SZ | SUZHOU DONGSHAN PRECISION MANUF | 0.030120027026370656 | global_equity_china | Asia | China/Hong Kong listing | CNY |
-| Risk Parity | GEV | GE Vernova Inc. | 0.029265619000605054 | global_equity_us | North America | United States | USD |
-| Risk Parity | 1AMD.MI | ADVANCED MICRO DEVICES | 0.029045568228365556 | global_equity_europe | Europe | Europe exchange listing | EUR |
-| Risk Parity | STX | Seagate Technology Holdings PLC | 0.028795365228219856 | global_equity_us | North America | United States | USD |
-| Risk Parity | 300308.SZ | ZHONGJI INNOLIGHT CO LTD | 0.028570716817986754 | global_equity_china | Asia | China/Hong Kong listing | CNY |
-| Risk Parity | AMD.F | ADVANCED MICRO DEVICES INC.   R | 0.028262864953657953 | global_equity_europe | Europe | Europe exchange listing | EUR |
+| Policy Constrained | BRH.F | BERKSHIRE HATHAWAY INC.       R | 0.07785158970025594 | global_equity_europe | Europe | Europe exchange listing | EUR |
+| Policy Constrained | 1NVDA.MI | NVIDIA CORP | 0.06735896495945583 | global_equity_europe | Europe | Europe exchange listing | EUR |
+| Policy Constrained | TRHOL.IS | TERA FINANSAL YAT. HOL. | 0.06282553176956632 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Policy Constrained | MSFT.SW | MICROSOFT CORP | 0.0587483313757804 | global_equity_europe | Europe | Europe exchange listing | CHF |
+| Policy Constrained | INTC.SW | INTEL CORP | 0.0550934475185916 | global_equity_europe | Europe | Europe exchange listing | CHF |
+| Policy Constrained | 1AVGO.MI | BROADCOM | 0.05155932113154669 | global_equity_europe | Europe | Europe exchange listing | EUR |
+| Policy Constrained | DSTKF.IS | DESTEK FINANS FAKTORING | 0.04889203573202459 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Policy Constrained | GUNDG.IS | GUNDOGDU GIDA | 0.04532573912151908 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Policy Constrained | HY9H.F | SK Hynix Inc.                 R | 0.045313698232531584 | global_equity_europe | Europe | Europe exchange listing | EUR |
+| Policy Constrained | ODINE.IS | ODINE TEKNOLOJI | 0.04213022688470368 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Policy Constrained | SNDK | Sandisk Corporation | 0.041170408895424976 | global_equity_us | North America | United States | USD |
+| Policy Constrained | 3986.HK | GIGADEVICE | 0.03883913096187267 | global_equity_china | Asia | China/Hong Kong listing | HKD |
+| Policy Constrained | OZATD.IS | OZATA DENIZCILIK | 0.03727875715784017 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Policy Constrained | 285A.T | KIOXIA HOLDINGS CORPORATION | 0.036764044443852964 | global_equity_japan | Asia | Japan | JPY |
+| Policy Constrained | ARMGD.IS | ARMADA GIDA | 0.03207996083465896 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
 
 ## Forecast Validation Evidence
 
@@ -692,25 +692,25 @@ Forecasts remain diagnostic unless they beat a random-walk baseline and prove be
 
 | horizon | horizon_days | forecast_count | mean_rmse | mean_mae | mean_random_walk_mae | mae_improvement_vs_random_walk | fraction_beating_random_walk |
 |---|---|---|---|---|---|---|---|
-| 12M | 252 | 589 | 1.015092737114371 | 0.9454320323284939 | 0.9569682166057442 | 0.011536184277250228 | 0.6702127659574468 |
-| 1M | 21 | 589 | 0.1355952961359762 | 0.11226810223164795 | 0.11431764425144912 | 0.002049542019801176 | 0.5783132530120482 |
-| 3M | 63 | 589 | 0.24742728835925334 | 0.2137059336643709 | 0.22819781648376852 | 0.014491882819397617 | 0.553448275862069 |
-| 6M | 126 | 589 | 0.38447747331069754 | 0.3499198607430662 | 0.3793594256144302 | 0.02943956487136401 | 0.6045296167247387 |
+| 12M | 252 | 589 | 1.0150916527161846 | 0.9454311966934937 | 0.9569678801178028 | 0.011536683424309024 | 0.6702127659574468 |
+| 1M | 21 | 589 | 0.1355948098285233 | 0.1122678141597502 | 0.11431728880532882 | 0.002049474645578614 | 0.5783132530120482 |
+| 3M | 63 | 589 | 0.247426968848533 | 0.21370607746073567 | 0.22819787252243495 | 0.014491795061699286 | 0.553448275862069 |
+| 6M | 126 | 589 | 0.3844768618134196 | 0.3499193668891391 | 0.37935940960031594 | 0.02944004271117684 | 0.6045296167247387 |
 
 ## QuantVerse v2 Walk-Forward Evidence
 
 | model_name | folds | avg_cagr | avg_annualized_return | avg_volatility | avg_sharpe | avg_sortino | avg_max_drawdown |
 |---|---|---|---|---|---|---|---|
-| Risk Parity | 9 | 3.1732687850969095 | 0.7742845242708294 | 0.09103331459097816 | 3.0109967322029143 | 7.7111809171683525 | -0.005041812059825346 |
-| Max Sharpe | 12 | 3.339249410720886 | 0.6602213653239355 | 0.07055898464043155 | 2.7853201229378897 | 3.979981461008922 | -0.003587225495898738 |
-| Policy Constrained | 12 | 3.772071392062427 | 0.6902484461940706 | 0.07211536728264946 | 2.7322641362809166 | 9.465350361462283 | -0.004714228155845897 |
-| Forecast-Enhanced Constrained Portfolio | 12 | 3.4546744620540775 | 0.6888280949782349 | 0.08427239169128764 | 2.5856710756183148 | 1.003196606772506 | -0.005390391606862351 |
-| Black-Litterman | 12 | 10.175075603815294 | 0.722508102261003 | 0.1332693429428027 | 2.371222953983978 | 0.2804153502613837 | -0.013155601613915416 |
-| GMV | 12 | 1.8853726735369571 | 0.48235894202091517 | 0.05178584253161639 | 2.2780162435894726 | 6.562232716909565 | -0.0024134371893433835 |
+| Max Sharpe | 12 | 3.339250155423263 | 0.6602214290872263 | 0.07055903795548263 | 2.7853196837905347 | 3.979982031849199 | -0.003587228569195383 |
+| Policy Constrained | 12 | 3.772072485702133 | 0.6902484870688234 | 0.07211533747277703 | 2.7322648279755115 | 9.465351744826476 | -0.004714223994268037 |
+| Risk Parity | 10 | 2.855941714815176 | 0.6968560574178227 | 0.08192998178167586 | 2.7098970048954696 | 6.940059571606407 | -0.004537631077465021 |
+| Forecast-Enhanced Constrained Portfolio | 12 | 3.4546746076712354 | 0.6888281051229556 | 0.08427239086175958 | 2.585671061329047 | 1.0031966392117793 | -0.005390391254159382 |
+| Black-Litterman | 12 | 10.175073703804538 | 0.7225080475194483 | 0.1332693416981858 | 2.3712230546674413 | 0.2804153456173414 | -0.013155601977030093 |
+| GMV | 12 | 1.885372933218249 | 0.48235906395390343 | 0.051785844014985795 | 2.278016880047272 | 6.562231923423521 | -0.0024134364938768285 |
 | Equal Weight | 12 | 2.4689834218694977 | 0.6092757046832314 | 0.0890991077073453 | 2.073119785122713 | 273.03341898772055 | -0.006351739259590418 |
-| Inverse Volatility | 12 | 2.285051228444275 | 0.5865272222076281 | 0.0815374937599306 | 2.047099607743197 | 15.031129810764858 | -0.0058856204225518904 |
-| HRP | 12 | 1.6064867554593871 | 0.4479618238113398 | 0.062637097574825 | 1.897971022584047 | 3.395236264617995 | -0.004017362387302474 |
-| Min CVaR | 12 | 1.561050044675885 | 0.28399488666235423 | 0.05807847779489977 | 1.2122156568416855 | 7.970500364746887 | -0.0038997966607041876 |
+| Inverse Volatility | 12 | 2.285051288087289 | 0.5865272266873832 | 0.08153749347992824 | 2.0470995919803756 | 15.03111920224316 | -0.005885620345926333 |
+| HRP | 12 | 1.6064866487507796 | 0.44796180022279214 | 0.06263709619282341 | 1.8979708957161219 | 3.3952355082362105 | -0.004017362495055503 |
+| Min CVaR | 12 | 1.5605674189168017 | 0.28389505116075203 | 0.058097225243966565 | 1.2109201460238623 | 7.904709714606649 | -0.003904079494478454 |
 
 ## Simple Return
 

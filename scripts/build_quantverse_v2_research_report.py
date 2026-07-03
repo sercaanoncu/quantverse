@@ -207,8 +207,17 @@ def _sections() -> list[dict[str, object]]:
             "title": "CV/GitHub Interpretation",
             "bullets": [
                 "The project demonstrates data engineering, FX-normalized returns, portfolio optimization, risk analytics and validation discipline.",
-                "It does not claim official exact top-100 coverage, guaranteed alpha, live trading readiness or investment advice.",
+                "It does not claim official exact top-100 coverage, alpha guarantees, live trading readiness or investment advice.",
                 "A recruiter should see a working quant research engine with explicit claim guards.",
+            ],
+        },
+        {
+            "title": "Limitations",
+            "bullets": [
+                "The active global master portfolio promotion decision remains not promoted.",
+                "Official exact top-100 membership, point-in-time constituents, delisting evidence and institutional corporate-action reconciliation remain unresolved.",
+                "Public-data current-universe walk-forward validation is useful research evidence, not an institutional PIT backtest.",
+                "Extreme return, CAGR and Sharpe estimates are warning flags requiring review, not success claims.",
             ],
         },
     ]
