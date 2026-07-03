@@ -11,6 +11,9 @@ import pandas as pd
 import yaml
 
 from project.data_pipeline.global_returns import load_global_universe
+from project.data_pipeline.market_cap_rank_evidence import (
+    write_market_cap_rank_outputs,
+)
 from project.research.global_master_portfolio import (
     run_master_portfolio_research,
     write_master_portfolio_outputs,
@@ -54,6 +57,7 @@ def main() -> int:
         )
         print("Missing universe metadata; master portfolio not run.")
         return 0
+    write_market_cap_rank_outputs(metadata, output_dir)
     returns = _load_returns(returns_path)
     fx_report = _load_optional_csv(
         Path(

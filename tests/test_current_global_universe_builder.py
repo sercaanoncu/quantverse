@@ -16,7 +16,13 @@ def _source_frame() -> pd.DataFrame:
             "country": ["United States", "United States", "United States"],
             "currency": ["USD", "USD", "USD"],
             "source": ["unit", "unit", "unit"],
+            "source_url": [
+                "https://example.com/a",
+                "https://example.com/b",
+                "https://example.com/c",
+            ],
             "as_of_date": ["2026-01-31", "2026-01-31", "2026-01-31"],
+            "data_provider": ["unit", "unit", "unit"],
             "notes": ["current candidate", "current candidate", "current candidate"],
             "market_cap_usd": [300.0, 100.0, None],
         }

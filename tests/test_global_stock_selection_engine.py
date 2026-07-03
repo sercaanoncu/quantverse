@@ -193,7 +193,27 @@ def test_promotion_gate_can_return_promoted_and_not_promoted():
     )
     high_cost_gate = build_stock_selection_promotion_gate(high_cost_metrics)
     assert high_cost_gate["Promotion_Decision"] == "not promoted"
-    assert "transaction-cost gate" in high_cost_gate["Failed_Gates"]
+    assert "transaction-cost gate failed" in high_cost_gate["Failed_Gates"]
+
+
+def test_promotion_gate_failure_reason_uses_negative_condition_language():
+    gate = build_stock_selection_promotion_gate(
+        {
+            "Beats_Equal_Weight_CAGR": False,
+            "Beats_Equal_Weight_Sharpe": False,
+            "Volatility_Ratio_vs_Equal_Weight": 1.0,
+            "Max_Drawdown_Diff_vs_Equal_Weight": 0.0,
+            "CVaR_Diff_vs_Equal_Weight": 0.0,
+            "Random_Sharpe_Percentile": 1.0,
+            "Turnover": 0.0,
+            "Transaction_Cost_Drag": 0.0,
+        }
+    )
+
+    assert gate["Promotion_Decision"] == "not promoted"
+    assert "net CAGR is not greater than Equal Weight" in gate["Reason"]
+    assert "Sharpe is not greater than Equal Weight" in gate["Reason"]
+    assert "Candidate is not promoted because: net CAGR greater" not in gate["Reason"]
 
 
 def test_candidate_comparison_adds_equal_weight_and_random_benchmark_fields():

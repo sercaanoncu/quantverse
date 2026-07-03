@@ -1,8 +1,0 @@
-Method,Annualized_Average_Variance,Mean_Correlation,Condition_Number,Shrinkage,Included_In_Current_Risk_Engine,Current_Use,Notes
-Constant Corr,0.17419998648005242,0.29259016028528423,13473.523369242306,,False,Research comparison output; not yet a promoted default.,Covariance research candidate.
-Denoised (RMT),0.17419998648005242,0.2866090831840058,35058.849986292844,,False,Research comparison output; not yet a promoted default.,Random-matrix denoising candidate; not promoted without additional validation.
-EWMA (hl=63),0.10367798635310944,0.2735199864335257,132119.56876487835,,False,Research comparison output; not yet a promoted default.,Dynamic estimator that gives more weight to recent observations; useful as a roadmap candidate.
-Gerber,0.17419998648005242,0.37891472498928785,153386.05346083935,,False,Research comparison output; not yet a promoted default.,Robust co-movement statistic candidate; not promoted without further checks.
-Ledoit-Wolf,0.1741225298386651,0.25634747133995717,908.287940298206,0.019823942464614757,True,Primary covariance input for optimizers.,Linear shrinkage estimator retained as the current robust default.
-OAS,0.17412252983866516,0.28577250725519426,7480.068940443005,0.0022248949523228354,False,Research comparison output; not yet a promoted default.,Shrinkage estimator included for covariance quality comparison.
-Sample,0.17419998648005242,0.2925901602852843,73008.63020835927,,False,Research comparison output; not yet a promoted default.,Baseline estimator; fragile when the asset count is high relative to observations.

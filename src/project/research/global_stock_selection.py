@@ -362,12 +362,12 @@ def build_stock_selection_promotion_gate(
         for name, ok in [
             ("net CAGR is not greater than Equal Weight", cagr_ok),
             ("Sharpe is not greater than Equal Weight", sharpe_ok),
-            ("volatility gate", volatility_ok),
-            ("max drawdown gate", drawdown_ok),
-            ("CVaR gate", cvar_ok),
-            ("random portfolio percentile gate", random_ok),
-            ("turnover gate", turnover_ok),
-            ("transaction-cost gate", transaction_cost_ok),
+            ("volatility gate failed", volatility_ok),
+            ("max drawdown gate failed", drawdown_ok),
+            ("CVaR gate failed", cvar_ok),
+            ("random portfolio percentile gate failed", random_ok),
+            ("turnover gate failed", turnover_ok),
+            ("transaction-cost gate failed", transaction_cost_ok),
         ]
         if not ok
     ]

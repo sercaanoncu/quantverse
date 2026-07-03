@@ -1,66 +1,144 @@
 # QuantVerse
 
-QuantVerse is a multi-asset portfolio research, market-risk validation and
-reporting project. It cleans market data, separates investable instruments from
-context signals, builds transparent portfolio weights, runs walk-forward
-backtests, reports risk diagnostics, and generates formal PDF/HTML outputs.
+QuantVerse is a Python public-data global equity selection, portfolio allocation,
+return-forecasting and risk-validation research platform.
 
-This project is not investment advice. It is a research and decision-support
-pipeline for explaining data, assumptions, portfolio weights, risk metrics,
-validation results and model limitations.
+It is a research and decision-support project. It is not investment advice, a
+live trading system, or an institutional point-in-time backtest.
 
 ## What It Does
 
-- Reads the canonical production configuration from `configs/base.yaml`.
-- Builds a multi-asset universe across ETFs, crypto, commodities, bonds and REITs.
-- Keeps `^VIX`, `^TNX`, `^IRX` and `DX-Y.NYB` out of portfolio weights; these are
-  context/risk signals, not investable portfolio assets.
-- Uses `^IRX` as the risk-free proxy when available and records fallback metadata
-  when provider data is unavailable.
-- Produces Equal Weight, Min Variance, Max Sharpe, HRP, Risk Parity, Inverse
-  Volatility and Min CVaR portfolios.
-- Does not remove an asset only because its historical return was low; exclusions
-  are based on data coverage and investability.
-- Shows portfolio composition through `portfolio_weights_matrix.csv` and
-  `portfolio_holdings_long.csv`.
-- Runs walk-forward backtests with transaction costs.
-- Adds a research-grounded champion-challenger layer that tests Equal Weight,
-  risk-controlled momentum, trend-following, asset-class rotation, risk-managed
-  Equal Weight, Signal-Aware HRP Lite and nested shrinkage challengers under the
-  same no-look-ahead walk-forward protocol.
-- Separates model leagues: broad default champion, annual-return challenger,
-  risk-adjusted champion, defensive/drawdown candidate, research candidate,
-  diagnostic-only model and rejected model.
-- Produces VaR/CVaR, drawdown, Calmar, Ulcer Index and diversification metrics.
-- Adds VaR exception testing, stylized stress scenarios, benchmark comparison,
-  transaction-cost sensitivity and moving-block bootstrap robustness outputs.
-- Keeps the ML downside-risk model as a diagnostic layer, not a trading signal.
-- Generates formal PDF and static HTML research reports.
+- Builds and validates a sourced current global equity candidate universe.
+- Computes local and USD-normalized simple/log return matrices.
+- Scores stocks using coverage, market-cap liquidity proxy, momentum, volatility,
+  drawdown, risk-adjusted return and diversification diagnostics.
+- Produces expected-return diagnostics with a random-walk baseline, momentum,
+  mean-reversion, rolling mean and ridge regression checks.
+- Compares a portfolio model league against Equal Weight and random portfolios.
+- Selects the final public-data model through a robust evidence gate using
+  walk-forward, risk, transaction-cost, random-benchmark and Equal Weight checks.
+- Reports portfolio return, volatility, Sharpe, Sortino, drawdown, VaR, CVaR,
+  stress scenarios and risk contributions.
+- Runs current-universe public-data walk-forward validation with chronological
+  train/test windows.
+- Generates PDF, HTML, Excel, thesis-style and showcase outputs.
 
-## Install
-
-Production pipeline only:
+## One-Command v2 Demo
 
 ```powershell
-python -m pip install -e .
+python scripts/run_quantverse_v2_demo.py --config configs/global_quant_research.yaml
 ```
 
-Development, test, lint and pre-commit tools:
+Primary demo summary:
+
+```text
+data/processed/quantverse_v2_demo_summary.json
+```
+
+Fast local healthcheck:
 
 ```powershell
-python -m pip install -e ".[dev]"
+python scripts/quantverse_healthcheck.py
 ```
 
-Notebook dependencies if needed:
+Summarize already generated local outputs:
 
 ```powershell
-python -m pip install -e ".[dev,notebook]"
+python scripts/quantverse_latest_run_summary.py
 ```
 
-## Public Import Surface
+## Model League
 
-The professional public namespace is `quantverse`. The older `project` namespace
-is preserved for backward compatibility.
+The v2 league makes every model explicit, including models that are diagnostic
+or blocked by missing prerequisites.
+
+- Equal Weight
+- Random Portfolios
+- Inverse Volatility
+- GMV / Global Minimum Variance
+- Max Sharpe
+- Min CVaR
+- HRP
+- Risk Parity
+- Black-Litterman
+- ML Forecast
+- Ensemble Forecast
+- Forecast-Enhanced Constrained Portfolio
+- Policy Constrained
+
+Each row carries an `actual_status` such as `actually_run`, `benchmark_only`,
+`diagnostic_only`, `blocked_by_data`, `blocked_by_implementation` or
+`future_candidate`.
+
+## Main Outputs
+
+- Stock scores: `data/processed/global_stock_scores.csv`
+- Return forecasts: `data/processed/global_stock_return_forecasts.csv`
+- Model league: `data/processed/global_portfolio_league.csv`
+- Model weights: `data/processed/global_portfolio_league_weights.csv`
+- Robust model selection: `data/processed/global_model_selection_report.csv`
+- Final model decision: `data/processed/global_final_model_decision.json`
+- Random percentile benchmark: `data/processed/global_random_portfolio_percentile_report.csv`
+- Exposure interpretation: `data/processed/global_top_holdings_explanation.csv`
+- Forecast validation: `data/processed/global_forecast_validation_by_horizon.csv`
+- Risk report: `data/processed/global_portfolio_risk_report.csv`
+- Walk-forward comparison: `data/processed/global_walk_forward_model_comparison.csv`
+- Walk-forward summary: `data/processed/global_walk_forward_summary.json`
+- v2 PDF: `output/pdf/quantverse_v2_research_report.pdf`
+- v2 HTML: `output/html/quantverse_v2_research_report.html`
+- v2 Excel: `output/excel/quantverse_v2_research_output.xlsx`
+- Full thesis PDF: `output/thesis/quantverse_doctoral_dissertation_full.pdf`
+- Full defense PDF: `output/thesis/quantverse_doctoral_defense_presentation_full.pdf`
+
+Generated `data/processed/*` and `output/*` files are reproducible artifacts and
+are not source files.
+
+## Current Status
+
+QuantVerse v2 is positioned as a public-data research engine. The system can
+score real public-provider stocks, build model weights, evaluate risk and run a
+current-universe walk-forward validation.
+
+The project does not claim official exact top-100 membership, point-in-time
+historical constituent validity, institutional delisting reconciliation,
+production execution readiness, or future performance.
+
+## Methodology
+
+The methodology is grounded in portfolio theory, financial statistics,
+econometrics, machine-learning validation and risk management:
+
+- Simple returns are used for portfolio aggregation.
+- Log returns remain available for statistical diagnostics.
+- Equal Weight and random portfolios remain hard benchmarks.
+- Expected-return optimizers are treated conservatively because mean estimates
+  are noisy.
+- VaR, CVaR, drawdown, stress tests and risk contributions are reported beside
+  return metrics.
+- ML and return forecasts are diagnostic unless validation supports a stronger
+  decision role.
+- Walk-forward validation is chronological and must not use future data.
+- Final model selection is conservative: diagnostic or blocked models cannot be
+  final selected models, and active models do not displace Equal Weight unless
+  return, risk, cost and benchmark evidence supports that decision.
+
+## Legacy ETF/Multi-Asset Pipeline
+
+The original multi-asset ETF pipeline remains available:
+
+```powershell
+python scripts/run_full_pipeline.py --config configs/base.yaml
+```
+
+Legacy ETF/multi-asset report outputs:
+
+```text
+output/html/quantverse_report.html
+output/pdf/quantverse_analysis_report.pdf
+```
+
+The professional public namespace is `quantverse`; the older `project`
+namespace is preserved for backward compatibility.
 
 ```python
 from quantverse.pipeline import PipelineConfig, run_full_pipeline
@@ -68,254 +146,41 @@ from quantverse.risk.validation import var_exception_tests
 from quantverse.reporting.pdf_report import generate_pdf_report
 ```
 
-## Run
-
-Quick local healthcheck:
+## Install
 
 ```powershell
-python scripts/quantverse_healthcheck.py
+python -m pip install -e .
+python -m pip install -e ".[dev]"
 ```
-
-Summarize the latest generated local outputs:
-
-```powershell
-python scripts/quantverse_latest_run_summary.py
-```
-
-Run the full project:
-
-```powershell
-python scripts/run_full_pipeline.py --config configs/base.yaml
-```
-
-Without regenerating the PDF:
-
-```powershell
-python scripts/run_full_pipeline.py --config configs/base.yaml --skip-pdf
-```
-
-Makefile targets:
-
-```bash
-make test
-make lint
-make format
-make smoke
-make report
-```
-
-## Product User Guide
-
-See `docs/product_user_guide.md` for installation, local commands, output
-locations, report paths, interpretation notes and troubleshooting.
-
-## Codex Context Pack
-
-Future Codex runs should start from `.codex/CONTEXT.md` and the validation
-protocol in `.codex/VALIDATION.md`.
-
-The permanent master roadmap is
-`docs/roadmap/QUANTVERSE_MASTER_PROJECT_PLAN.md`.
-
-## Project Healthcheck
-
-Use `python scripts/quantverse_healthcheck.py` for a fast local readiness check.
-It does not download data, run pytest or execute the full pipeline.
-
-Use `python scripts/quantverse_latest_run_summary.py` to summarize already
-generated local outputs without downloading data or rerunning the pipeline.
 
 ## Validation
 
-Current full local validation gate:
-
 ```powershell
+python -m pytest -q
 python -m black --check src scripts tests
 python -m ruff check src scripts tests
-python -m pytest -q
 python -m compileall src scripts
-python scripts/run_full_pipeline.py --config configs/base.yaml
-```
-
-Expected pytest result after the global quant input gate sprint:
-
-```text
-102 passed
-```
-
-## Main Outputs
-
-- `data/processed/run_metadata.json`
-- `data/processed/data_quality_report.csv`
-- `data/processed/portfolio_holdings_long.csv`
-- `data/processed/portfolio_weights_matrix.csv`
-- `data/processed/var_exception_tests.csv`
-- `data/processed/stress_scenarios.csv`
-- `data/processed/benchmark_comparison.csv`
-- `data/processed/transaction_cost_sensitivity.csv`
-- `data/processed/statistical_robustness.csv`
-- `data/processed/equal_weight_diagnostic.csv`
-- `data/processed/challenger_backtest_summary.csv`
-- `data/processed/challenger_returns.csv`
-- `data/processed/challenger_weights.csv`
-- `data/processed/challenger_turnover.csv`
-- `data/processed/challenger_vs_equal_weight.csv`
-- `data/processed/challenger_subperiod_analysis.csv`
-- `data/processed/challenger_rolling_relative_performance.csv`
-- `data/processed/challenger_cost_robustness.csv`
-- `data/processed/challenger_bootstrap_vs_equal_weight.csv`
-- `data/processed/asset_class_momentum_metric_recompute_check.csv`
-- `data/processed/asset_class_momentum_weight_audit.csv`
-- `data/processed/champion_selection_summary.json`
-- `data/processed/research_alpha_leaderboard.csv`
-- `data/processed/research_alpha_returns.csv`
-- `data/processed/research_alpha_weights.csv`
-- `data/processed/research_alpha_turnover.csv`
-- `data/processed/research_alpha_vs_equal_weight.csv`
-- `data/processed/model_league_summary.csv`
-- `data/processed/model_league_summary.json`
-- `data/processed/model_promotion_gate.csv`
-- `data/processed/model_overfit_diagnostics.csv`
-- `data/processed/covariance_model_comparison.csv`
-- `data/processed/ml_downside_risk_metrics.csv`
-- `data/processed/ml_downside_confusion_matrix.csv`
-- `data/processed/ml_downside_drift_report.csv`
-- `output/html/quantverse_report.html`
-- `output/pdf/quantverse_analysis_report.pdf`
-
-Heavy generated artefacts are reproducible and should not be treated as source
-files. For clean-repo transfer, use:
-
-- `docs/audit/QUALITY_SPRINT_TRANSFER_MANIFEST.md`
-- `tools/migration/copy_quality_sprint_to_clean_repo.ps1`
-
-## Methodology Principles
-
-Static optimization is not treated as final decision evidence. Walk-forward
-results, drawdown, costs, risk metrics, benchmark comparison and diagnostic
-stability are more important than a single in-sample Sharpe number.
-
-The return-seeking challenger layer separates "highest-CAGR research candidate"
-from "broad champion replacement." In the current evidence layer,
-Asset-Class Momentum Rotation has the highest OOS CAGR point estimate, but Equal
-Weight remains the benchmark and broad default champion because the challenger
-has higher drawdown, weaker subperiod consistency and bootstrap intervals that
-cross zero.
-
-The project is structured as benchmark + alpha challenger + risk engine +
-validation engine + governance. Risk-controlled momentum and trend models are
-treated as alpha challengers. HRP, Risk Parity, CVaR and shrinkage methods are
-treated primarily as robust risk-allocation engines. ML remains diagnostic or an
-overlay candidate, not a blind daily-return prediction machine.
-
-Black-Litterman is not used in the production report unless dated, sourced and
-confidence-scored views are available. XGBoost and LightGBM are not claimed as
-core production dependencies unless a validated forecasting use case exists.
-LSTM, Transformer, reinforcement-learning and LLM allocation agents are not
-implemented as production allocation engines because the current data and
-validation design do not justify them.
-
-## Global Stock Selection Roadmap
-
-QuantVerse now includes the first architecture layer for global
-security-selection research. The existing ETF and multi-asset pipeline remains
-intact. ETFs continue to serve as benchmarks and macro proxies; they are not
-replaced by fabricated stock lists.
-
-The global stock-selection engine will not invent top-100 constituents or market
-capitalization ranks. Real analysis requires sourced universe files with
-tickers, market caps, ranks, dates and providers, plus a returns matrix for
-those assets.
-
-Offline entry point:
-
-```powershell
-python scripts/run_global_stock_selection.py --config configs/global_stock_selection.yaml
-```
-
-If only the template universe is present, the command exits successfully and
-explains that a populated sourced universe is required before stock-selection
-research can run.
-
-## Global Quant Research Pipeline
-
-QuantVerse now includes a first-pass global quantitative research pipeline for
-current universe construction, global returns matrices, master portfolio
-candidate comparison and 1/3/6/12 month projection outputs.
-
-The current real-global audit layer can populate sourced current stock/proxy
-universes, validate source coverage, build simple and log returns, run
-statistical diagnostics, compare constrained global portfolio candidates and
-write forecast/projection outputs. Exact top-100 market-cap claims are made only
-when market-cap/rank evidence exists; otherwise the input is labelled as an
-index proxy or manual-review proxy.
-
-Current top-100 style universe mode is forward-looking research only.
-Institutional-grade historical claims require point-in-time constituent,
-market-cap, FX, corporate-action and delisting data. The system must be allowed
-to return `not promoted`; Equal Weight and random portfolios remain hard
-benchmarks. This project is not investment advice.
-
-Offline orchestration entry point:
-
-```powershell
-python scripts/run_global_quant_research.py --config configs/global_quant_research.yaml
-```
-
-If sourced universe or returns inputs are missing, the command exits
-successfully with an explicit status instead of fabricating data.
-
-## Project Structure
-
-```text
-configs/base.yaml                 canonical production configuration
-src/quantverse/                   public namespace wrapper
-src/project/config.py             config loading and validation
-src/project/pipeline.py           end-to-end production pipeline
-src/project/data_pipeline/        universe, fetch, clean and returns
-src/project/optimization/         portfolio optimizers
-src/project/risk/                 VaR, CVaR, drawdown and validation
-src/project/backtest/             walk-forward backtests
-src/project/ml/                   downside-risk diagnostic model
-src/project/research/             champion-challenger research layer
-src/project/reporting/            PDF/HTML reporting
-docs/                             methodology, research, audit, validation and governance
-tests/                            deterministic contract tests
-tools/migration/                  local-only clean-repo transfer helper
 ```
 
 ## Key Documentation
 
-- `docs/reproducibility.md`
-- `docs/testing_strategy.md`
-- `docs/audit/FINAL_SCORECARD.md`
-- `docs/audit/QUANTVERSE_AUDIT.md`
-- `docs/audit/EVIDENCE_MATRIX.md`
-- `docs/audit/QUALITY_SPRINT_TRANSFER_MANIFEST.md`
-- `docs/research/equal_weight_diagnostic.md`
-- `docs/research/model_selection_protocol.md`
-- `docs/research/annual_return_champion_review.md`
-- `docs/research/asset_class_momentum_forensic_audit.md`
-- `docs/research/research_grounded_quantverse_architecture.md`
-- `docs/research/literature_to_quantverse_implementation_matrix.md`
-- `docs/research/model_league_system.md`
-- `docs/research/global_stock_selection_engine.md`
-- `docs/research/random_portfolio_benchmarking.md`
-- `docs/research/global_security_selection_limitations.md`
-- `docs/research/risk_covariance_upgrade_plan.md`
-- `docs/research/ml_ai_quantverse_strategy.md`
-- `docs/research/validation_hardening_plan.md`
-- `docs/product_user_guide.md`
-- `docs/limitations.md`
-- `docs/model_governance.md`
-- `docs/validation/market_risk_validation_report.md`
-- `docs/model_cards/downside_risk_model_card.md`
+- Product contract: `docs/product/QUANTVERSE_V2_PRODUCT_CONTRACT.md`
+- Master roadmap: `docs/roadmap/QUANTVERSE_MASTER_PROJECT_PLAN.md`
+- Reality check: `docs/audit/QUANTVERSE_V2_CORE_ENGINE_REALITY_CHECK.md`
+- Methodology mapping: `docs/thesis/methodology_literature_mapping.md`
+- GitHub showcase: `docs/showcase/README_GITHUB_SHOWCASE.md`
+- CV bullets: `docs/showcase/CV_BULLETS.md`
+- Bank interview talk track: `docs/showcase/BANK_INTERVIEW_TALK_TRACK.md`
+
+## Codex Context Pack
+
+Future Codex runs should start from `.codex/CONTEXT.md`,
+`.codex/VALIDATION.md` and `docs/roadmap/QUANTVERSE_MASTER_PROJECT_PLAN.md`.
 
 ## Limitations
 
-The data source is public yfinance. Institutional investment use requires
-independent vendor reconciliation. Backtests measure historical behavior and do
-not guarantee future performance. The ML layer is diagnostic and weak-signal; it
-is not an automated trading rule. The project is designed as a public research
-and portfolio analytics project, but it is not a complete production trading
-platform.
+Public-provider data is useful for research and demonstration, but stronger
+institutional use would require licensed data, point-in-time constituents,
+delisting and corporate-action reconciliation, robust FX calendar alignment,
+model approval, monitoring, access control, execution logic and independent
+reconciliation.

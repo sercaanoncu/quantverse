@@ -18,6 +18,7 @@ TOL = 1e-6
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--processed-dir", default=str(PROCESSED))
+    parser.add_argument("--output-dir", dest="processed_dir")
     parser.add_argument("--universe-path", default=str(UNIVERSE))
     return parser.parse_args()
 
@@ -35,6 +36,7 @@ def run_audit(
     issues.extend(_portfolio_sanity(processed))
     issues.extend(_model_sanity(processed))
     issues.extend(_reporting_sanity())
+    issues.extend(_governance_readiness_sanity(processed, universe))
     issue_frame = pd.DataFrame(
         issues,
         columns=[
@@ -196,6 +198,77 @@ def _source_data_sanity(processed: Path, universe_path: Path) -> list[dict[str, 
                     True,
                 )
             )
+    exact_proxy = _read_csv(processed / "global_exact_proxy_classification_report.csv")
+    if not exact_proxy.empty and "classification" in exact_proxy:
+        unsupported = exact_proxy.loc[
+            ~exact_proxy["classification"]
+            .astype(str)
+            .eq("exact_market_cap_rank_supported")
+        ]
+        for row in unsupported.itertuples(index=False):
+            sleeve = str(getattr(row, "sleeve", ""))
+            reason = str(getattr(row, "reason", "Exact support is incomplete."))
+            issues.append(
+                _issue(
+                    "critical" if sleeve.startswith("global_equity") else "high",
+                    "exact_proxy",
+                    "data/processed/global_exact_proxy_classification_report.csv",
+                    "classification",
+                    "unsupported_exact_top100_claim",
+                    f"{sleeve}: {reason}",
+                    "Keep sleeve as proxy/manual-review until market-cap/rank/source/provider/as-of evidence is complete.",
+                    True,
+                )
+            )
+    elif exact_proxy.empty:
+        issues.append(
+            _issue(
+                "high",
+                "exact_proxy",
+                "data/processed/global_exact_proxy_classification_report.csv",
+                "file",
+                "exact_proxy_classification_report_missing",
+                "Reports cannot prove whether sleeves are exact top-100 or proxy-only.",
+                "Run scripts/validate_real_global_universe.py before promotion.",
+                True,
+            )
+        )
+    market_cap_blockers = _read_csv(processed / "global_market_cap_rank_blockers.csv")
+    if not market_cap_blockers.empty and "issue" in market_cap_blockers:
+        blocking_count = int(len(market_cap_blockers))
+        issues.append(
+            _issue(
+                "critical",
+                "exact_proxy",
+                "data/processed/global_market_cap_rank_blockers.csv",
+                "issue",
+                f"market_cap_rank_blockers_present: {blocking_count}",
+                "Exact top-100 and Black-Litterman claims remain blocked while market-cap/rank evidence issues exist.",
+                "Populate sourced evidence fields or keep the affected sleeves blocked/proxy-only.",
+                True,
+            )
+        )
+    bl_report = _read_csv(processed / "global_black_litterman_prerequisite_report.csv")
+    if (
+        not bl_report.empty
+        and "black_litterman_prior_valid" in bl_report
+        and not bl_report["black_litterman_prior_valid"]
+        .fillna(False)
+        .astype(bool)
+        .all()
+    ):
+        issues.append(
+            _issue(
+                "critical",
+                "black_litterman",
+                "data/processed/global_black_litterman_prerequisite_report.csv",
+                "black_litterman_prior_valid",
+                "black_litterman_priors_blocked",
+                "Black-Litterman requires valid sourced market-cap priors for every required asset.",
+                "Do not run Black-Litterman as allocation evidence until valid priors exist.",
+                True,
+            )
+        )
     fx = _read_csv(processed / "global_fx_normalization_report.csv")
     fx_blocking_statuses = {"not_implemented", "fx_missing", "blocked"}
     if (
@@ -628,6 +701,82 @@ def _reporting_sanity() -> list[dict[str, Any]]:
                     False,
                 )
             )
+    return issues
+
+
+def _governance_readiness_sanity(
+    processed: Path,
+    universe_path: Path,
+) -> list[dict[str, Any]]:
+    """Flag governance blockers for historical promotion claims."""
+    issues = []
+    universe = _read_csv(universe_path)
+    decision = _decision(processed)
+    promoted = str(decision.get("promotion_decision", "")).lower() == "promoted"
+    has_equities = (
+        not universe.empty
+        and "sleeve" in universe
+        and universe["sleeve"].astype(str).str.startswith("global_equity").any()
+    )
+    if not has_equities:
+        return issues
+
+    pit_columns = {
+        "membership_effective_start",
+        "membership_effective_end",
+        "point_in_time_source_url",
+    }
+    if not pit_columns.issubset(universe.columns):
+        issues.append(
+            _issue(
+                "critical" if promoted else "high",
+                "backtest_validation",
+                str(universe_path),
+                "point_in_time_membership",
+                "point_in_time_membership_evidence_missing",
+                "Current constituent files cannot support historical stock-selection or walk-forward promotion claims.",
+                "Add dated membership tables with effective dates, source URLs and no-look-ahead controls before historical promotion.",
+                True,
+            )
+        )
+
+    corporate_action_columns = {
+        "delisting_status",
+        "corporate_action_source",
+        "corporate_action_adjustment_status",
+    }
+    if not corporate_action_columns.issubset(universe.columns):
+        issues.append(
+            _issue(
+                "high",
+                "backtest_validation",
+                str(universe_path),
+                "delisting_corporate_actions",
+                "delisting_and_corporate_action_evidence_missing",
+                "Institutional-quality equity backtests need delisting, split, dividend and corporate-action coverage.",
+                "Add delisting/corporate-action audit fields or keep the global stock backtest research-only.",
+                True,
+            )
+        )
+
+    walk_forward_files = [
+        processed / "global_walk_forward_validation.csv",
+        processed / "global_walk_forward_returns.csv",
+        processed / "global_walk_forward_weights.csv",
+    ]
+    if not all(path.exists() for path in walk_forward_files):
+        issues.append(
+            _issue(
+                "high",
+                "backtest_validation",
+                "data/processed/global_walk_forward_validation.csv",
+                "file",
+                "global_walk_forward_evidence_missing",
+                "A current-only candidate cannot be promoted as a historical or out-of-sample global stock strategy without chronological validation.",
+                "Build point-in-time walk-forward returns, weights and validation outputs before historical promotion.",
+                True,
+            )
+        )
     return issues
 
 

@@ -48,6 +48,8 @@ class RiskParityOptimizer:
         """Compute marginal and total risk contributions."""
         Sigma = self.cov.values
         port_vol = np.sqrt(w @ Sigma @ w)
+        if not np.isfinite(port_vol) or port_vol <= 1e-12:
+            return np.zeros_like(w)
         marginal = Sigma @ w / port_vol
         rc = w * marginal  # risk contribution
         return rc
@@ -63,7 +65,10 @@ class RiskParityOptimizer:
         if target_rc is None:
             target_rc = np.ones(self.n) / self.n  # equal risk contribution
         port_vol = np.sqrt(w @ self.cov.values @ w)
-        rc_pct = rc / port_vol  # as fraction of total risk
+        if not np.isfinite(port_vol) or port_vol <= 1e-12:
+            rc_pct = np.zeros_like(rc)
+        else:
+            rc_pct = rc / port_vol  # as fraction of total risk
         return np.sum((rc_pct - target_rc) ** 2)
 
     def optimize(
@@ -115,13 +120,16 @@ class RiskParityOptimizer:
         # Compute risk contributions
         rc = self._risk_contributions(weights.values)
         port_vol = np.sqrt(weights.values @ self.cov.values @ weights.values)
-        rc_pct = rc / port_vol
+        if not np.isfinite(port_vol) or port_vol <= 1e-12:
+            rc_pct = np.zeros_like(rc)
+        else:
+            rc_pct = rc / port_vol
 
         # Portfolio metrics
         w = weights.values
         ret = w @ (self.mu.values if self.mu is not None else np.zeros(self.n))
         vol = port_vol
-        sharpe = (ret / vol) if vol > 0 else 0
+        sharpe = (ret / vol) if np.isfinite(vol) and vol > 0 else 0
 
         logger.info(
             f"Risk Parity: vol={vol*100:.1f}%, "

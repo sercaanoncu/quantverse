@@ -32,13 +32,16 @@ env/
 # Generated market data and reports
 data/cache/
 data/raw/
+data/processed/
 data/processed/*.parquet
 data/processed/*.pkl
 data/processed/*.pickle
 data/processed/challenger_weights.csv
 data/processed/research_alpha_weights.csv
+data/universe/current_global_equity_universe.csv
 notebooks/data/
 reports/
+output/
 output/pdf/*.pdf
 output/pdf/assets/
 output/html/
