@@ -9,15 +9,17 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.research.global_model_selection import (
     build_final_model_decision,
     build_model_selection_report,
     build_random_percentile_report,
     simulate_constrained_random_distribution,
     write_model_selection_outputs,
-)
+)  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
 PROCESSED = ROOT / "data" / "processed"
 
 

@@ -9,6 +9,12 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from project.research.global_numerical_integrity import (
+    validate_v2_numerical_integrity,
+)  # noqa: E402
+
 PROCESSED = ROOT / "data" / "processed"
 OUTPUT_PDF = ROOT / "output" / "pdf" / "quantverse_v2_research_report.pdf"
 OUTPUT_HTML = ROOT / "output" / "html" / "quantverse_v2_research_report.html"
@@ -48,6 +54,8 @@ def _sections() -> list[dict[str, object]]:
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
+    integrity = validate_v2_numerical_integrity(ROOT)
+    integrity_checks = pd.DataFrame(integrity["checks"])
     selected = (
         scores.loc[scores["selection_flag"].astype(bool)]
         if not scores.empty and "selection_flag" in scores
@@ -197,11 +205,17 @@ def _sections() -> list[dict[str, object]]:
             "title": "Sanity Checks and Claim Controls",
             "bullets": [
                 f"Risk metric sanity passed: {summary.get('risk_metric_sanity_passed', 'not available')}.",
+                f"Numerical integrity status: {integrity.get('overall_status', 'not available')}.",
+                f"Numerical integrity failed checks: {integrity.get('failed_check_count', 'not available')}.",
                 f"Random portfolio percentile: {summary.get('random_portfolio_percentile', 'not available')}.",
                 f"Publish-readiness status: {summary.get('publish_readiness_status', 'not available')}.",
                 "Extreme return/risk values are warnings requiring review, not success claims.",
             ],
-            "table": leakage.head(12) if not leakage.empty else sanity.head(12),
+            "table": (
+                integrity_checks.head(12)
+                if not integrity_checks.empty
+                else (leakage.head(12) if not leakage.empty else sanity.head(12))
+            ),
         },
         {
             "title": "CV/GitHub Interpretation",

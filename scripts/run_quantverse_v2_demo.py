@@ -11,13 +11,19 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from project.research.global_numerical_integrity import (
+    validate_v2_numerical_integrity,
+)  # noqa: E402
+
 PROCESSED = ROOT / "data" / "processed"
 SUMMARY_PATH = PROCESSED / "quantverse_v2_demo_summary.json"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/global_quant_research.yaml")
+    parser.add_argument("--config", default="configs/global_equity_research.yaml")
     args = parser.parse_args()
     config = args.config
     steps = [
@@ -93,6 +99,7 @@ def build_demo_summary() -> dict[str, object]:
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
+    numerical_integrity = validate_v2_numerical_integrity(ROOT)
     exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
     selected = (
         scores.loc[scores["selection_flag"].astype(bool)]
@@ -187,6 +194,8 @@ def build_demo_summary() -> dict[str, object]:
         "robustness_status": robustness.get("robustness_status", "missing"),
         "sensitivity_status": robustness.get("sensitivity_status", "missing"),
         "forecast_validation_status": _forecast_validation_status(forecast_validation),
+        "numerical_integrity_status": numerical_integrity["overall_status"],
+        "numerical_integrity_failed_checks": numerical_integrity["failed_check_count"],
         "exposure_warnings": _exposure_warnings(exposure_warnings),
         "publish_readiness_status": model_decision.get(
             "publish_readiness_status", "research_with_limitations"
@@ -308,6 +317,8 @@ def _forecast_validation_status(frame: pd.DataFrame) -> str:
     statuses = frame["forecast_validation_status"].dropna().astype(str)
     if statuses.empty:
         return "missing"
+    if statuses.eq("failed_scale_sanity").any():
+        return "failed_scale_sanity"
     if statuses.eq("diagnostic_only").any():
         return "diagnostic_only"
     return str(statuses.mode().iloc[0])

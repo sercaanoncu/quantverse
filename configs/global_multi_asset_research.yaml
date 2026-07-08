@@ -4,9 +4,9 @@ master_portfolio_config: configs/global_master_portfolio.yaml
 projection_config: configs/global_portfolio_projection.yaml
 
 v2:
-  default_scope: equity_only
-  include_crypto: false
-  max_crypto_weight: 0.0
+  default_scope: multi_asset
+  include_crypto: true
+  max_crypto_weight: 0.10
   max_selected_stocks: 40
   walk_forward_max_assets: 20
   max_weight: 0.10

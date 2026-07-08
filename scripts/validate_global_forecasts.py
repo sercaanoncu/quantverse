@@ -8,12 +8,14 @@ from pathlib import Path
 
 import pandas as pd
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.research.global_forecast_validation import (
     build_forecast_validation,
     write_forecast_validation_outputs,
-)
+)  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
 PROCESSED = ROOT / "data" / "processed"
 
 

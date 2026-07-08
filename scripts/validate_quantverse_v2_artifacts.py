@@ -19,6 +19,12 @@ import pandas as pd
 from pypdf import PdfReader
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from project.research.global_numerical_integrity import (
+    validate_v2_numerical_integrity,
+)  # noqa: E402
+
 PROCESSED = ROOT / "data" / "processed"
 OUTPUT = ROOT / "output"
 VALIDATION_PATH = PROCESSED / "quantverse_v2_artifact_validation.json"
@@ -48,6 +54,8 @@ REQUIRED_CSVS = [
     "global_model_selection_report.csv",
     "global_portfolio_league.csv",
     "global_portfolio_league_weights.csv",
+    "global_portfolio_risk_report.csv",
+    "global_walk_forward_model_comparison.csv",
     "global_random_portfolio_percentile_report.csv",
     "global_robustness_sensitivity.csv",
     "global_top_holdings_explanation.csv",
@@ -65,6 +73,7 @@ REQUIRED_HTML_SECTIONS = [
 ]
 
 REQUIRED_EXCEL_SHEETS = [
+    "PORTFOLIO_DASHBOARD",
     "START_HERE",
     "EXECUTIVE_SUMMARY",
     "SELECTED_STOCKS",
@@ -150,6 +159,7 @@ def validate_artifacts(root: Path) -> dict[str, object]:
         root / "output" / "excel" / "quantverse_v2_research_output.xlsx", checks
     )
     _check_report_claim_language(root, checks)
+    _check_numerical_integrity(root, checks)
 
     failed = [check for check in checks if not check["passed"]]
     return {
@@ -323,6 +333,18 @@ def _check_report_claim_language(root: Path, checks: list[dict[str, object]]) ->
             f"forbidden_hits={hits}",
         )
     )
+
+
+def _check_numerical_integrity(root: Path, checks: list[dict[str, object]]) -> None:
+    result = validate_v2_numerical_integrity(root)
+    for check in result["checks"]:
+        checks.append(
+            _check(
+                f"numerical_integrity_{check['check']}",
+                bool(check["passed"]),
+                str(check["details"]),
+            )
+        )
 
 
 def _excel_sheet_names(path: Path) -> list[str]:

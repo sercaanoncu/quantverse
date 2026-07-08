@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from project.research.global_numerical_integrity import portfolio_return_series
 from project.research.global_portfolio_risk import evaluate_return_series
 
 ELIGIBLE_FINAL_STATUSES = {"actually_run", "benchmark_only"}
@@ -112,7 +113,7 @@ def simulate_constrained_random_distribution(
     for portfolio_id in range(int(n_portfolios)):
         raw = pd.Series(rng.random(clean.shape[1]), index=clean.columns)
         weights = _cap_and_normalize(raw, float(max_weight))
-        metrics = evaluate_return_series(clean @ weights)
+        metrics = evaluate_return_series(portfolio_return_series(clean, weights))
         rows.append(
             {
                 "portfolio_id": portfolio_id,

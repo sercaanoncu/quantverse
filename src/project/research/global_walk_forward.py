@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from project.research.global_numerical_integrity import portfolio_return_series
 from project.research.global_portfolio_league import build_portfolio_league
 from project.research.global_portfolio_risk import evaluate_return_series
 from project.research.global_return_forecasting import build_return_forecasts
@@ -26,6 +27,8 @@ def run_public_data_walk_forward(
     transaction_cost_bps: float = 10.0,
     random_state: int = 42,
     max_folds: int | None = 12,
+    default_scope: str = "equity_only",
+    include_crypto: bool = False,
 ) -> dict[str, pd.DataFrame | dict[str, object]]:
     """Run current-universe public-data walk-forward research validation."""
     clean = _clean_returns(returns)
@@ -72,6 +75,8 @@ def run_public_data_walk_forward(
             universe,
             as_of_date=as_of_date,
             max_selected=max_assets,
+            default_scope=default_scope,
+            include_crypto=include_crypto,
         )
         selected_for_fold = (
             scores.loc[scores["selection_flag"].astype(bool), "ticker"]
@@ -138,7 +143,9 @@ def run_public_data_walk_forward(
             if aligned.sum() <= 0:
                 continue
             aligned = aligned / aligned.sum()
-            test_returns = test @ aligned
+            test_returns = portfolio_return_series(test, aligned)
+            if test_returns.empty:
+                continue
             net_returns = _apply_transaction_costs(
                 test_returns,
                 aligned,

@@ -52,9 +52,28 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
         ),
         encoding="utf-8",
     )
-    pd.DataFrame({"model_name": ["Equal Weight"]}).to_csv(
-        processed / "global_portfolio_league.csv", index=False
-    )
+    pd.DataFrame(
+        {
+            "model_name": ["Equal Weight"],
+            "actual_status": ["benchmark_only"],
+            "constraints_pass": [True],
+            "cagr": [0.20],
+            "annualized_return": [0.18],
+            "volatility": [0.02],
+            "sharpe": [1.2],
+            "sortino": [1.4],
+            "max_drawdown": [-0.01],
+            "var_95": [-0.001],
+            "cvar_95": [-0.0015],
+        }
+    ).to_csv(processed / "global_portfolio_league.csv", index=False)
+    pd.DataFrame(
+        {
+            "Date": pd.date_range("2024-01-01", periods=80, freq="B"),
+            "A": [0.001] * 80,
+            "B": [0.002, -0.001] * 40,
+        }
+    ).to_csv(processed / "global_security_simple_returns_usd.csv", index=False)
     pd.DataFrame(
         {
             "model_name": ["Equal Weight", "Equal Weight"],
@@ -62,14 +81,71 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "weight": [0.5, 0.5],
         }
     ).to_csv(processed / "global_portfolio_league_weights.csv", index=False)
+    pd.DataFrame(
+        {
+            "model_name": ["Equal Weight"],
+            "cagr": [0.20],
+            "annualized_return": [0.18],
+            "annualized_volatility": [0.02],
+            "sharpe": [1.2],
+            "sortino": [1.4],
+            "max_drawdown": [-0.01],
+            "var_95": [-0.001],
+            "cvar_95": [-0.0015],
+            "total_return": [0.05],
+        }
+    ).to_csv(processed / "global_portfolio_risk_report.csv", index=False)
+    pd.DataFrame(
+        {
+            "model_name": ["Equal Weight"],
+            "avg_cagr": [0.10],
+            "avg_annualized_return": [0.09],
+            "avg_volatility": [0.03],
+            "avg_sharpe": [1.0],
+            "avg_sortino": [1.1],
+            "avg_max_drawdown": [-0.01],
+            "avg_cvar_95": [-0.001],
+        }
+    ).to_csv(processed / "global_walk_forward_model_comparison.csv", index=False)
+    pd.DataFrame(
+        {
+            "model_name": ["Equal Weight", "Equal Weight"],
+            "ticker": ["A", "B"],
+            "risk_contribution_pct": [0.5, 0.5],
+        }
+    ).to_csv(processed / "global_risk_contribution_report.csv", index=False)
+    pd.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "sleeve": ["global_equity_us", "global_equity_us"],
+            "selection_flag": [True, True],
+        }
+    ).to_csv(processed / "global_stock_scores.csv", index=False)
     for filename in [
         "global_model_selection_report.csv",
-        "global_random_portfolio_percentile_report.csv",
         "global_robustness_sensitivity.csv",
         "global_top_holdings_explanation.csv",
-        "global_forecast_validation_by_horizon.csv",
     ]:
         pd.DataFrame({"value": [1]}).to_csv(processed / filename, index=False)
+    pd.DataFrame(
+        {
+            "model_name": ["Equal Weight", "Policy Constrained"],
+            "return_percentile": [0.6, 0.4],
+            "volatility_percentile": [0.5, 0.7],
+            "sharpe_percentile": [0.7, 0.3],
+            "max_drawdown_percentile": [0.5, 0.6],
+            "cvar_percentile": [0.5, 0.6],
+        }
+    ).to_csv(processed / "global_random_portfolio_percentile_report.csv", index=False)
+    pd.DataFrame(
+        {
+            "horizon": ["12M"],
+            "mean_mae": [0.12],
+            "mean_rmse": [0.16],
+            "mean_random_walk_mae": [0.14],
+            "allocation_signal_status": ["diagnostic_only"],
+        }
+    ).to_csv(processed / "global_forecast_validation_by_horizon.csv", index=False)
 
     html = " ".join(
         [
@@ -90,6 +166,7 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
         engine="xlsxwriter",
     ) as writer:
         for sheet in [
+            "PORTFOLIO_DASHBOARD",
             "START_HERE",
             "EXECUTIVE_SUMMARY",
             "SELECTED_STOCKS",

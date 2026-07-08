@@ -9,10 +9,13 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.research.global_walk_forward import (
     run_public_data_walk_forward,
     write_walk_forward_outputs,
-)
+)  # noqa: E402
 
 
 def main() -> int:
@@ -36,6 +39,8 @@ def main() -> int:
         max_weight=float(config.get("max_weight", 0.10)),
         transaction_cost_bps=float(config.get("transaction_cost_bps", 10.0)),
         max_folds=int(config.get("walk_forward_max_folds", 12)),
+        default_scope=str(config.get("default_scope", "equity_only")),
+        include_crypto=bool(config.get("include_crypto", False)),
     )
     write_walk_forward_outputs(result, output)
     print(result["summary"].get("walk_forward_status", "not_run"))

@@ -12,6 +12,7 @@ from project.optimization.black_litterman import black_litterman_weights
 from project.optimization.constraints import PortfolioConstraints
 from project.optimization.hierarchical import HRPOptimizer
 from project.optimization.risk_parity import RiskParityOptimizer
+from project.research.global_numerical_integrity import portfolio_return_series
 from project.research.global_portfolio_risk import evaluate_return_series
 from project.research.global_stock_selection import (
     build_equal_weight_portfolio,
@@ -60,6 +61,8 @@ LEAGUE_COLUMNS = [
     "max_drawdown",
     "var_95",
     "cvar_95",
+    "metric_status",
+    "metric_observations",
     "turnover",
     "transaction_cost_assumption",
     "constraints_pass",
@@ -314,12 +317,14 @@ def _league_row(
                 "Forecast-Enhanced Constrained Portfolio",
             },
             "uses_market_cap_prior": model == "Black-Litterman",
+            "metric_status": "not_executable",
+            "metric_observations": 0,
             "promotion_eligible": False,
             "rejection_reason": status["reason"],
             "interpretation": "Model is listed for governance but not executable under current inputs.",
         }
     aligned = weights.reindex(returns.columns).fillna(0.0)
-    portfolio_returns = returns @ aligned
+    portfolio_returns = portfolio_return_series(returns, aligned)
     metrics = evaluate_return_series(portfolio_returns)
     weight_sum = float(aligned.sum())
     negative = int((aligned < -1e-10).sum())
@@ -365,6 +370,8 @@ def _league_row(
         "max_drawdown": metrics["max_drawdown"],
         "var_95": metrics["var_95"],
         "cvar_95": metrics["cvar_95"],
+        "metric_status": metrics["metric_status"],
+        "metric_observations": metrics["observations"],
         "turnover": np.nan,
         "transaction_cost_assumption": "10 bps placeholder in v2 demo",
         "constraints_pass": constraints_pass,
@@ -386,7 +393,7 @@ def _random_portfolio_row(
     for _ in range(n_portfolios):
         raw = pd.Series(rng.random(returns.shape[1]), index=returns.columns)
         weights = _cap_and_normalize(raw, max_weight)
-        rows.append(evaluate_return_series(returns @ weights))
+        rows.append(evaluate_return_series(portfolio_return_series(returns, weights)))
     frame = pd.DataFrame(rows)
     return {
         "model_name": "Random Portfolios",
@@ -413,6 +420,12 @@ def _random_portfolio_row(
         "max_drawdown": float(frame["max_drawdown"].median()),
         "var_95": float(frame["var_95"].median()),
         "cvar_95": float(frame["cvar_95"].median()),
+        "metric_status": (
+            "valid"
+            if (frame["nonzero_observations"] > 0).any()
+            else "insufficient_data"
+        ),
+        "metric_observations": float(frame["observations"].median()),
         "turnover": np.nan,
         "transaction_cost_assumption": "not applied",
         "constraints_pass": True,
