@@ -109,7 +109,7 @@ def test_selection_penalizes_drawdown_and_turnover():
     assert risky_score < equal_weight_score
     risky = report.loc[report["model_name"].eq("Risky Active")].iloc[0]
     assert "drawdown" in risky["rejection_reason"]
-    assert "Sharpe is not greater than Equal Weight" in risky["rejection_reason"]
+    assert "walk-forward Sharpe improvement" in risky["rejection_reason"]
 
 
 def test_model_decision_json_schema_fields_are_present():

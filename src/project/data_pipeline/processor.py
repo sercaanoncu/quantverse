@@ -2,7 +2,7 @@
 QuantVerse — Data Processor
 =============================
 Handles cleaning, alignment, missing data treatment, and
-return/risk metric calculations from raw price data.
+return and risk metric calculations from raw price data.
 """
 
 import pandas as pd

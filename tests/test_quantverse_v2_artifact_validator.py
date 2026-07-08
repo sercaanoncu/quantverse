@@ -123,6 +123,8 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     ).to_csv(processed / "global_stock_scores.csv", index=False)
     for filename in [
         "global_model_selection_report.csv",
+        "global_model_selection_diagnostics.csv",
+        "global_final_model_decision.csv",
         "global_robustness_sensitivity.csv",
         "global_top_holdings_explanation.csv",
     ]:
@@ -174,6 +176,8 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "RETURN_FORECASTS",
             "MODEL_LEAGUE",
             "MODEL_SELECTION",
+            "MODEL_SELECTION_DIAGNOSTICS",
+            "FINAL_MODEL_DECISION",
             "FINAL_WEIGHTS",
             "RISK_METRICS",
             "RISK_CONTRIBUTIONS",
