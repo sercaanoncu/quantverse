@@ -69,6 +69,7 @@ def main() -> int:
     summary = build_demo_summary()
     _write_summary(summary)
     for report_step in [
+        ["scripts/build_quantverse_v2_visual_analytics.py", "--config", config],
         ["scripts/build_quantverse_v2_research_report.py"],
         ["scripts/build_quantverse_v2_excel_output.py"],
     ]:
@@ -99,8 +100,8 @@ def build_demo_summary() -> dict[str, object]:
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
-    numerical_integrity = validate_v2_numerical_integrity(ROOT)
     exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
+    exposure_metadata = _read_csv(PROCESSED / "global_exposure_metadata_quality.csv")
     selected = (
         scores.loc[scores["selection_flag"].astype(bool)]
         if "selection_flag" in scores
@@ -119,7 +120,7 @@ def build_demo_summary() -> dict[str, object]:
         and risk["model_name"].astype(str).eq(final_model).any()
         else {}
     )
-    return {
+    summary = {
         "run_status": "completed",
         "universe_rows": int(len(universe)),
         "assets_with_returns": (
@@ -144,6 +145,8 @@ def build_demo_summary() -> dict[str, object]:
             else 0
         ),
         "final_selected_model": final_model,
+        "final_public_data_research_model": final_model,
+        "institutional_global_master_promotion": "not_promoted",
         "final_selected_holdings": (
             int((final_weights["weight"].abs() > 1e-8).sum())
             if "weight" in final_weights
@@ -194,19 +197,26 @@ def build_demo_summary() -> dict[str, object]:
         "robustness_status": robustness.get("robustness_status", "missing"),
         "sensitivity_status": robustness.get("sensitivity_status", "missing"),
         "forecast_validation_status": _forecast_validation_status(forecast_validation),
-        "numerical_integrity_status": numerical_integrity["overall_status"],
-        "numerical_integrity_failed_checks": numerical_integrity["failed_check_count"],
+        "numerical_integrity_status": "pending",
+        "numerical_integrity_failed_checks": None,
         "exposure_warnings": _exposure_warnings(exposure_warnings),
+        "exposure_metadata_status": _exposure_metadata_status(exposure_metadata),
+        "sector_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "sector_coverage_ratio"
+        ),
+        "issuer_country_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "issuer_country_coverage_ratio"
+        ),
+        "listing_country_vs_issuer_country_warning": _exposure_metadata_bool(
+            exposure_metadata, "listing_country_vs_issuer_country_warning"
+        ),
         "publish_readiness_status": model_decision.get(
             "publish_readiness_status", "research_with_limitations"
         ),
         "risk_metric_sanity_passed": _all_checks_passed(risk_sanity),
         "transaction_cost_status": _transaction_cost_status(turnover),
         "promotion_decision": decision.get("promotion_decision", "not promoted"),
-        "promotion_reason": _promotion_reason(
-            decision.get("reason", "Public-data research output."),
-            final_model,
-        ),
+        "promotion_reason": _promotion_reason(final_model),
         "main_limitations": [
             "Official exact top-100 support remains unavailable.",
             "Point-in-time historical membership remains unavailable.",
@@ -220,6 +230,14 @@ def build_demo_summary() -> dict[str, object]:
             "excel": "output/excel/quantverse_v2_research_output.xlsx",
         },
     }
+    numerical_integrity = validate_v2_numerical_integrity(
+        ROOT, summary_override=summary
+    )
+    summary["numerical_integrity_status"] = numerical_integrity["overall_status"]
+    summary["numerical_integrity_failed_checks"] = numerical_integrity[
+        "failed_check_count"
+    ]
+    return summary
 
 
 def _final_model(
@@ -283,14 +301,13 @@ def _random_percentile(
     return float(model_sharpe >= random_sharpe)
 
 
-def _promotion_reason(reason: object, final_model: str) -> str:
-    base = str(reason or "Public-data research output.")
+def _promotion_reason(final_model: str) -> str:
     return (
-        "Existing global master promotion gate remains not promoted. "
-        f"Gate reason: {base} "
-        f"QuantVerse v2 model league selected {final_model} as the public-data "
-        "research final model; this is not a promoted institutional global USD "
-        "master portfolio."
+        f"Final public-data research model: {final_model}. "
+        "Institutional/global master promotion: not_promoted. "
+        "The current public-data evidence supports the research model label only; "
+        "it does not promote an institutional global USD master portfolio or "
+        "investment recommendation."
     )
 
 
@@ -328,6 +345,25 @@ def _exposure_warnings(frame: pd.DataFrame) -> list[str]:
     if frame.empty or "warning_type" not in frame:
         return ["missing"]
     return frame["warning_type"].dropna().astype(str).head(10).tolist()
+
+
+def _exposure_metadata_status(frame: pd.DataFrame) -> str:
+    if frame.empty or "exposure_metadata_status" not in frame:
+        return "missing"
+    values = frame["exposure_metadata_status"].dropna().astype(str)
+    return str(values.iloc[0]) if not values.empty else "missing"
+
+
+def _exposure_metadata_float(frame: pd.DataFrame, column: str) -> float:
+    if frame.empty or column not in frame:
+        return 0.0
+    return _float(frame[column].iloc[0]) or 0.0
+
+
+def _exposure_metadata_bool(frame: pd.DataFrame, column: str) -> bool:
+    if frame.empty or column not in frame:
+        return True
+    return str(frame[column].iloc[0]).strip().lower() in {"1", "true", "yes"}
 
 
 def _write_summary(summary: dict[str, object]) -> None:

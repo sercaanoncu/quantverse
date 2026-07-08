@@ -124,13 +124,21 @@ def return_series_diagnostics(series: pd.Series) -> dict[str, object]:
     }
 
 
-def validate_v2_numerical_integrity(root: str | Path) -> dict[str, object]:
+def validate_v2_numerical_integrity(
+    root: str | Path,
+    *,
+    summary_override: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Validate generated QuantVerse v2 outputs for numerical plausibility."""
     root_path = Path(root)
     processed = root_path / "data" / "processed"
     checks: list[dict[str, object]] = []
 
-    summary = _read_json(processed / "quantverse_v2_demo_summary.json")
+    summary = (
+        dict(summary_override)
+        if summary_override is not None
+        else _read_json(processed / "quantverse_v2_demo_summary.json")
+    )
     final_model = str(summary.get("final_selected_model", "")).strip()
     final_holdings = _float(summary.get("final_selected_holdings"), default=0.0)
     returns = _read_returns(processed / "global_security_simple_returns_usd.csv")

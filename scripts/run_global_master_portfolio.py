@@ -10,6 +10,9 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.data_pipeline.global_returns import load_global_universe
 from project.data_pipeline.market_cap_rank_evidence import (
     write_market_cap_rank_outputs,

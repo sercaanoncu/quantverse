@@ -53,6 +53,7 @@ def _sections() -> list[dict[str, object]]:
     model_stability = _read_csv(PROCESSED / "global_model_stability_report.csv")
     exposure_region = _read_csv(PROCESSED / "global_region_exposure.csv")
     exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
+    exposure_metadata = _read_csv(PROCESSED / "global_exposure_metadata_quality.csv")
     top_holdings = _read_csv(PROCESSED / "global_top_holdings_explanation.csv")
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
@@ -86,7 +87,11 @@ def _sections() -> list[dict[str, object]]:
             "title": "Executive Summary",
             "bullets": [
                 "QuantVerse v2 is a public-data global equity research platform, not investment advice.",
+                f"Final public-data research model: {summary.get('final_public_data_research_model', summary.get('final_selected_model', 'not available'))}.",
+                f"Institutional/global master promotion: {summary.get('institutional_global_master_promotion', summary.get('promotion_decision', 'not available'))}.",
                 f"Promotion decision: {summary.get('promotion_decision', decision.get('promotion_decision', 'not available'))}.",
+                f"Numerical integrity: {summary.get('numerical_integrity_status', 'not available')}; failed checks: {summary.get('numerical_integrity_failed_checks', 'not available')}.",
+                f"Exposure metadata: {summary.get('exposure_metadata_status', 'not available')}; sector coverage: {summary.get('sector_coverage_ratio', 'not available')}; issuer-country coverage: {summary.get('issuer_country_coverage_ratio', 'not available')}.",
                 f"Universe rows: {summary.get('universe_rows', 'not available')}; assets with returns: {summary.get('assets_with_returns', 'not available')}.",
                 "Exact official top-100 and institutional point-in-time claims remain unsupported.",
             ],
@@ -286,15 +291,23 @@ def _sections() -> list[dict[str, object]]:
             "bullets": [
                 "A final model must be economically interpretable, not only mathematically optimized.",
                 f"Exposure warnings: {summary.get('exposure_warnings', 'not available')}.",
+                f"Exposure metadata status: {summary.get('exposure_metadata_status', 'not available')}.",
+                f"Sector coverage ratio: {summary.get('sector_coverage_ratio', 'not available')}.",
+                f"Issuer-country coverage ratio: {summary.get('issuer_country_coverage_ratio', 'not available')}.",
+                "If issuer-country metadata is missing, country exposure is listing-country exposure and remains diagnostic.",
                 "Region, country, currency, sleeve and sector exposure reports are generated separately.",
             ],
             "table": (
-                top_holdings.head(12)
-                if not top_holdings.empty
+                exposure_metadata.head(12)
+                if not exposure_metadata.empty
                 else (
-                    exposure_region.head(12)
-                    if not exposure_region.empty
-                    else exposure_warnings.head(12)
+                    top_holdings.head(12)
+                    if not top_holdings.empty
+                    else (
+                        exposure_region.head(12)
+                        if not exposure_region.empty
+                        else exposure_warnings.head(12)
+                    )
                 )
             ),
         },

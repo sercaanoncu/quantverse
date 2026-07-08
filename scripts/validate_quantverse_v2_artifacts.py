@@ -64,6 +64,7 @@ REQUIRED_CSVS = [
     "global_robustness_sensitivity.csv",
     "global_top_holdings_explanation.csv",
     "global_forecast_validation_by_horizon.csv",
+    "global_exposure_metadata_quality.csv",
     "quantverse_v2_visual_analytics_summary.csv",
     "quantverse_v2_visual_equity_curve.csv",
     "quantverse_v2_visual_drawdown_curve.csv",
@@ -112,6 +113,7 @@ REQUIRED_EXCEL_SHEETS = [
     "EXPOSURE_REGION",
     "EXPOSURE_COUNTRY",
     "EXPOSURE_CURRENCY",
+    "EXPOSURE_METADATA",
     "TOP_HOLDINGS_EXPLANATION",
     "FORECAST_VALIDATION",
     "VISUAL_SUMMARY",
@@ -140,6 +142,13 @@ FORBIDDEN_REPORT_PATTERNS = [
     r"\blive trading system\b",
     r"\bbuy recommendation\b",
     r"\bsell recommendation\b",
+]
+
+STALE_CURRENT_DECISION_PATTERNS = [
+    r"Final model set to Equal Weight",
+    r"best metric candidate Min CVaR was not used",
+    r"max_crypto_ok",
+    r"selected Equal Weight as the public-data research final model",
 ]
 
 
@@ -190,8 +199,10 @@ def validate_artifacts(root: Path) -> dict[str, object]:
         root / "output" / "excel" / "quantverse_v2_research_output.xlsx", checks
     )
     _check_report_claim_language(root, checks)
-    _check_numerical_integrity(root, checks)
+    _check_numerical_integrity(root, summary, checks)
     _check_visual_analytics(root, checks)
+    _check_exposure_metadata_quality(processed, checks)
+    _check_current_v2_reports_no_stale_decisions(root, summary, checks)
 
     failed = [check for check in checks if not check["passed"]]
     return {
@@ -367,7 +378,11 @@ def _check_report_claim_language(root: Path, checks: list[dict[str, object]]) ->
     )
 
 
-def _check_numerical_integrity(root: Path, checks: list[dict[str, object]]) -> None:
+def _check_numerical_integrity(
+    root: Path,
+    summary: dict[str, object],
+    checks: list[dict[str, object]],
+) -> None:
     result = validate_v2_numerical_integrity(root)
     for check in result["checks"]:
         checks.append(
@@ -377,6 +392,23 @@ def _check_numerical_integrity(root: Path, checks: list[dict[str, object]]) -> N
                 str(check["details"]),
             )
         )
+    summary_status = str(summary.get("numerical_integrity_status", "")).strip()
+    summary_failed = summary.get("numerical_integrity_failed_checks")
+    try:
+        summary_failed_count = int(summary_failed)
+    except (TypeError, ValueError):
+        summary_failed_count = -1
+    checks.append(
+        _check(
+            "summary_numerical_integrity_matches_artifact_validation",
+            summary_status == result["overall_status"]
+            and summary_failed_count == int(result["failed_check_count"]),
+            (
+                f"summary_status={summary_status}; actual_status={result['overall_status']}; "
+                f"summary_failed={summary_failed}; actual_failed={result['failed_check_count']}"
+            ),
+        )
+    )
 
 
 def _check_visual_analytics(root: Path, checks: list[dict[str, object]]) -> None:
@@ -387,6 +419,84 @@ def _check_visual_analytics(root: Path, checks: list[dict[str, object]]) -> None
                 f"visual_analytics_{check['check']}",
                 bool(check["passed"]),
                 str(check["details"]),
+            )
+        )
+
+
+def _check_exposure_metadata_quality(
+    processed: Path, checks: list[dict[str, object]]
+) -> None:
+    quality = _read_csv(processed / "global_exposure_metadata_quality.csv")
+    if quality.empty:
+        checks.append(
+            _check(
+                "exposure_metadata_quality_report_present",
+                False,
+                "missing global_exposure_metadata_quality.csv",
+            )
+        )
+        return
+    required = {
+        "exposure_metadata_status",
+        "sector_coverage_ratio",
+        "issuer_country_coverage_ratio",
+        "listing_country_vs_issuer_country_warning",
+    }
+    missing = sorted(required.difference(quality.columns))
+    status = str(quality["exposure_metadata_status"].iloc[0])
+    sector = _float(quality["sector_coverage_ratio"].iloc[0])
+    issuer = _float(quality["issuer_country_coverage_ratio"].iloc[0])
+    checks.append(
+        _check(
+            "exposure_metadata_quality_schema",
+            not missing,
+            f"missing_columns={missing}",
+        )
+    )
+    checks.append(
+        _check(
+            "exposure_metadata_incomplete_is_not_plain_pass",
+            bool(
+                status in {"complete", "diagnostic_metadata_incomplete"}
+                and not (sector == 0.0 and status == "complete")
+                and not (issuer == 0.0 and status == "complete")
+            ),
+            f"status={status}; sector_coverage_ratio={sector}; issuer_country_coverage_ratio={issuer}",
+        )
+    )
+
+
+def _check_current_v2_reports_no_stale_decisions(
+    root: Path,
+    summary: dict[str, object],
+    checks: list[dict[str, object]],
+) -> None:
+    paths = [
+        root / "output" / "pdf" / "quantverse_v2_research_report.pdf",
+        root / "output" / "html" / "quantverse_v2_research_report.html",
+        root / "output" / "excel" / "quantverse_v2_research_output.xlsx",
+        root / "data" / "processed" / "quantverse_v2_demo_summary.json",
+    ]
+    text = "\n".join(_extract_text(path) for path in paths)
+    hits = [
+        pattern
+        for pattern in STALE_CURRENT_DECISION_PATTERNS
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    final_model = str(summary.get("final_selected_model", "")).strip()
+    checks.append(
+        _check(
+            "current_v2_reports_no_stale_decision_phrases",
+            not hits,
+            f"final_model={final_model}; stale_hits={hits}",
+        )
+    )
+    if final_model:
+        checks.append(
+            _check(
+                "current_v2_reports_contain_final_model",
+                final_model in text,
+                f"final_model={final_model}",
             )
         )
 
@@ -421,7 +531,27 @@ def _extract_text(path: Path) -> str:
             return "\n".join(page.extract_text() or "" for page in reader.pages[:5])
         except Exception:
             return ""
+    if path.suffix.lower() == ".xlsx":
+        return _extract_xlsx_text(path)
     return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _extract_xlsx_text(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = [
+                name
+                for name in archive.namelist()
+                if name.startswith("xl/sharedStrings")
+                or name.startswith("xl/worksheets/sheet")
+            ]
+            return "\n".join(
+                archive.read(name).decode("utf-8", errors="ignore") for name in names
+            )
+    except Exception:
+        return ""
 
 
 def _read_json(path: Path) -> dict[str, object]:
@@ -432,6 +562,15 @@ def _read_json(path: Path) -> dict[str, object]:
 
 def _read_csv(path: Path) -> pd.DataFrame:
     return pd.read_csv(path) if path.exists() else pd.DataFrame()
+
+
+def _float(value: object) -> float:
+    try:
+        if value is None or pd.isna(value):
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _check(name: str, passed: bool, details: str) -> dict[str, object]:

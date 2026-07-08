@@ -36,6 +36,8 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
                 "promotion_decision": "not promoted",
                 "weight_sum": 1.0,
                 "final_selected_holdings": 2,
+                "numerical_integrity_status": "passed",
+                "numerical_integrity_failed_checks": 0,
             }
         ),
         encoding="utf-8",
@@ -164,6 +166,17 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
         pd.DataFrame({"bucket": ["A", "B"], "weight": [0.5, 0.5]}).to_csv(
             processed / filename, index=False
         )
+    pd.DataFrame(
+        {
+            "exposure_metadata_status": ["complete"],
+            "sector_coverage_ratio": [1.0],
+            "issuer_country_coverage_ratio": [1.0],
+            "listing_country_coverage_ratio": [1.0],
+            "listing_country_vs_issuer_country_warning": [False],
+            "interpretation": ["complete"],
+            "promotion_blocker": [False],
+        }
+    ).to_csv(processed / "global_exposure_metadata_quality.csv", index=False)
     build_visual_analytics_outputs(processed)
 
     html = " ".join(
@@ -211,6 +224,7 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "EXPOSURE_REGION",
             "EXPOSURE_COUNTRY",
             "EXPOSURE_CURRENCY",
+            "EXPOSURE_METADATA",
             "TOP_HOLDINGS_EXPLANATION",
             "FORECAST_VALIDATION",
             "VISUAL_SUMMARY",
@@ -281,5 +295,52 @@ def test_artifact_validator_fails_on_final_model_mismatch(tmp_path):
     assert result["overall_status"] == "failed"
     assert any(
         check["check"] == "summary_matches_final_model_decision" and not check["passed"]
+        for check in result["checks"]
+    )
+
+
+def test_artifact_validator_fails_on_summary_numerical_integrity_mismatch(tmp_path):
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True)
+    (processed / "quantverse_v2_demo_summary.json").write_text(
+        json.dumps(
+            {
+                "run_status": "completed",
+                "final_selected_model": "Equal Weight",
+                "numerical_integrity_status": "failed",
+                "numerical_integrity_failed_checks": 3,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_artifacts(tmp_path)
+
+    assert any(
+        check["check"] == "summary_numerical_integrity_matches_artifact_validation"
+        and not check["passed"]
+        for check in result["checks"]
+    )
+
+
+def test_artifact_validator_fails_on_current_report_stale_decision_phrase(tmp_path):
+    processed = tmp_path / "data" / "processed"
+    output = tmp_path / "output" / "html"
+    processed.mkdir(parents=True)
+    output.mkdir(parents=True)
+    (processed / "quantverse_v2_demo_summary.json").write_text(
+        json.dumps({"run_status": "completed", "final_selected_model": "HRP"}),
+        encoding="utf-8",
+    )
+    (output / "quantverse_v2_research_report.html").write_text(
+        "Final model set to Equal Weight; best metric candidate Min CVaR was not used.",
+        encoding="utf-8",
+    )
+
+    result = validate_artifacts(tmp_path)
+
+    assert any(
+        check["check"] == "current_v2_reports_no_stale_decision_phrases"
+        and not check["passed"]
         for check in result["checks"]
     )

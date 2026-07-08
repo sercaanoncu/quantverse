@@ -28,6 +28,7 @@ def test_exposure_sums_to_one_and_top_holdings_explanation_exists():
     assert exposure["sleeve"]["weight"].sum() == 1.0
     assert "explanation" in exposure["top_holdings"]
     assert "sector" in exposure
+    assert "metadata_quality" in exposure
 
 
 def test_exposure_warning_triggers_for_concentration_and_missing_sector_gracefully():
@@ -53,3 +54,33 @@ def test_exposure_warning_triggers_for_concentration_and_missing_sector_graceful
 
     assert "sector" in exposure
     assert exposure["warnings"]["warning_type"].str.contains("concentration").any()
+
+
+def test_exposure_metadata_incomplete_when_sector_and_issuer_country_missing():
+    weights = pd.DataFrame(
+        {
+            "model_name": ["HRP", "HRP"],
+            "ticker": ["A", "B"],
+            "weight": [0.7, 0.3],
+        }
+    )
+    universe = pd.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "name": ["Asset A", "Asset B"],
+            "sleeve": ["global_equity_us", "global_equity_us"],
+            "region": ["North America", "North America"],
+            "country": ["United States", "United States"],
+            "currency": ["USD", "USD"],
+            "sector": ["missing", "missing"],
+        }
+    )
+
+    exposure = build_exposure_analysis(weights, universe, final_model="HRP")
+    quality = exposure["metadata_quality"].iloc[0]
+
+    assert quality["exposure_metadata_status"] == "diagnostic_metadata_incomplete"
+    assert quality["sector_coverage_ratio"] == 0.0
+    assert quality["issuer_country_coverage_ratio"] == 0.0
+    assert bool(quality["listing_country_vs_issuer_country_warning"])
+    assert exposure["warnings"]["warning_type"].eq("exposure_metadata_incomplete").any()

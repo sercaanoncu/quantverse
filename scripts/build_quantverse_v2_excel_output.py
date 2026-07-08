@@ -42,6 +42,7 @@ SHEETS = {
     "EXPOSURE_COUNTRY": "data/processed/global_country_exposure.csv",
     "EXPOSURE_CURRENCY": "data/processed/global_currency_exposure.csv",
     "EXPOSURE_SECTOR": "data/processed/global_sector_exposure.csv",
+    "EXPOSURE_METADATA": "data/processed/global_exposure_metadata_quality.csv",
     "TOP_HOLDINGS_EXPLANATION": "data/processed/global_top_holdings_explanation.csv",
     "FORECAST_VALIDATION": "data/processed/global_forecast_validation_by_horizon.csv",
     "PUBLISH_READINESS": "data/processed/global_model_selection_report.csv",
@@ -95,6 +96,7 @@ def _write_dashboard(writer: pd.ExcelWriter) -> None:
     risk = _read_csv(PROCESSED / "global_portfolio_risk_report.csv")
     weights = _read_csv(PROCESSED / "global_portfolio_league_weights.csv")
     integrity = validate_v2_numerical_integrity(ROOT)
+    exposure_metadata = _read_csv(PROCESSED / "global_exposure_metadata_quality.csv")
     final_model = str(summary.get("final_selected_model", "not available"))
     risk_row = (
         risk.loc[risk["model_name"].astype(str).eq(final_model)].iloc[0].to_dict()
@@ -106,6 +108,17 @@ def _write_dashboard(writer: pd.ExcelWriter) -> None:
     dashboard = pd.DataFrame(
         [
             {"metric": "final_selected_model", "value": final_model},
+            {
+                "metric": "final_public_data_research_model",
+                "value": summary.get("final_public_data_research_model", final_model),
+            },
+            {
+                "metric": "institutional_global_master_promotion",
+                "value": summary.get(
+                    "institutional_global_master_promotion",
+                    summary.get("promotion_decision", "not promoted"),
+                ),
+            },
             {
                 "metric": "promotion_decision",
                 "value": summary.get("final_model_selection_decision", "not promoted"),
@@ -139,6 +152,27 @@ def _write_dashboard(writer: pd.ExcelWriter) -> None:
             {
                 "metric": "numerical_integrity_failed_checks",
                 "value": integrity["failed_check_count"],
+            },
+            {
+                "metric": "exposure_metadata_status",
+                "value": summary.get(
+                    "exposure_metadata_status",
+                    _first_cell(exposure_metadata, "exposure_metadata_status"),
+                ),
+            },
+            {
+                "metric": "sector_coverage_ratio",
+                "value": summary.get(
+                    "sector_coverage_ratio",
+                    _first_cell(exposure_metadata, "sector_coverage_ratio"),
+                ),
+            },
+            {
+                "metric": "issuer_country_coverage_ratio",
+                "value": summary.get(
+                    "issuer_country_coverage_ratio",
+                    _first_cell(exposure_metadata, "issuer_country_coverage_ratio"),
+                ),
             },
         ]
     )
@@ -555,6 +589,10 @@ def _start_here() -> list[dict[str, str]]:
             "section": "Publish readiness",
             "message": "PUBLISH_READINESS is evidence for GitHub/CV discussion only; it is not a promoted institutional portfolio approval.",
         },
+        {
+            "section": "Exposure metadata",
+            "message": "EXPOSURE_METADATA explains whether country/sector exposure is complete or diagnostic-only. Listing-country exposure is not issuer-country exposure unless issuer metadata is present.",
+        },
     ]
 
 
@@ -631,6 +669,12 @@ def _float(value: object) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _first_cell(frame: pd.DataFrame, column: str) -> object:
+    if frame.empty or column not in frame:
+        return "not available"
+    return frame[column].iloc[0]
 
 
 if __name__ == "__main__":

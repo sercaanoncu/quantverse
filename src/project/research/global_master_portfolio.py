@@ -132,8 +132,9 @@ def run_master_portfolio_research(
         gate = _apply_non_performance_blocks(gate, final_constraint, fx_status)
         gate["Reason"] = _append_reason(
             str(gate["Reason"]),
-            f"Final model set to {final_model}; best metric candidate "
-            f"{best_model} was not used because its promotion gate failed.",
+            "Legacy global master gate fallback remains not promoted; the best "
+            "metric candidate failed the promotion gate. This legacy gate does "
+            "not override the separate v2 public-data research final model.",
         )
     weights_long = _weights_long(candidates)
     risk_report = _risk_report(selected_returns, candidates)

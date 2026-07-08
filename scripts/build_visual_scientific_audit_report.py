@@ -102,13 +102,49 @@ def _load_data(processed: Path) -> dict[str, pd.DataFrame | dict]:
     data: dict[str, pd.DataFrame | dict] = {
         key: _read_csv(processed / filename) for key, filename in files.items()
     }
-    decision_path = processed / "global_master_decision_summary.json"
-    data["decision"] = (
-        json.loads(decision_path.read_text(encoding="utf-8"))
-        if decision_path.exists()
+    data["decision"] = _current_v2_decision(processed)
+    return data
+
+
+def _current_v2_decision(processed: Path) -> dict[str, object]:
+    summary_path = processed / "quantverse_v2_demo_summary.json"
+    model_path = processed / "global_final_model_decision.json"
+    master_path = processed / "global_master_decision_summary.json"
+    summary = (
+        json.loads(summary_path.read_text(encoding="utf-8"))
+        if summary_path.exists()
         else {}
     )
-    return data
+    model = (
+        json.loads(model_path.read_text(encoding="utf-8"))
+        if model_path.exists()
+        else {}
+    )
+    master = (
+        json.loads(master_path.read_text(encoding="utf-8"))
+        if master_path.exists()
+        else {}
+    )
+    final_model = str(
+        summary.get("final_public_data_research_model")
+        or model.get("final_selected_model")
+        or summary.get("final_selected_model")
+        or master.get("final_model")
+        or "missing"
+    )
+    return {
+        "final_model": final_model,
+        "promotion_decision": summary.get(
+            "institutional_global_master_promotion",
+            master.get("promotion_decision", "not_promoted"),
+        ),
+        "reason": (
+            f"Final public-data research model: {final_model}. "
+            "Institutional/global master promotion: not_promoted. "
+            "This legacy visual scientific audit is regenerated with the current "
+            "v2 model-selection context and remains diagnostic."
+        ),
+    }
 
 
 def _build_charts(

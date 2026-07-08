@@ -140,6 +140,10 @@ def test_visual_analytics_outputs_have_required_schema(tmp_path):
         assert (processed / filename).exists()
     assert set(outputs["model_risk_return"]["x_axis"]) == {"annualized_volatility"}
     assert set(outputs["model_risk_return"]["y_axis"]) == {"annualized_return"}
+    exposure_summary = (
+        outputs["summary"].loc[outputs["summary"]["chart_name"].eq("exposure")].iloc[0]
+    )
+    assert exposure_summary["validation_status"] == "passed_with_metadata_warning"
 
 
 def _write_visual_fixture(root: Path) -> Path:

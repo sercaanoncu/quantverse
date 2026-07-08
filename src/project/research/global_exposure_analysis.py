@@ -32,6 +32,16 @@ WARNING_COLUMNS = [
     "promotion_blocker",
 ]
 
+METADATA_QUALITY_COLUMNS = [
+    "exposure_metadata_status",
+    "sector_coverage_ratio",
+    "issuer_country_coverage_ratio",
+    "listing_country_coverage_ratio",
+    "listing_country_vs_issuer_country_warning",
+    "interpretation",
+    "promotion_blocker",
+]
+
 
 def build_exposure_analysis(
     weights: pd.DataFrame,
@@ -61,6 +71,7 @@ def build_exposure_analysis(
         "sector": _group_exposure(enriched, "sector"),
         "top_holdings": _top_holdings(enriched, final_model),
         "warnings": _warnings(enriched, concentration_threshold),
+        "metadata_quality": _metadata_quality(enriched),
     }
 
 
@@ -80,6 +91,9 @@ def write_exposure_outputs(
         path / "global_top_holdings_explanation.csv", index=False
     )
     exposure["warnings"].to_csv(path / "global_exposure_warnings.csv", index=False)
+    exposure["metadata_quality"].to_csv(
+        path / "global_exposure_metadata_quality.csv", index=False
+    )
 
 
 def _final_weights(weights: pd.DataFrame, final_model: str) -> pd.DataFrame:
@@ -118,7 +132,15 @@ def _metadata(universe: pd.DataFrame) -> pd.DataFrame:
     for column in ["name", "sleeve", "region", "country", "currency", "sector"]:
         if column not in frame:
             frame[column] = "missing"
-    return frame.drop_duplicates("ticker", keep="first")
+    optional = [
+        column
+        for column in ["issuer_country", "economic_country"]
+        if column in frame.columns
+    ]
+    return frame.drop_duplicates("ticker", keep="first")[
+        ["ticker", "name", "sleeve", "region", "country", "currency", "sector"]
+        + optional
+    ]
 
 
 def _merge_risk_contribution(
@@ -246,6 +268,22 @@ def _warnings(
                     "promotion_blocker": False,
                 }
             )
+    metadata = _metadata_quality(enriched)
+    if not metadata.empty:
+        row = metadata.iloc[0]
+        if str(row["exposure_metadata_status"]) != "complete":
+            warnings.append(
+                {
+                    "warning_type": "exposure_metadata_incomplete",
+                    "severity": "high",
+                    "evidence": (
+                        f"sector_coverage_ratio={row['sector_coverage_ratio']}; "
+                        f"issuer_country_coverage_ratio={row['issuer_country_coverage_ratio']}"
+                    ),
+                    "interpretation": str(row["interpretation"]),
+                    "promotion_blocker": bool(row["promotion_blocker"]),
+                }
+            )
     if not warnings:
         warnings.append(
             {
@@ -257,6 +295,83 @@ def _warnings(
             }
         )
     return pd.DataFrame(warnings, columns=WARNING_COLUMNS)
+
+
+def _metadata_quality(enriched: pd.DataFrame) -> pd.DataFrame:
+    if enriched.empty:
+        return pd.DataFrame(
+            [
+                {
+                    "exposure_metadata_status": "diagnostic_metadata_incomplete",
+                    "sector_coverage_ratio": 0.0,
+                    "issuer_country_coverage_ratio": 0.0,
+                    "listing_country_coverage_ratio": 0.0,
+                    "listing_country_vs_issuer_country_warning": True,
+                    "interpretation": "Exposure metadata cannot be audited without final holdings.",
+                    "promotion_blocker": True,
+                }
+            ],
+            columns=METADATA_QUALITY_COLUMNS,
+        )
+
+    def coverage(column: str | None) -> float:
+        if column is None or column not in enriched:
+            return 0.0
+        values = enriched[column].fillna("missing").astype(str).str.strip()
+        valid = values.ne("") & values.str.lower().ne("missing")
+        weights = pd.to_numeric(enriched["weight"], errors="coerce").fillna(0.0)
+        total = float(weights.sum())
+        if total <= 0:
+            return 0.0
+        return float(weights.loc[valid].sum() / total)
+
+    issuer_column = next(
+        (
+            column
+            for column in ["issuer_country", "economic_country"]
+            if column in enriched
+        ),
+        None,
+    )
+    sector_coverage = coverage("sector")
+    issuer_coverage = coverage(issuer_column)
+    listing_coverage = coverage("country")
+    status = (
+        "complete"
+        if sector_coverage >= 0.95 and issuer_coverage >= 0.95
+        else "diagnostic_metadata_incomplete"
+    )
+    issuer_warning = issuer_coverage < 0.95 or issuer_column is None
+    if issuer_column is not None and "country" in enriched:
+        issuer_warning = issuer_warning or not enriched["country"].astype(str).equals(
+            enriched[issuer_column].astype(str)
+        )
+    if status == "complete":
+        interpretation = (
+            "Sector and issuer-country exposure metadata are sufficiently covered."
+        )
+        blocker = False
+    else:
+        interpretation = (
+            "Exposure analysis is diagnostic only because sector or issuer-country "
+            "metadata coverage is incomplete. Listing-country exposure must not be "
+            "presented as issuer/economic exposure."
+        )
+        blocker = True
+    return pd.DataFrame(
+        [
+            {
+                "exposure_metadata_status": status,
+                "sector_coverage_ratio": sector_coverage,
+                "issuer_country_coverage_ratio": issuer_coverage,
+                "listing_country_coverage_ratio": listing_coverage,
+                "listing_country_vs_issuer_country_warning": bool(issuer_warning),
+                "interpretation": interpretation,
+                "promotion_blocker": blocker,
+            }
+        ],
+        columns=METADATA_QUALITY_COLUMNS,
+    )
 
 
 def _format_optional(value: object) -> str:

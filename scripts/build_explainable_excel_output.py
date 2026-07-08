@@ -504,6 +504,15 @@ def _decision_reason(decision: dict[str, Any]) -> str:
     reason = str(
         decision.get("reason", "FX, market-cap ve data quality blocker devam ediyor.")
     )
+    if (
+        "Final model set to Equal Weight" in reason
+        or "best metric candidate Min CVaR was not used" in reason
+    ):
+        return (
+            "Legacy global master gate remains not promoted. This workbook is "
+            "diagnostic and does not override the v2 public-data research final "
+            "model."
+        )
     return reason.replace(
         "net CAGR greater than Equal Weight",
         "net CAGR is not greater than Equal Weight",

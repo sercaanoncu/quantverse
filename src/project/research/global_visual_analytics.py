@@ -360,6 +360,22 @@ def build_random_benchmark_chart(
 def build_exposure_chart(processed_dir: str | Path) -> pd.DataFrame:
     """Build combined exposure chart data from existing exposure reports."""
     processed = Path(processed_dir)
+    quality = _read_csv(processed / "global_exposure_metadata_quality.csv")
+    metadata_status = (
+        str(quality["exposure_metadata_status"].iloc[0])
+        if not quality.empty and "exposure_metadata_status" in quality
+        else "missing"
+    )
+    sector_coverage = (
+        _float(quality["sector_coverage_ratio"].iloc[0])
+        if not quality.empty and "sector_coverage_ratio" in quality
+        else 0.0
+    )
+    issuer_country_coverage = (
+        _float(quality["issuer_country_coverage_ratio"].iloc[0])
+        if not quality.empty and "issuer_country_coverage_ratio" in quality
+        else 0.0
+    )
     specs = {
         "region": processed / "global_region_exposure.csv",
         "country": processed / "global_country_exposure.csv",
@@ -376,8 +392,15 @@ def build_exposure_chart(processed_dir: str | Path) -> pd.DataFrame:
         selected["exposure_type"] = exposure_type
         selected["weight"] = pd.to_numeric(selected["weight"], errors="coerce")
         selected["exposure_sum"] = selected["weight"].sum()
+        selected["exposure_metadata_status"] = metadata_status
+        selected["sector_coverage_ratio"] = sector_coverage
+        selected["issuer_country_coverage_ratio"] = issuer_country_coverage
         frames.append(selected[["exposure_type", "bucket", "weight", "exposure_sum"]])
     combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if not combined.empty:
+        combined["exposure_metadata_status"] = metadata_status
+        combined["sector_coverage_ratio"] = sector_coverage
+        combined["issuer_country_coverage_ratio"] = issuer_country_coverage
     return _with_metadata(
         combined,
         formula_method="exposure_weight = sum(final_model_weight by exposure bucket)",
@@ -386,7 +409,11 @@ def build_exposure_chart(processed_dir: str | Path) -> pd.DataFrame:
         limitation="Missing or coarse metadata can create 'missing' buckets that require data-quality review.",
         invalidation_condition="Invalid if any exposure type sum differs from 1 beyond tolerance or uses stale weights.",
         tested_by="tests/test_visual_analytics_outputs.py::test_exposure_chart_sums_to_one",
-        output_status="diagnostic",
+        output_status=(
+            "diagnostic_metadata_incomplete"
+            if metadata_status != "complete"
+            else "diagnostic"
+        ),
     )
 
 
@@ -455,6 +482,7 @@ def validate_visual_analytics_frames(
             "exposure_sums_to_one",
             _exposures_sum_to_one(frames["exposure"], tolerance=tolerance),
             "Exposure weights must sum to 1 within tolerance for each exposure type.",
+            status=_exposure_validation_status(frames["exposure"]),
         ),
         _check(
             "top_holdings_non_negative",
@@ -476,6 +504,13 @@ def build_visual_summary(
     for chart_name, frame in frames.items():
         status = "passed" if _chart_passed(chart_name, validation) else "failed"
         metadata = _metadata_from_frame(frame)
+        if (
+            chart_name == "exposure"
+            and status == "passed"
+            and str(metadata.get("output_status", ""))
+            == "diagnostic_metadata_incomplete"
+        ):
+            status = "passed_with_metadata_warning"
         rows.append(
             {
                 "chart_name": chart_name,
@@ -669,6 +704,17 @@ def _exposures_sum_to_one(frame: pd.DataFrame, *, tolerance: float) -> bool:
     )
 
 
+def _exposure_validation_status(frame: pd.DataFrame) -> str:
+    if frame.empty or "exposure_metadata_status" not in frame:
+        return "failed"
+    statuses = frame["exposure_metadata_status"].dropna().astype(str)
+    if statuses.empty:
+        return "failed"
+    if statuses.eq("complete").all():
+        return "passed"
+    return "passed_with_metadata_warning"
+
+
 def _chart_passed(chart_name: str, validation: pd.DataFrame) -> bool:
     mapping = {
         "equity_curve": "equity_curve_starts_at_one",
@@ -695,5 +741,16 @@ def _metadata_from_frame(frame: pd.DataFrame) -> dict[str, object]:
     }
 
 
-def _check(name: str, passed: bool, details: str) -> dict[str, object]:
-    return {"check": name, "passed": bool(passed), "details": details}
+def _check(
+    name: str,
+    passed: bool,
+    details: str,
+    *,
+    status: str | None = None,
+) -> dict[str, object]:
+    return {
+        "check": name,
+        "passed": bool(passed),
+        "status": status or ("passed" if passed else "failed"),
+        "details": details,
+    }
