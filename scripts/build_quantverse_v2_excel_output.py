@@ -40,8 +40,13 @@ SHEETS = {
     "RANDOM_PERCENTILES": "data/processed/global_random_portfolio_percentile_report.csv",
     "EXPOSURE_REGION": "data/processed/global_region_exposure.csv",
     "EXPOSURE_COUNTRY": "data/processed/global_country_exposure.csv",
+    "EXPOSURE_LISTING_COUNTRY": "data/processed/global_listing_country_exposure.csv",
+    "EXPOSURE_ISSUER_COUNTRY": "data/processed/global_issuer_country_exposure.csv",
+    "EXPOSURE_ECON_COUNTRY": "data/processed/global_economic_country_exposure.csv",
     "EXPOSURE_CURRENCY": "data/processed/global_currency_exposure.csv",
+    "EXPOSURE_EXCHANGE": "data/processed/global_exchange_exposure.csv",
     "EXPOSURE_SECTOR": "data/processed/global_sector_exposure.csv",
+    "EXPOSURE_INDUSTRY": "data/processed/global_industry_exposure.csv",
     "EXPOSURE_METADATA": "data/processed/global_exposure_metadata_quality.csv",
     "TOP_HOLDINGS_EXPLANATION": "data/processed/global_top_holdings_explanation.csv",
     "FORECAST_VALIDATION": "data/processed/global_forecast_validation_by_horizon.csv",
@@ -168,10 +173,38 @@ def _write_dashboard(writer: pd.ExcelWriter) -> None:
                 ),
             },
             {
+                "metric": "industry_coverage_ratio",
+                "value": summary.get(
+                    "industry_coverage_ratio",
+                    _first_cell(exposure_metadata, "industry_coverage_ratio"),
+                ),
+            },
+            {
                 "metric": "issuer_country_coverage_ratio",
                 "value": summary.get(
                     "issuer_country_coverage_ratio",
                     _first_cell(exposure_metadata, "issuer_country_coverage_ratio"),
+                ),
+            },
+            {
+                "metric": "economic_country_coverage_ratio",
+                "value": summary.get(
+                    "economic_country_coverage_ratio",
+                    _first_cell(exposure_metadata, "economic_country_coverage_ratio"),
+                ),
+            },
+            {
+                "metric": "listing_country_coverage_ratio",
+                "value": summary.get(
+                    "listing_country_coverage_ratio",
+                    _first_cell(exposure_metadata, "listing_country_coverage_ratio"),
+                ),
+            },
+            {
+                "metric": "metadata_confidence_distribution",
+                "value": summary.get(
+                    "metadata_confidence_distribution",
+                    _first_cell(exposure_metadata, "metadata_confidence_distribution"),
                 ),
             },
         ]
@@ -591,7 +624,11 @@ def _start_here() -> list[dict[str, str]]:
         },
         {
             "section": "Exposure metadata",
-            "message": "EXPOSURE_METADATA explains whether country/sector exposure is complete or diagnostic-only. Listing-country exposure is not issuer-country exposure unless issuer metadata is present.",
+            "message": "EXPOSURE_METADATA explains whether listing, issuer, economic, sector and industry exposure is usable or diagnostic-only. Listing-country exposure is not issuer-country or economic-country exposure unless explicit metadata is present.",
+        },
+        {
+            "section": "Country exposure distinction",
+            "message": "Use EXPOSURE_LISTING_COUNTRY for listing venue, EXPOSURE_ISSUER_COUNTRY for company domicile and EXPOSURE_ECON_COUNTRY only where economic-risk geography is explicitly available.",
         },
     ]
 

@@ -52,6 +52,15 @@ def _sections() -> list[dict[str, object]]:
     robustness = _read_csv(PROCESSED / "global_robustness_sensitivity.csv")
     model_stability = _read_csv(PROCESSED / "global_model_stability_report.csv")
     exposure_region = _read_csv(PROCESSED / "global_region_exposure.csv")
+    exposure_listing_country = _read_csv(
+        PROCESSED / "global_listing_country_exposure.csv"
+    )
+    exposure_issuer_country = _read_csv(
+        PROCESSED / "global_issuer_country_exposure.csv"
+    )
+    exposure_economic_country = _read_csv(
+        PROCESSED / "global_economic_country_exposure.csv"
+    )
     exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
     exposure_metadata = _read_csv(PROCESSED / "global_exposure_metadata_quality.csv")
     top_holdings = _read_csv(PROCESSED / "global_top_holdings_explanation.csv")
@@ -91,7 +100,7 @@ def _sections() -> list[dict[str, object]]:
                 f"Institutional/global master promotion: {summary.get('institutional_global_master_promotion', summary.get('promotion_decision', 'not available'))}.",
                 f"Promotion decision: {summary.get('promotion_decision', decision.get('promotion_decision', 'not available'))}.",
                 f"Numerical integrity: {summary.get('numerical_integrity_status', 'not available')}; failed checks: {summary.get('numerical_integrity_failed_checks', 'not available')}.",
-                f"Exposure metadata: {summary.get('exposure_metadata_status', 'not available')}; sector coverage: {summary.get('sector_coverage_ratio', 'not available')}; issuer-country coverage: {summary.get('issuer_country_coverage_ratio', 'not available')}.",
+                f"Exposure metadata: {summary.get('exposure_metadata_status', 'not available')}; sector coverage: {summary.get('sector_coverage_ratio', 'not available')}; industry coverage: {summary.get('industry_coverage_ratio', 'not available')}; issuer-country coverage: {summary.get('issuer_country_coverage_ratio', 'not available')}; economic-country coverage: {summary.get('economic_country_coverage_ratio', 'not available')}.",
                 f"Universe rows: {summary.get('universe_rows', 'not available')}; assets with returns: {summary.get('assets_with_returns', 'not available')}.",
                 "Exact official top-100 and institutional point-in-time claims remain unsupported.",
             ],
@@ -275,9 +284,12 @@ def _sections() -> list[dict[str, object]]:
         {
             "title": "Exposure and Concentration",
             "bullets": [
-                "Formula: grouped final model weights by region, country, currency, sector and sleeve; each exposure type must sum to 1.0.",
+                "Formula: grouped final model weights by region, listing country, issuer country, economic country, currency, exchange, sector, industry and sleeve; each exposure type must sum to 1.0.",
+                "Listing exposure means where the ticker is traded/listed.",
+                "Issuer exposure means where the company/entity is domiciled.",
+                "Economic exposure means where business risk is economically concentrated when explicit metadata is available.",
                 "Interpretation: concentration risk is an economic and governance issue, not only a visual issue.",
-                "Limitation: public-source country, currency and sector mappings may be incomplete.",
+                "Limitation: public-source listing, issuer, economic, currency, sector and industry mappings may be incomplete.",
                 "Invalidation: exposure totals that do not reconcile to one invalidate the chart.",
             ],
             "table": (
@@ -293,20 +305,40 @@ def _sections() -> list[dict[str, object]]:
                 f"Exposure warnings: {summary.get('exposure_warnings', 'not available')}.",
                 f"Exposure metadata status: {summary.get('exposure_metadata_status', 'not available')}.",
                 f"Sector coverage ratio: {summary.get('sector_coverage_ratio', 'not available')}.",
+                f"Industry coverage ratio: {summary.get('industry_coverage_ratio', 'not available')}.",
+                f"Listing-country coverage ratio: {summary.get('listing_country_coverage_ratio', 'not available')}.",
                 f"Issuer-country coverage ratio: {summary.get('issuer_country_coverage_ratio', 'not available')}.",
+                f"Economic-country coverage ratio: {summary.get('economic_country_coverage_ratio', 'not available')}.",
                 "If issuer-country metadata is missing, country exposure is listing-country exposure and remains diagnostic.",
-                "Region, country, currency, sleeve and sector exposure reports are generated separately.",
+                "If economic-country metadata is unavailable, economic exposure is unavailable; it is not inferred from listing venue, currency or issuer domicile.",
+                "ADR/foreign issuer cases are flagged so US-listed/USD tickers are not treated as pure United States issuer exposure by default.",
+                "Region, listing-country, issuer-country, economic-country, currency, exchange, sleeve, sector and industry exposure reports are generated separately.",
             ],
             "table": (
                 exposure_metadata.head(12)
                 if not exposure_metadata.empty
                 else (
-                    top_holdings.head(12)
-                    if not top_holdings.empty
+                    pd.concat(
+                        [
+                            _tag_exposure(exposure_listing_country, "listing_country"),
+                            _tag_exposure(exposure_issuer_country, "issuer_country"),
+                            _tag_exposure(
+                                exposure_economic_country, "economic_country"
+                            ),
+                        ],
+                        ignore_index=True,
+                    ).head(12)
+                    if not exposure_listing_country.empty
+                    or not exposure_issuer_country.empty
+                    or not exposure_economic_country.empty
                     else (
-                        exposure_region.head(12)
-                        if not exposure_region.empty
-                        else exposure_warnings.head(12)
+                        top_holdings.head(12)
+                        if not top_holdings.empty
+                        else (
+                            exposure_region.head(12)
+                            if not exposure_region.empty
+                            else exposure_warnings.head(12)
+                        )
                     )
                 )
             ),
@@ -423,6 +455,14 @@ def _chart(config: dict, chart_cls, drawing_cls, string_cls, colors):
     for idx, value in enumerate(values):
         drawing.add(string_cls(55 + idx * 110, 138, f"{value:g}", fontSize=8))
     return drawing
+
+
+def _tag_exposure(frame: pd.DataFrame, exposure_type: str) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame()
+    tagged = frame.copy()
+    tagged.insert(0, "exposure_type", exposure_type)
+    return tagged
 
 
 def _write_html(sections: list[dict[str, object]]) -> None:

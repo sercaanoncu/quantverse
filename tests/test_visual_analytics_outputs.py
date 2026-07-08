@@ -99,8 +99,13 @@ def test_exposure_chart_sums_to_one(tmp_path):
     for filename in [
         "global_region_exposure.csv",
         "global_country_exposure.csv",
+        "global_listing_country_exposure.csv",
+        "global_issuer_country_exposure.csv",
+        "global_economic_country_exposure.csv",
         "global_currency_exposure.csv",
+        "global_exchange_exposure.csv",
         "global_sector_exposure.csv",
+        "global_industry_exposure.csv",
         "global_sleeve_exposure.csv",
     ]:
         pd.DataFrame({"bucket": ["A", "B"], "weight": [0.4, 0.6]}).to_csv(
@@ -204,13 +209,32 @@ def _write_visual_fixture(root: Path) -> Path:
     for filename in [
         "global_region_exposure.csv",
         "global_country_exposure.csv",
+        "global_listing_country_exposure.csv",
+        "global_issuer_country_exposure.csv",
+        "global_economic_country_exposure.csv",
         "global_currency_exposure.csv",
+        "global_exchange_exposure.csv",
         "global_sector_exposure.csv",
+        "global_industry_exposure.csv",
         "global_sleeve_exposure.csv",
     ]:
         pd.DataFrame({"bucket": ["A", "B"], "weight": [0.6, 0.4]}).to_csv(
             processed / filename, index=False
         )
+    pd.DataFrame(
+        {
+            "exposure_metadata_status": ["passed_with_metadata_warning"],
+            "sector_coverage_ratio": [1.0],
+            "industry_coverage_ratio": [1.0],
+            "issuer_country_coverage_ratio": [1.0],
+            "economic_country_coverage_ratio": [0.0],
+            "listing_country_coverage_ratio": [1.0],
+            "metadata_confidence_distribution": ['{"medium": 1.0}'],
+            "listing_country_vs_issuer_country_warning": [False],
+            "interpretation": ["economic exposure unavailable"],
+            "promotion_blocker": [True],
+        }
+    ).to_csv(processed / "global_exposure_metadata_quality.csv", index=False)
     (processed / "global_final_model_decision.json").write_text(
         '{"final_selected_model": "HRP"}',
         encoding="utf-8",

@@ -204,8 +204,20 @@ def build_demo_summary() -> dict[str, object]:
         "sector_coverage_ratio": _exposure_metadata_float(
             exposure_metadata, "sector_coverage_ratio"
         ),
+        "industry_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "industry_coverage_ratio"
+        ),
         "issuer_country_coverage_ratio": _exposure_metadata_float(
             exposure_metadata, "issuer_country_coverage_ratio"
+        ),
+        "economic_country_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "economic_country_coverage_ratio"
+        ),
+        "listing_country_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "listing_country_coverage_ratio"
+        ),
+        "metadata_confidence_distribution": _exposure_metadata_text(
+            exposure_metadata, "metadata_confidence_distribution"
         ),
         "listing_country_vs_issuer_country_warning": _exposure_metadata_bool(
             exposure_metadata, "listing_country_vs_issuer_country_warning"
@@ -364,6 +376,13 @@ def _exposure_metadata_bool(frame: pd.DataFrame, column: str) -> bool:
     if frame.empty or column not in frame:
         return True
     return str(frame[column].iloc[0]).strip().lower() in {"1", "true", "yes"}
+
+
+def _exposure_metadata_text(frame: pd.DataFrame, column: str) -> str:
+    if frame.empty or column not in frame:
+        return "missing"
+    values = frame[column].dropna().astype(str)
+    return str(values.iloc[0]) if not values.empty else "missing"
 
 
 def _write_summary(summary: dict[str, object]) -> None:

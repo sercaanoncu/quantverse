@@ -2,6 +2,8 @@ current_universe_config: configs/current_global_universe.yaml
 returns_matrix_config: configs/global_returns_matrix.yaml
 master_portfolio_config: configs/global_master_portfolio.yaml
 projection_config: configs/global_portfolio_projection.yaml
+allow_yfinance_metadata: true
+exposure_metadata_cache_dir: data/cache/exposure_metadata/yfinance_profiles
 
 v2:
   default_scope: equity_only

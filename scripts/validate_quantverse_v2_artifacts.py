@@ -64,6 +64,11 @@ REQUIRED_CSVS = [
     "global_robustness_sensitivity.csv",
     "global_top_holdings_explanation.csv",
     "global_forecast_validation_by_horizon.csv",
+    "global_listing_country_exposure.csv",
+    "global_issuer_country_exposure.csv",
+    "global_economic_country_exposure.csv",
+    "global_industry_exposure.csv",
+    "global_exchange_exposure.csv",
     "global_exposure_metadata_quality.csv",
     "quantverse_v2_visual_analytics_summary.csv",
     "quantverse_v2_visual_equity_curve.csv",
@@ -112,7 +117,12 @@ REQUIRED_EXCEL_SHEETS = [
     "ROBUSTNESS",
     "EXPOSURE_REGION",
     "EXPOSURE_COUNTRY",
+    "EXPOSURE_LISTING_COUNTRY",
+    "EXPOSURE_ISSUER_COUNTRY",
+    "EXPOSURE_ECON_COUNTRY",
     "EXPOSURE_CURRENCY",
+    "EXPOSURE_EXCHANGE",
+    "EXPOSURE_INDUSTRY",
     "EXPOSURE_METADATA",
     "TOP_HOLDINGS_EXPLANATION",
     "FORECAST_VALIDATION",
@@ -439,13 +449,26 @@ def _check_exposure_metadata_quality(
     required = {
         "exposure_metadata_status",
         "sector_coverage_ratio",
+        "industry_coverage_ratio",
         "issuer_country_coverage_ratio",
+        "economic_country_coverage_ratio",
+        "listing_country_coverage_ratio",
+        "metadata_confidence_distribution",
         "listing_country_vs_issuer_country_warning",
     }
     missing = sorted(required.difference(quality.columns))
     status = str(quality["exposure_metadata_status"].iloc[0])
     sector = _float(quality["sector_coverage_ratio"].iloc[0])
+    industry = _float(quality["industry_coverage_ratio"].iloc[0])
     issuer = _float(quality["issuer_country_coverage_ratio"].iloc[0])
+    economic = _float(quality["economic_country_coverage_ratio"].iloc[0])
+    listing = _float(quality["listing_country_coverage_ratio"].iloc[0])
+    valid_statuses = {
+        "passed",
+        "passed_with_metadata_warning",
+        "diagnostic_metadata_incomplete",
+        "failed",
+    }
     checks.append(
         _check(
             "exposure_metadata_quality_schema",
@@ -457,13 +480,65 @@ def _check_exposure_metadata_quality(
         _check(
             "exposure_metadata_incomplete_is_not_plain_pass",
             bool(
-                status in {"complete", "diagnostic_metadata_incomplete"}
-                and not (sector == 0.0 and status == "complete")
-                and not (issuer == 0.0 and status == "complete")
+                status in valid_statuses
+                and not (
+                    (sector == 0.0 or issuer == 0.0)
+                    and status in {"passed", "passed_with_metadata_warning"}
+                )
             ),
-            f"status={status}; sector_coverage_ratio={sector}; issuer_country_coverage_ratio={issuer}",
+            (
+                f"status={status}; sector_coverage_ratio={sector}; "
+                f"industry_coverage_ratio={industry}; "
+                f"issuer_country_coverage_ratio={issuer}; "
+                f"economic_country_coverage_ratio={economic}; "
+                f"listing_country_coverage_ratio={listing}"
+            ),
         )
     )
+    checks.append(
+        _check(
+            "listing_issuer_economic_exposure_files_exist",
+            all(
+                (processed / filename).exists()
+                for filename in [
+                    "global_listing_country_exposure.csv",
+                    "global_issuer_country_exposure.csv",
+                    "global_economic_country_exposure.csv",
+                    "global_industry_exposure.csv",
+                    "global_exchange_exposure.csv",
+                ]
+            ),
+            "separate listing/issuer/economic/industry/exchange exposure files are required",
+        )
+    )
+    holdings = _read_csv(processed / "global_top_holdings_explanation.csv")
+    if not holdings.empty and "adr_or_foreign_issuer_flag" in holdings:
+        flagged = holdings.loc[
+            holdings["adr_or_foreign_issuer_flag"].map(
+                lambda value: str(value).lower() == "true"
+            )
+        ]
+        bad = flagged.loc[
+            flagged.get("issuer_country", pd.Series(index=flagged.index, dtype=object))
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .eq(
+                flagged.get(
+                    "listing_country", pd.Series(index=flagged.index, dtype=object)
+                )
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+        ]
+        checks.append(
+            _check(
+                "foreign_issuer_not_collapsed_to_listing_country",
+                bad.empty,
+                f"flagged_holdings={len(flagged)}; collapsed_rows={len(bad)}",
+            )
+        )
 
 
 def _check_current_v2_reports_no_stale_decisions(
@@ -499,6 +574,21 @@ def _check_current_v2_reports_no_stale_decisions(
                 f"final_model={final_model}",
             )
         )
+    required_exposure_terms = [
+        "Listing exposure",
+        "Issuer exposure",
+        "Economic exposure",
+    ]
+    missing_terms = [
+        term for term in required_exposure_terms if term.lower() not in text.lower()
+    ]
+    checks.append(
+        _check(
+            "current_v2_reports_distinguish_exposure_types",
+            not missing_terms,
+            f"missing_terms={missing_terms}",
+        )
+    )
 
 
 def _excel_sheet_names(path: Path) -> list[str]:

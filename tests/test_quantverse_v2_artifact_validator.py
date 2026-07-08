@@ -159,8 +159,13 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     for filename in [
         "global_region_exposure.csv",
         "global_country_exposure.csv",
+        "global_listing_country_exposure.csv",
+        "global_issuer_country_exposure.csv",
+        "global_economic_country_exposure.csv",
         "global_currency_exposure.csv",
+        "global_exchange_exposure.csv",
         "global_sector_exposure.csv",
+        "global_industry_exposure.csv",
         "global_sleeve_exposure.csv",
     ]:
         pd.DataFrame({"bucket": ["A", "B"], "weight": [0.5, 0.5]}).to_csv(
@@ -168,12 +173,15 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
         )
     pd.DataFrame(
         {
-            "exposure_metadata_status": ["complete"],
+            "exposure_metadata_status": ["passed"],
             "sector_coverage_ratio": [1.0],
+            "industry_coverage_ratio": [1.0],
             "issuer_country_coverage_ratio": [1.0],
+            "economic_country_coverage_ratio": [1.0],
             "listing_country_coverage_ratio": [1.0],
+            "metadata_confidence_distribution": ['{"medium": 1.0}'],
             "listing_country_vs_issuer_country_warning": [False],
-            "interpretation": ["complete"],
+            "interpretation": ["complete separated exposure metadata"],
             "promotion_blocker": [False],
         }
     ).to_csv(processed / "global_exposure_metadata_quality.csv", index=False)
@@ -193,6 +201,9 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "Forecast Error Versus Random Walk",
             "Random Benchmark Distribution",
             "Exposure and Concentration",
+            "Listing exposure",
+            "Issuer exposure",
+            "Economic exposure",
             "Limitations",
         ]
     )
@@ -223,7 +234,12 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "ROBUSTNESS",
             "EXPOSURE_REGION",
             "EXPOSURE_COUNTRY",
+            "EXPOSURE_LISTING_COUNTRY",
+            "EXPOSURE_ISSUER_COUNTRY",
+            "EXPOSURE_ECON_COUNTRY",
             "EXPOSURE_CURRENCY",
+            "EXPOSURE_EXCHANGE",
+            "EXPOSURE_INDUSTRY",
             "EXPOSURE_METADATA",
             "TOP_HOLDINGS_EXPLANATION",
             "FORECAST_VALIDATION",

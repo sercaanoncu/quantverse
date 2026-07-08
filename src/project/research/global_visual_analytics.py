@@ -364,7 +364,7 @@ def build_exposure_chart(processed_dir: str | Path) -> pd.DataFrame:
     metadata_status = (
         str(quality["exposure_metadata_status"].iloc[0])
         if not quality.empty and "exposure_metadata_status" in quality
-        else "missing"
+        else "diagnostic_metadata_incomplete"
     )
     sector_coverage = (
         _float(quality["sector_coverage_ratio"].iloc[0])
@@ -376,11 +376,35 @@ def build_exposure_chart(processed_dir: str | Path) -> pd.DataFrame:
         if not quality.empty and "issuer_country_coverage_ratio" in quality
         else 0.0
     )
+    industry_coverage = (
+        _float(quality["industry_coverage_ratio"].iloc[0])
+        if not quality.empty and "industry_coverage_ratio" in quality
+        else 0.0
+    )
+    economic_country_coverage = (
+        _float(quality["economic_country_coverage_ratio"].iloc[0])
+        if not quality.empty and "economic_country_coverage_ratio" in quality
+        else 0.0
+    )
+    listing_country_coverage = (
+        _float(quality["listing_country_coverage_ratio"].iloc[0])
+        if not quality.empty and "listing_country_coverage_ratio" in quality
+        else 0.0
+    )
+    confidence_distribution = (
+        str(quality["metadata_confidence_distribution"].iloc[0])
+        if not quality.empty and "metadata_confidence_distribution" in quality
+        else "{}"
+    )
     specs = {
         "region": processed / "global_region_exposure.csv",
-        "country": processed / "global_country_exposure.csv",
+        "listing_country": processed / "global_listing_country_exposure.csv",
+        "issuer_country": processed / "global_issuer_country_exposure.csv",
+        "economic_country": processed / "global_economic_country_exposure.csv",
         "currency": processed / "global_currency_exposure.csv",
+        "exchange": processed / "global_exchange_exposure.csv",
         "sector": processed / "global_sector_exposure.csv",
+        "industry": processed / "global_industry_exposure.csv",
         "sleeve": processed / "global_sleeve_exposure.csv",
     }
     frames = []
@@ -394,26 +418,30 @@ def build_exposure_chart(processed_dir: str | Path) -> pd.DataFrame:
         selected["exposure_sum"] = selected["weight"].sum()
         selected["exposure_metadata_status"] = metadata_status
         selected["sector_coverage_ratio"] = sector_coverage
+        selected["industry_coverage_ratio"] = industry_coverage
         selected["issuer_country_coverage_ratio"] = issuer_country_coverage
+        selected["economic_country_coverage_ratio"] = economic_country_coverage
+        selected["listing_country_coverage_ratio"] = listing_country_coverage
+        selected["metadata_confidence_distribution"] = confidence_distribution
         frames.append(selected[["exposure_type", "bucket", "weight", "exposure_sum"]])
     combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     if not combined.empty:
         combined["exposure_metadata_status"] = metadata_status
         combined["sector_coverage_ratio"] = sector_coverage
+        combined["industry_coverage_ratio"] = industry_coverage
         combined["issuer_country_coverage_ratio"] = issuer_country_coverage
+        combined["economic_country_coverage_ratio"] = economic_country_coverage
+        combined["listing_country_coverage_ratio"] = listing_country_coverage
+        combined["metadata_confidence_distribution"] = confidence_distribution
     return _with_metadata(
         combined,
         formula_method="exposure_weight = sum(final_model_weight by exposure bucket)",
-        source_basis="Market practice: concentration risk must be visible by region, country, currency, sector and sleeve.",
-        why_valid="Exposure weights must sum to 1 by exposure type for a fully invested long-only portfolio.",
-        limitation="Missing or coarse metadata can create 'missing' buckets that require data-quality review.",
+        source_basis="Market practice: concentration risk must distinguish listing venue, issuer domicile, economic exposure, currency, sector and industry.",
+        why_valid="Exposure weights must sum to 1 by exposure type for a fully invested long-only portfolio; listing-country and issuer-country are intentionally separate.",
+        limitation="Economic-country exposure is not inferred silently; missing provider metadata remains an explicit missing bucket.",
         invalidation_condition="Invalid if any exposure type sum differs from 1 beyond tolerance or uses stale weights.",
         tested_by="tests/test_visual_analytics_outputs.py::test_exposure_chart_sums_to_one",
-        output_status=(
-            "diagnostic_metadata_incomplete"
-            if metadata_status != "complete"
-            else "diagnostic"
-        ),
+        output_status=metadata_status,
     )
 
 
@@ -504,13 +532,10 @@ def build_visual_summary(
     for chart_name, frame in frames.items():
         status = "passed" if _chart_passed(chart_name, validation) else "failed"
         metadata = _metadata_from_frame(frame)
-        if (
-            chart_name == "exposure"
-            and status == "passed"
-            and str(metadata.get("output_status", ""))
-            == "diagnostic_metadata_incomplete"
-        ):
-            status = "passed_with_metadata_warning"
+        if chart_name == "exposure" and status == "passed":
+            output_status = str(metadata.get("output_status", ""))
+            if output_status and output_status not in {"passed", "diagnostic"}:
+                status = output_status
         rows.append(
             {
                 "chart_name": chart_name,
@@ -710,8 +735,14 @@ def _exposure_validation_status(frame: pd.DataFrame) -> str:
     statuses = frame["exposure_metadata_status"].dropna().astype(str)
     if statuses.empty:
         return "failed"
-    if statuses.eq("complete").all():
+    if statuses.eq("passed").all():
         return "passed"
+    if statuses.eq("passed_with_metadata_warning").any():
+        return "passed_with_metadata_warning"
+    if statuses.eq("diagnostic_metadata_incomplete").any():
+        return "diagnostic_metadata_incomplete"
+    if statuses.eq("failed").any():
+        return "failed"
     return "passed_with_metadata_warning"
 
 
