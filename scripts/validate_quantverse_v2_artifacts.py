@@ -24,6 +24,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from project.research.global_numerical_integrity import (
     validate_v2_numerical_integrity,
 )  # noqa: E402
+from project.research.global_visual_analytics import (  # noqa: E402
+    validate_visual_analytics_outputs,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 OUTPUT = ROOT / "output"
@@ -61,6 +64,15 @@ REQUIRED_CSVS = [
     "global_robustness_sensitivity.csv",
     "global_top_holdings_explanation.csv",
     "global_forecast_validation_by_horizon.csv",
+    "quantverse_v2_visual_analytics_summary.csv",
+    "quantverse_v2_visual_equity_curve.csv",
+    "quantverse_v2_visual_drawdown_curve.csv",
+    "quantverse_v2_visual_model_risk_return.csv",
+    "quantverse_v2_visual_forecast_error.csv",
+    "quantverse_v2_visual_random_benchmark.csv",
+    "quantverse_v2_visual_exposure.csv",
+    "quantverse_v2_visual_top_holdings.csv",
+    "quantverse_v2_visual_validation.csv",
 ]
 
 REQUIRED_HTML_SECTIONS = [
@@ -70,11 +82,18 @@ REQUIRED_HTML_SECTIONS = [
     "Robust Model Selection",
     "Walk-Forward",
     "Exposure",
+    "Visual Portfolio Analytics",
+    "Equity Curve and Drawdown",
+    "Model Risk-Return Map",
+    "Forecast Error Versus Random Walk",
+    "Random Benchmark Distribution",
+    "Exposure and Concentration",
     "Limitations",
 ]
 
 REQUIRED_EXCEL_SHEETS = [
     "PORTFOLIO_DASHBOARD",
+    "VISUAL_ANALYTICS_DASHBOARD",
     "START_HERE",
     "EXECUTIVE_SUMMARY",
     "SELECTED_STOCKS",
@@ -95,6 +114,15 @@ REQUIRED_EXCEL_SHEETS = [
     "EXPOSURE_CURRENCY",
     "TOP_HOLDINGS_EXPLANATION",
     "FORECAST_VALIDATION",
+    "VISUAL_SUMMARY",
+    "VISUAL_EQUITY_CURVE",
+    "VISUAL_DRAWDOWN",
+    "VISUAL_RISK_RETURN",
+    "VISUAL_FORECAST_ERROR",
+    "VISUAL_RANDOM_BENCH",
+    "VISUAL_EXPOSURE",
+    "VISUAL_TOP_HOLDINGS",
+    "VISUAL_VALIDATION",
     "WARNINGS",
     "CLAIM_CONTROL",
 ]
@@ -163,6 +191,7 @@ def validate_artifacts(root: Path) -> dict[str, object]:
     )
     _check_report_claim_language(root, checks)
     _check_numerical_integrity(root, checks)
+    _check_visual_analytics(root, checks)
 
     failed = [check for check in checks if not check["passed"]]
     return {
@@ -344,6 +373,18 @@ def _check_numerical_integrity(root: Path, checks: list[dict[str, object]]) -> N
         checks.append(
             _check(
                 f"numerical_integrity_{check['check']}",
+                bool(check["passed"]),
+                str(check["details"]),
+            )
+        )
+
+
+def _check_visual_analytics(root: Path, checks: list[dict[str, object]]) -> None:
+    result = validate_visual_analytics_outputs(root / "data" / "processed")
+    for check in result["checks"]:
+        checks.append(
+            _check(
+                f"visual_analytics_{check['check']}",
                 bool(check["passed"]),
                 str(check["details"]),
             )

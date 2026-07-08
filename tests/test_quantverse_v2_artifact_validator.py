@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 from reportlab.pdfgen import canvas
 
+from project.research.global_visual_analytics import build_visual_analytics_outputs
 from scripts.validate_quantverse_v2_artifacts import validate_artifacts
 
 
@@ -142,12 +143,28 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     pd.DataFrame(
         {
             "horizon": ["12M"],
+            "horizon_days": [252],
             "mean_mae": [0.12],
             "mean_rmse": [0.16],
             "mean_random_walk_mae": [0.14],
+            "forecast_validation_status": ["validated_diagnostic"],
             "allocation_signal_status": ["diagnostic_only"],
         }
     ).to_csv(processed / "global_forecast_validation_by_horizon.csv", index=False)
+    pd.DataFrame(
+        {"portfolio_id": range(40), "sharpe": [idx / 40 for idx in range(40)]}
+    ).to_csv(processed / "global_random_portfolio_distribution.csv", index=False)
+    for filename in [
+        "global_region_exposure.csv",
+        "global_country_exposure.csv",
+        "global_currency_exposure.csv",
+        "global_sector_exposure.csv",
+        "global_sleeve_exposure.csv",
+    ]:
+        pd.DataFrame({"bucket": ["A", "B"], "weight": [0.5, 0.5]}).to_csv(
+            processed / filename, index=False
+        )
+    build_visual_analytics_outputs(processed)
 
     html = " ".join(
         [
@@ -157,6 +174,12 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "Robust Model Selection",
             "Walk-Forward",
             "Exposure",
+            "Visual Portfolio Analytics",
+            "Equity Curve and Drawdown",
+            "Model Risk-Return Map",
+            "Forecast Error Versus Random Walk",
+            "Random Benchmark Distribution",
+            "Exposure and Concentration",
             "Limitations",
         ]
     )
@@ -169,6 +192,7 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     ) as writer:
         for sheet in [
             "PORTFOLIO_DASHBOARD",
+            "VISUAL_ANALYTICS_DASHBOARD",
             "START_HERE",
             "EXECUTIVE_SUMMARY",
             "SELECTED_STOCKS",
@@ -189,6 +213,15 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "EXPOSURE_CURRENCY",
             "TOP_HOLDINGS_EXPLANATION",
             "FORECAST_VALIDATION",
+            "VISUAL_SUMMARY",
+            "VISUAL_EQUITY_CURVE",
+            "VISUAL_DRAWDOWN",
+            "VISUAL_RISK_RETURN",
+            "VISUAL_FORECAST_ERROR",
+            "VISUAL_RANDOM_BENCH",
+            "VISUAL_EXPOSURE",
+            "VISUAL_TOP_HOLDINGS",
+            "VISUAL_VALIDATION",
             "WARNINGS",
             "CLAIM_CONTROL",
         ]:

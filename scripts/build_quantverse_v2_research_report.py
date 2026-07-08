@@ -57,6 +57,17 @@ def _sections() -> list[dict[str, object]]:
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
+    visual_summary = _read_csv(PROCESSED / "quantverse_v2_visual_analytics_summary.csv")
+    visual_equity = _read_csv(PROCESSED / "quantverse_v2_visual_equity_curve.csv")
+    visual_drawdown = _read_csv(PROCESSED / "quantverse_v2_visual_drawdown_curve.csv")
+    visual_risk_return = _read_csv(
+        PROCESSED / "quantverse_v2_visual_model_risk_return.csv"
+    )
+    visual_forecast = _read_csv(PROCESSED / "quantverse_v2_visual_forecast_error.csv")
+    visual_random = _read_csv(PROCESSED / "quantverse_v2_visual_random_benchmark.csv")
+    visual_exposure = _read_csv(PROCESSED / "quantverse_v2_visual_exposure.csv")
+    visual_top_holdings = _read_csv(PROCESSED / "quantverse_v2_visual_top_holdings.csv")
+    visual_validation = _read_csv(PROCESSED / "quantverse_v2_visual_validation.csv")
     integrity = validate_v2_numerical_integrity(ROOT)
     integrity_checks = pd.DataFrame(integrity["checks"])
     selected = (
@@ -181,6 +192,94 @@ def _sections() -> list[dict[str, object]]:
                 "Forecast outputs remain diagnostic unless they improve net portfolio decision quality after costs and risk.",
             ],
             "table": forecast_validation.head(12),
+        },
+        {
+            "title": "Visual Portfolio Analytics",
+            "bullets": [
+                "This section is chart-led evidence for the existing v2 final model; it does not add a new portfolio model.",
+                "Each chart-ready output includes formula/method, source basis, limitation and invalidation condition.",
+                "Output status remains diagnostic public-data research unless promotion gates and public-data limitations are resolved.",
+                "Validator file: data/processed/quantverse_v2_visual_validation.csv.",
+            ],
+            "table": (
+                visual_summary.head(12)
+                if not visual_summary.empty
+                else visual_validation.head(12)
+            ),
+        },
+        {
+            "title": "Equity Curve and Drawdown",
+            "bullets": [
+                "Formula: equity_t = product(1 + daily simple portfolio return), normalized so the first point equals 1.0.",
+                "Drawdown formula: equity_t / running peak equity_t - 1; valid drawdown values must be less than or equal to zero.",
+                "Interpretation: the chart shows realized path dependence and peak-to-trough loss risk for the final model.",
+                "Invalidation: a non-1.0 starting equity curve, positive drawdown, non-simple returns or silent missing-return treatment invalidates the chart.",
+            ],
+            "table": (
+                visual_equity.tail(8)
+                if not visual_equity.empty
+                else visual_drawdown.tail(8)
+            ),
+        },
+        {
+            "title": "Model Risk-Return Map",
+            "bullets": [
+                "Formula: x-axis is annualized volatility and y-axis is annualized return.",
+                "Interpretation: the model set is compared by return per unit risk, not by return alone.",
+                "Limitation: these are public-data research metrics, not institutional point-in-time proof.",
+                "Invalidation: reversed axes, in-sample-only evidence or unflagged extreme metrics invalidate the chart.",
+            ],
+            "table": visual_risk_return.head(12),
+        },
+        {
+            "title": "Forecast Error Versus Random Walk",
+            "bullets": [
+                "Formula: model MAE is compared against random-walk MAE for each horizon.",
+                "Interpretation: forecasts remain diagnostic unless they beat a naive benchmark and improve net portfolio decisions.",
+                "Limitation: low forecast error alone is not a portfolio promotion gate.",
+                "Invalidation: missing random-walk comparator, horizon mismatch or wrong target scale invalidates the chart.",
+            ],
+            "table": visual_forecast.head(12),
+        },
+        {
+            "title": "Random Benchmark Distribution",
+            "bullets": [
+                "Formula: histogram of random portfolio Sharpe values under the same selected universe and constraint family.",
+                "Interpretation: the final model percentile is benchmark context and not a future performance guarantee.",
+                "Limitation: the benchmark is only meaningful if the random distribution is not degenerate.",
+                "Invalidation: zero variance random outcomes or different constraints invalidate comparison.",
+            ],
+            "chart": (
+                {
+                    "labels": visual_random["bucket_left"]
+                    .head(8)
+                    .round(3)
+                    .astype(str)
+                    .tolist(),
+                    "values": visual_random["portfolio_count"]
+                    .head(8)
+                    .astype(float)
+                    .tolist(),
+                }
+                if not visual_random.empty
+                and {"bucket_left", "portfolio_count"}.issubset(visual_random)
+                else None
+            ),
+            "table": visual_random.head(12),
+        },
+        {
+            "title": "Exposure and Concentration",
+            "bullets": [
+                "Formula: grouped final model weights by region, country, currency, sector and sleeve; each exposure type must sum to 1.0.",
+                "Interpretation: concentration risk is an economic and governance issue, not only a visual issue.",
+                "Limitation: public-source country, currency and sector mappings may be incomplete.",
+                "Invalidation: exposure totals that do not reconcile to one invalidate the chart.",
+            ],
+            "table": (
+                visual_exposure.head(12)
+                if not visual_exposure.empty
+                else visual_top_holdings.head(12)
+            ),
         },
         {
             "title": "Economic Exposure Interpretation",

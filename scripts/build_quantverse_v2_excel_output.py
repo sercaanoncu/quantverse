@@ -47,6 +47,15 @@ SHEETS = {
     "PUBLISH_READINESS": "data/processed/global_model_selection_report.csv",
     "WARNINGS": "data/processed/global_risk_metric_sanity_checks.csv",
     "CLAIM_CONTROL": "data/processed/global_exact_proxy_classification_report.csv",
+    "VISUAL_SUMMARY": "data/processed/quantverse_v2_visual_analytics_summary.csv",
+    "VISUAL_EQUITY_CURVE": "data/processed/quantverse_v2_visual_equity_curve.csv",
+    "VISUAL_DRAWDOWN": "data/processed/quantverse_v2_visual_drawdown_curve.csv",
+    "VISUAL_RISK_RETURN": "data/processed/quantverse_v2_visual_model_risk_return.csv",
+    "VISUAL_FORECAST_ERROR": "data/processed/quantverse_v2_visual_forecast_error.csv",
+    "VISUAL_RANDOM_BENCH": "data/processed/quantverse_v2_visual_random_benchmark.csv",
+    "VISUAL_EXPOSURE": "data/processed/quantverse_v2_visual_exposure.csv",
+    "VISUAL_TOP_HOLDINGS": "data/processed/quantverse_v2_visual_top_holdings.csv",
+    "VISUAL_VALIDATION": "data/processed/quantverse_v2_visual_validation.csv",
 }
 
 
@@ -55,6 +64,7 @@ def main() -> int:
     summary = _summary_rows()
     with pd.ExcelWriter(OUTPUT, engine="xlsxwriter") as writer:
         _write_dashboard(writer)
+        _write_visual_analytics_dashboard(writer)
         pd.DataFrame(_start_here()).to_excel(
             writer, sheet_name="START_HERE", index=False
         )
@@ -229,6 +239,290 @@ def _write_dashboard(writer: pd.ExcelWriter) -> None:
     )
     chart.set_title({"name": "Final Model Metrics"})
     worksheet.insert_chart("D22", chart, {"x_scale": 1.25, "y_scale": 1.0})
+
+
+def _write_visual_analytics_dashboard(writer: pd.ExcelWriter) -> None:
+    workbook = writer.book
+    worksheet = workbook.add_worksheet("VISUAL_ANALYTICS_DASHBOARD")
+    writer.sheets["VISUAL_ANALYTICS_DASHBOARD"] = worksheet
+
+    title = workbook.add_format(
+        {"bold": True, "font_size": 16, "bg_color": "#111827", "font_color": "white"}
+    )
+    header = workbook.add_format(
+        {"bold": True, "bg_color": "#1F2937", "font_color": "white"}
+    )
+    note = workbook.add_format({"text_wrap": True, "valign": "top"})
+    warning = workbook.add_format({"bg_color": "#FEF3C7", "text_wrap": True})
+
+    worksheet.write(0, 0, "QuantVerse v2 Visual Portfolio Analytics", title)
+    worksheet.write(
+        1,
+        0,
+        "All charts are diagnostic public-data research views. They do not create a new model or investment recommendation.",
+        note,
+    )
+    worksheet.set_column("A:A", 24)
+    worksheet.set_column("B:F", 22)
+
+    summary = _read_csv(PROCESSED / "quantverse_v2_visual_analytics_summary.csv")
+    validation = _read_csv(PROCESSED / "quantverse_v2_visual_validation.csv")
+    equity = _read_csv(PROCESSED / "quantverse_v2_visual_equity_curve.csv").tail(260)
+    drawdown = _read_csv(PROCESSED / "quantverse_v2_visual_drawdown_curve.csv").tail(
+        260
+    )
+    risk_return = _read_csv(PROCESSED / "quantverse_v2_visual_model_risk_return.csv")
+    forecast = _read_csv(PROCESSED / "quantverse_v2_visual_forecast_error.csv")
+    random_bench = _read_csv(PROCESSED / "quantverse_v2_visual_random_benchmark.csv")
+    exposure = _read_csv(PROCESSED / "quantverse_v2_visual_exposure.csv")
+    top_holdings = _read_csv(PROCESSED / "quantverse_v2_visual_top_holdings.csv")
+
+    row = 3
+    _write_excel_table(writer, "VISUAL_ANALYTICS_DASHBOARD", summary, row)
+    worksheet.set_row(row, None, header)
+    row += max(len(summary), 1) + 3
+
+    worksheet.write(row, 0, "Validation checks", header)
+    _write_excel_table(writer, "VISUAL_ANALYTICS_DASHBOARD", validation, row + 1)
+    if not validation.empty and not validation["passed"].astype(bool).all():
+        worksheet.write(row, 5, "One or more visual checks failed.", warning)
+    row += max(len(validation), 1) + 4
+
+    equity_start = row
+    _write_excel_table(
+        writer,
+        "VISUAL_ANALYTICS_DASHBOARD",
+        equity[["date", "equity_curve"]] if not equity.empty else equity,
+        equity_start,
+    )
+    if not equity.empty:
+        chart = workbook.add_chart({"type": "line"})
+        chart.add_series(
+            {
+                "name": "Equity curve",
+                "categories": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    equity_start + 1,
+                    0,
+                    equity_start + len(equity),
+                    0,
+                ],
+                "values": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    equity_start + 1,
+                    1,
+                    equity_start + len(equity),
+                    1,
+                ],
+            }
+        )
+        chart.set_title({"name": "Equity Curve Starts at 1.0"})
+        chart.set_y_axis({"name": "Cumulative wealth"})
+        worksheet.insert_chart("H4", chart, {"x_scale": 1.2, "y_scale": 1.0})
+
+    drawdown_start = equity_start + max(len(equity), 1) + 3
+    _write_excel_table(
+        writer,
+        "VISUAL_ANALYTICS_DASHBOARD",
+        drawdown[["date", "drawdown"]] if not drawdown.empty else drawdown,
+        drawdown_start,
+    )
+    if not drawdown.empty:
+        chart = workbook.add_chart({"type": "line"})
+        chart.add_series(
+            {
+                "name": "Drawdown",
+                "categories": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    drawdown_start + 1,
+                    0,
+                    drawdown_start + len(drawdown),
+                    0,
+                ],
+                "values": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    drawdown_start + 1,
+                    1,
+                    drawdown_start + len(drawdown),
+                    1,
+                ],
+            }
+        )
+        chart.set_title({"name": "Drawdown Non-Positive"})
+        chart.set_y_axis({"name": "Drawdown"})
+        worksheet.insert_chart("H20", chart, {"x_scale": 1.2, "y_scale": 1.0})
+
+    risk_start = drawdown_start + max(len(drawdown), 1) + 3
+    risk_columns = ["model_name", "risk_x", "return_y"]
+    _write_excel_table(
+        writer,
+        "VISUAL_ANALYTICS_DASHBOARD",
+        (
+            risk_return[risk_columns]
+            if set(risk_columns).issubset(risk_return)
+            else risk_return
+        ),
+        risk_start,
+    )
+    if not risk_return.empty and set(risk_columns).issubset(risk_return):
+        chart = workbook.add_chart({"type": "scatter"})
+        chart.add_series(
+            {
+                "name": "Risk-return",
+                "categories": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    risk_start + 1,
+                    1,
+                    risk_start + len(risk_return),
+                    1,
+                ],
+                "values": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    risk_start + 1,
+                    2,
+                    risk_start + len(risk_return),
+                    2,
+                ],
+                "marker": {"type": "circle", "size": 6},
+            }
+        )
+        chart.set_title({"name": "Risk on X-Axis, Return on Y-Axis"})
+        chart.set_x_axis({"name": "Annualized volatility"})
+        chart.set_y_axis({"name": "Annualized return"})
+        worksheet.insert_chart("H36", chart, {"x_scale": 1.2, "y_scale": 1.0})
+
+    forecast_start = risk_start + max(len(risk_return), 1) + 3
+    forecast_columns = ["horizon", "model_mae", "random_walk_mae"]
+    _write_excel_table(
+        writer,
+        "VISUAL_ANALYTICS_DASHBOARD",
+        (
+            forecast[forecast_columns]
+            if set(forecast_columns).issubset(forecast)
+            else forecast
+        ),
+        forecast_start,
+    )
+    if not forecast.empty and set(forecast_columns).issubset(forecast):
+        chart = workbook.add_chart({"type": "column"})
+        for col, name in [(1, "Model MAE"), (2, "Random-walk MAE")]:
+            chart.add_series(
+                {
+                    "name": name,
+                    "categories": [
+                        "VISUAL_ANALYTICS_DASHBOARD",
+                        forecast_start + 1,
+                        0,
+                        forecast_start + len(forecast),
+                        0,
+                    ],
+                    "values": [
+                        "VISUAL_ANALYTICS_DASHBOARD",
+                        forecast_start + 1,
+                        col,
+                        forecast_start + len(forecast),
+                        col,
+                    ],
+                }
+            )
+        chart.set_title({"name": "Forecast Error vs Random Walk"})
+        worksheet.insert_chart("H52", chart, {"x_scale": 1.2, "y_scale": 1.0})
+
+    benchmark_start = forecast_start + max(len(forecast), 1) + 3
+    if not random_bench.empty:
+        bench = random_bench.copy()
+        bench["bucket_mid"] = (
+            pd.to_numeric(bench["bucket_left"], errors="coerce")
+            + pd.to_numeric(bench["bucket_right"], errors="coerce")
+        ) / 2
+        bench = bench[["bucket_mid", "portfolio_count"]]
+    else:
+        bench = random_bench
+    _write_excel_table(writer, "VISUAL_ANALYTICS_DASHBOARD", bench, benchmark_start)
+    if not bench.empty:
+        chart = workbook.add_chart({"type": "column"})
+        chart.add_series(
+            {
+                "name": "Random portfolio count",
+                "categories": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    benchmark_start + 1,
+                    0,
+                    benchmark_start + len(bench),
+                    0,
+                ],
+                "values": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    benchmark_start + 1,
+                    1,
+                    benchmark_start + len(bench),
+                    1,
+                ],
+            }
+        )
+        chart.set_title({"name": "Random Portfolio Sharpe Distribution"})
+        worksheet.insert_chart("H68", chart, {"x_scale": 1.2, "y_scale": 1.0})
+
+    exposure_start = benchmark_start + max(len(bench), 1) + 3
+    if not exposure.empty:
+        exposure_plot = exposure.loc[
+            exposure["exposure_type"].astype(str).eq("region"),
+            ["bucket", "weight"],
+        ]
+        if exposure_plot.empty:
+            exposure_plot = exposure[["bucket", "weight"]].head(12)
+    else:
+        exposure_plot = exposure
+    _write_excel_table(
+        writer, "VISUAL_ANALYTICS_DASHBOARD", exposure_plot, exposure_start
+    )
+    if not exposure_plot.empty:
+        chart = workbook.add_chart({"type": "bar"})
+        chart.add_series(
+            {
+                "name": "Exposure weight",
+                "categories": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    exposure_start + 1,
+                    0,
+                    exposure_start + len(exposure_plot),
+                    0,
+                ],
+                "values": [
+                    "VISUAL_ANALYTICS_DASHBOARD",
+                    exposure_start + 1,
+                    1,
+                    exposure_start + len(exposure_plot),
+                    1,
+                ],
+            }
+        )
+        chart.set_title({"name": "Exposure Weights Sum to One"})
+        worksheet.insert_chart("H84", chart, {"x_scale": 1.2, "y_scale": 1.0})
+
+    holdings_start = exposure_start + max(len(exposure_plot), 1) + 3
+    _write_excel_table(
+        writer,
+        "VISUAL_ANALYTICS_DASHBOARD",
+        (
+            top_holdings[["ticker", "weight", "rank"]]
+            if {"ticker", "weight", "rank"}.issubset(top_holdings)
+            else top_holdings
+        ),
+        holdings_start,
+    )
+
+
+def _write_excel_table(
+    writer: pd.ExcelWriter,
+    sheet_name: str,
+    frame: pd.DataFrame,
+    startrow: int,
+) -> None:
+    safe = (
+        frame.copy() if not frame.empty else pd.DataFrame({"status": ["not available"]})
+    )
+    safe.to_excel(writer, sheet_name=sheet_name, startrow=startrow, index=False)
 
 
 def _start_here() -> list[dict[str, str]]:
