@@ -43,6 +43,9 @@ def _sections() -> list[dict[str, object]]:
     leakage = _read_csv(PROCESSED / "global_walk_forward_leakage_audit.csv")
     sanity = _read_csv(PROCESSED / "global_risk_metric_sanity_checks.csv")
     model_selection = _read_csv(PROCESSED / "global_model_selection_report.csv")
+    model_selection_diagnostics = _read_csv(
+        PROCESSED / "global_model_selection_diagnostics.csv"
+    )
     random_percentiles = _read_csv(
         PROCESSED / "global_random_portfolio_percentile_report.csv"
     )
@@ -131,14 +134,20 @@ def _sections() -> list[dict[str, object]]:
         {
             "title": "Robust Model Selection Rationale",
             "bullets": [
-                "The final model is selected by an evidence gate, not by highest in-sample return alone.",
+                "The final model is selected by book-grounded walk-forward evidence, not by highest in-sample return alone.",
+                "Risk-adjusted performance is return per unit risk: Sharpe, Sortino and Calmar are higher-is-better ratios when inputs are valid.",
+                "Equal Weight is a benchmark, not an automatic winner; an active model can become the final public-data research model when it clears risk-adjusted gates.",
                 f"Selection method: {summary.get('final_model_selection_method', 'not available')}.",
                 f"Selection score: {summary.get('final_model_selection_score', 'not available')}.",
                 f"Selection decision: {summary.get('final_model_selection_decision', 'not promoted')}.",
                 f"Selection reason: {summary.get('final_model_selection_reason', 'not available')}.",
                 "Diagnostic, blocked and future-candidate models are excluded from final selection.",
             ],
-            "table": model_selection.head(12),
+            "table": (
+                model_selection_diagnostics.head(12)
+                if not model_selection_diagnostics.empty
+                else model_selection.head(12)
+            ),
         },
         {
             "title": "Benchmark and Random Portfolio Context",
@@ -209,7 +218,7 @@ def _sections() -> list[dict[str, object]]:
                 f"Numerical integrity failed checks: {integrity.get('failed_check_count', 'not available')}.",
                 f"Random portfolio percentile: {summary.get('random_portfolio_percentile', 'not available')}.",
                 f"Publish-readiness status: {summary.get('publish_readiness_status', 'not available')}.",
-                "Extreme return/risk values are warnings requiring review, not success claims.",
+                "Extreme return and risk metric values are warnings requiring review, not success claims.",
             ],
             "table": (
                 integrity_checks.head(12)

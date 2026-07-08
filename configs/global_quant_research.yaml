@@ -17,3 +17,9 @@ v2:
   walk_forward_test_days: 21
   walk_forward_step_days: 21
   walk_forward_max_folds: 12
+  min_sharpe_improvement_vs_equal_weight: 0.10
+  max_drawdown_worsening_vs_equal_weight: 0.05
+  max_cvar_worsening_vs_equal_weight: 0.005
+  min_random_sharpe_percentile: 0.60
+  max_turnover: 2.0
+  use_excess_return_for_sharpe: true

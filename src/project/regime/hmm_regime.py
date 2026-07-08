@@ -116,7 +116,7 @@ class HMMRegimeDetector:
         return k * n_feat + k * n_feat * (n_feat + 1) // 2 + k * (k - 1) + (k - 1)
 
     def _compute_regime_stats(self, port_returns: pd.Series):
-        """Compute return/risk statistics per regime."""
+        """Compute return and risk statistics per regime."""
         aligned = port_returns.reindex(self.feature_dates)
         stats = {}
 

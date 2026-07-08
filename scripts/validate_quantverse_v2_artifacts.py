@@ -52,6 +52,7 @@ REQUIRED_JSON_FIELDS = {
 
 REQUIRED_CSVS = [
     "global_model_selection_report.csv",
+    "global_model_selection_diagnostics.csv",
     "global_portfolio_league.csv",
     "global_portfolio_league_weights.csv",
     "global_portfolio_risk_report.csv",
@@ -81,6 +82,8 @@ REQUIRED_EXCEL_SHEETS = [
     "RETURN_FORECASTS",
     "MODEL_LEAGUE",
     "MODEL_SELECTION",
+    "MODEL_SELECTION_DIAGNOSTICS",
+    "FINAL_MODEL_DECISION",
     "FINAL_WEIGHTS",
     "RISK_METRICS",
     "RISK_CONTRIBUTIONS",

@@ -176,6 +176,16 @@ def build_risk_metric_definitions() -> pd.DataFrame:
                 "interpretation": "Dispersion estimate from historical daily simple returns.",
             },
             {
+                "metric": "sharpe",
+                "formula": "(annualized_return - risk_free_rate) / annualized_volatility",
+                "unit": "return per unit volatility",
+                "interpretation": (
+                    "Risk-adjusted return metric. QuantVerse v2 uses a zero "
+                    "risk-free assumption unless an explicit risk-free series is "
+                    "configured."
+                ),
+            },
+            {
                 "metric": "var_95",
                 "formula": "5th percentile of daily simple returns",
                 "unit": "decimal daily return",

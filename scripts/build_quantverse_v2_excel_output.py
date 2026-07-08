@@ -33,6 +33,8 @@ SHEETS = {
     "BENCHMARK_COMPARISON": "data/processed/global_master_equal_weight_comparison.csv",
     "RANDOM_PORTFOLIOS": "data/processed/global_master_random_portfolio_benchmark.csv",
     "MODEL_SELECTION": "data/processed/global_model_selection_report.csv",
+    "MODEL_SELECTION_DIAGNOSTICS": "data/processed/global_model_selection_diagnostics.csv",
+    "FINAL_MODEL_DECISION": "data/processed/global_final_model_decision.csv",
     "ROBUSTNESS": "data/processed/global_robustness_sensitivity.csv",
     "RANDOM_DISTRIBUTION": "data/processed/global_random_portfolio_distribution.csv",
     "RANDOM_PERCENTILES": "data/processed/global_random_portfolio_percentile_report.csv",
@@ -284,6 +286,11 @@ def _formula_dictionary() -> list[dict[str, str]]:
             "metric": "portfolio daily return",
             "formula": "sum_i(weight_i * simple_return_i)",
             "interpretation": "Simple returns aggregate linearly across portfolio weights for one period.",
+        },
+        {
+            "metric": "Sharpe",
+            "formula": "(annualized_return - risk_free_rate) / annualized_volatility",
+            "interpretation": "Return per unit risk; current v2 output uses zero risk-free assumption unless configured otherwise.",
         },
         {
             "metric": "annualized_return",

@@ -34,6 +34,10 @@ def main() -> int:
     risk = _read_csv(PROCESSED / "global_portfolio_risk_report.csv")
     walk = _read_csv(PROCESSED / "global_walk_forward_model_comparison.csv")
     turnover = _read_csv(PROCESSED / "global_walk_forward_turnover.csv")
+    forecast_validation = _read_csv(
+        PROCESSED / "global_forecast_validation_by_horizon.csv"
+    )
+    robustness = _read_json(PROCESSED / "global_parameter_sensitivity_summary.json")
     if league.empty or returns.empty:
         print("Missing league or returns; model selection report not built.")
         return 0
@@ -52,6 +56,19 @@ def main() -> int:
         risk_report=risk,
         turnover=turnover,
         random_percentiles=random_percentiles,
+        drawdown_tolerance=float(
+            config.get("max_drawdown_worsening_vs_equal_weight", 0.05)
+        ),
+        cvar_tolerance=float(config.get("max_cvar_worsening_vs_equal_weight", 0.005)),
+        min_sharpe_improvement_vs_equal_weight=float(
+            config.get("min_sharpe_improvement_vs_equal_weight", 0.10)
+        ),
+        min_random_sharpe_percentile=float(
+            config.get("min_random_sharpe_percentile", 0.60)
+        ),
+        max_turnover=float(config.get("max_turnover", 2.0)),
+        forecast_validation_status=_forecast_validation_status(forecast_validation),
+        robustness_status=str(robustness.get("robustness_status", "stable")),
     )
     decision = build_final_model_decision(selection)
     write_model_selection_outputs(
@@ -87,6 +104,14 @@ def _config(path: str) -> dict:
     )
 
 
+def _read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    import json
+
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _read_csv(path: Path) -> pd.DataFrame:
     return pd.read_csv(path) if path.exists() else pd.DataFrame()
 
@@ -100,6 +125,19 @@ def _read_returns(path: Path) -> pd.DataFrame:
         frame = frame.set_index(first)
     frame.index = pd.to_datetime(frame.index, errors="coerce")
     return frame
+
+
+def _forecast_validation_status(frame: pd.DataFrame) -> str:
+    if frame.empty or "forecast_validation_status" not in frame:
+        return "missing"
+    statuses = frame["forecast_validation_status"].dropna().astype(str)
+    if statuses.empty:
+        return "missing"
+    if statuses.eq("failed_scale_sanity").any():
+        return "failed_scale_sanity"
+    if statuses.eq("diagnostic_only").any():
+        return "diagnostic_only"
+    return str(statuses.mode().iloc[0])
 
 
 if __name__ == "__main__":
