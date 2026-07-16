@@ -14,6 +14,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from project.research.global_numerical_integrity import (
     validate_v2_numerical_integrity,
 )  # noqa: E402
+from project.reporting.selected_stock_report_view import (  # noqa: E402
+    write_selected_stock_report_artifacts,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 OUTPUT_PDF = ROOT / "output" / "pdf" / "quantverse_v2_research_report.pdf"
@@ -64,6 +67,9 @@ def _sections() -> list[dict[str, object]]:
     exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
     exposure_metadata = _read_csv(PROCESSED / "global_exposure_metadata_quality.csv")
     top_holdings = _read_csv(PROCESSED / "global_top_holdings_explanation.csv")
+    universe = _read_csv(
+        ROOT / "data" / "universe" / "current_global_equity_universe.csv"
+    )
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
@@ -76,14 +82,20 @@ def _sections() -> list[dict[str, object]]:
     visual_forecast = _read_csv(PROCESSED / "quantverse_v2_visual_forecast_error.csv")
     visual_random = _read_csv(PROCESSED / "quantverse_v2_visual_random_benchmark.csv")
     visual_exposure = _read_csv(PROCESSED / "quantverse_v2_visual_exposure.csv")
+    if not visual_exposure.empty and "exposure_type" in visual_exposure:
+        visual_exposure = visual_exposure.copy()
+        visual_exposure["exposure_type"] = visual_exposure["exposure_type"].replace(
+            {"currency": "listing_currency"}
+        )
     visual_top_holdings = _read_csv(PROCESSED / "quantverse_v2_visual_top_holdings.csv")
     visual_validation = _read_csv(PROCESSED / "quantverse_v2_visual_validation.csv")
     integrity = validate_v2_numerical_integrity(ROOT)
     integrity_checks = pd.DataFrame(integrity["checks"])
-    selected = (
-        scores.loc[scores["selection_flag"].astype(bool)]
-        if not scores.empty and "selection_flag" in scores
-        else scores.head(0)
+    selected, selected_quality = write_selected_stock_report_artifacts(
+        scores,
+        top_holdings,
+        PROCESSED,
+        universe,
     )
     final_model = str(summary.get("final_selected_model", "Policy Constrained"))
     final_weights = (
@@ -113,15 +125,7 @@ def _sections() -> list[dict[str, object]]:
                 ],
             },
         },
-        {
-            "title": "Stock Scoring Methodology",
-            "bullets": [
-                "Scores combine coverage, market-cap liquidity proxy, momentum, risk-adjusted return, drawdown penalty and diversification.",
-                "Simple returns are used for portfolio aggregation; log returns remain diagnostic.",
-                "Scores are deterministic public-data research signals and are not buy recommendations.",
-            ],
-            "table": selected.head(12),
-        },
+        _stock_scoring_section(selected, selected_quality),
         {
             "title": "Expected Return Forecasts",
             "bullets": [
@@ -284,12 +288,12 @@ def _sections() -> list[dict[str, object]]:
         {
             "title": "Exposure and Concentration",
             "bullets": [
-                "Formula: grouped final model weights by region, listing country, issuer country, economic country, currency, exchange, sector, industry and sleeve; each exposure type must sum to 1.0.",
+                "Formula: grouped final model weights by region, listing country, issuer country, economic country, listing currency, exchange, sector, industry and sleeve; each exposure type must sum to 1.0.",
                 "Listing exposure means where the ticker is traded/listed.",
                 "Issuer exposure means where the company/entity is domiciled.",
                 "Economic exposure means where business risk is economically concentrated when explicit metadata is available.",
                 "Interpretation: concentration risk is an economic and governance issue, not only a visual issue.",
-                "Limitation: public-source listing, issuer, economic, currency, sector and industry mappings may be incomplete.",
+                "Limitation: public-source listing, issuer, economic, listing-currency, sector and industry mappings may be incomplete; listing currency is not necessarily economic currency risk.",
                 "Invalidation: exposure totals that do not reconcile to one invalidate the chart.",
             ],
             "table": (
@@ -309,10 +313,10 @@ def _sections() -> list[dict[str, object]]:
                 f"Listing-country coverage ratio: {summary.get('listing_country_coverage_ratio', 'not available')}.",
                 f"Issuer-country coverage ratio: {summary.get('issuer_country_coverage_ratio', 'not available')}.",
                 f"Economic-country coverage ratio: {summary.get('economic_country_coverage_ratio', 'not available')}.",
-                "If issuer-country metadata is missing, country exposure is listing-country exposure and remains diagnostic.",
-                "If economic-country metadata is unavailable, economic exposure is unavailable; it is not inferred from listing venue, currency or issuer domicile.",
+                "If issuer-country metadata is missing, only listing-country exposure is available and it remains diagnostic.",
+                "If economic-country metadata is unavailable, economic exposure is unavailable; it is not inferred from listing venue, listing currency or issuer domicile.",
                 "ADR/foreign issuer cases are flagged so US-listed/USD tickers are not treated as pure United States issuer exposure by default.",
-                "Region, listing-country, issuer-country, economic-country, currency, exchange, sleeve, sector and industry exposure reports are generated separately.",
+                "Region, listing-country, issuer-country, economic-country, listing-currency, exchange, sleeve, sector and industry exposure reports are generated separately.",
             ],
             "table": (
                 exposure_metadata.head(12)
@@ -416,7 +420,13 @@ def _write_pdf(sections: list[dict[str, object]]) -> None:
             story.append(_chart(chart, VerticalBarChart, Drawing, String, colors))
         table = section.get("table")
         if isinstance(table, pd.DataFrame) and not table.empty:
-            small = table.head(12).iloc[:, :8].astype(str)
+            requested_columns = [
+                column
+                for column in section.get("pdf_columns", [])
+                if column in table.columns
+            ]
+            selected_table = table[requested_columns] if requested_columns else table
+            small = selected_table.head(12).iloc[:, :8].astype(str)
             data = [small.columns.tolist()] + small.values.tolist()
             rendered = Table(data, repeatRows=1)
             rendered.setStyle(
@@ -465,6 +475,53 @@ def _tag_exposure(frame: pd.DataFrame, exposure_type: str) -> pd.DataFrame:
     return tagged
 
 
+def _stock_scoring_section(
+    selected: pd.DataFrame,
+    selected_quality: pd.DataFrame,
+) -> dict[str, object]:
+    display = selected.copy()
+    if "selection_rank" in display:
+        display["selection_rank"] = pd.to_numeric(
+            display["selection_rank"], errors="coerce"
+        ).astype("Int64")
+    if "composite_quant_score" in display:
+        display["composite_quant_score"] = pd.to_numeric(
+            display["composite_quant_score"], errors="coerce"
+        ).round(4)
+    bullets = [
+        "Scores combine coverage, market-cap liquidity proxy, momentum, risk-adjusted return, drawdown penalty and diversification.",
+        "Simple returns are used for portfolio aggregation; log returns remain diagnostic.",
+        "Scores are deterministic public-data research signals and are not buy recommendations.",
+        "Listing country identifies where the security is traded. Issuer country identifies the company's domicile. Economic-country exposure is unavailable unless explicit supported business-exposure metadata exists.",
+    ]
+    economic_coverage = (
+        _float(selected_quality["economic_country_coverage_ratio"].iloc[0])
+        if not selected_quality.empty
+        and "economic_country_coverage_ratio" in selected_quality
+        else 0.0
+    )
+    if economic_coverage == 0.0:
+        bullets.append(
+            "Economic-country exposure is unavailable and is not inferred from listing venue, trading currency or issuer domicile."
+        )
+    return {
+        "title": "Stock Scoring Methodology",
+        "bullets": bullets,
+        "table": display,
+        "table_id": "selected-stock-semantic-view",
+        "pdf_columns": [
+            "ticker",
+            "selection_rank",
+            "composite_quant_score",
+            "listing_country",
+            "issuer_country",
+            "economic_country",
+            "listing_currency",
+            "metadata_confidence",
+        ],
+    }
+
+
 def _write_html(sections: list[dict[str, object]]) -> None:
     parts = [
         "<html><head><meta charset='utf-8'><title>QuantVerse v2 Research Report</title>",
@@ -477,7 +534,12 @@ def _write_html(sections: list[dict[str, object]]) -> None:
             parts.append(f"<p>{bullet}</p>")
         table = section.get("table")
         if isinstance(table, pd.DataFrame) and not table.empty:
-            parts.append(table.head(20).to_html(index=False))
+            parts.append(
+                table.head(20).to_html(
+                    index=False,
+                    table_id=str(section.get("table_id", "")) or None,
+                )
+            )
     parts.append("</body></html>")
     OUTPUT_HTML.write_text("\n".join(parts), encoding="utf-8")
 
@@ -490,6 +552,15 @@ def _read_json(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _float(value: object) -> float:
+    try:
+        if value is None or pd.isna(value):
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 if __name__ == "__main__":

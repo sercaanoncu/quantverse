@@ -5,13 +5,15 @@ import pandas as pd
 from reportlab.pdfgen import canvas
 
 from project.research.global_visual_analytics import build_visual_analytics_outputs
+from scripts.build_quantverse_v2_excel_output import _write_selected_stocks_sheet
 from scripts.validate_quantverse_v2_artifacts import validate_artifacts
 
 
 def _write_pdf(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     pdf = canvas.Canvas(str(path))
-    pdf.drawString(72, 720, text)
+    for index, line in enumerate(text.splitlines()):
+        pdf.drawString(72, 760 - index * 18, line)
     pdf.showPage()
     pdf.save()
 
@@ -124,6 +126,46 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "selection_flag": [True, True],
         }
     ).to_csv(processed / "global_stock_scores.csv", index=False)
+    selected_view = pd.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "name": ["Asset A", "Asset B"],
+            "selection_rank": [1, 2],
+            "composite_quant_score": [1.0, 0.9],
+            "listing_country": ["United States", "United States"],
+            "issuer_country": ["United States", "United States"],
+            "economic_country": ["United States", "United States"],
+            "listing_currency": ["USD", "USD"],
+            "exchange": ["NYQ", "NYQ"],
+            "sector": ["Technology", "Technology"],
+            "industry": ["Software", "Hardware"],
+            "metadata_source": ["fixture", "fixture"],
+            "metadata_confidence": ["high", "high"],
+            "metadata_as_of_date": ["2026-07-09", "2026-07-09"],
+            "adr_or_foreign_issuer_flag": [False, False],
+            "warning_flags": ["none", "none"],
+            "selection_reason": ["fixture", "fixture"],
+        }
+    )
+    selected_view.to_csv(
+        processed / "global_selected_stocks_report_view.csv", index=False
+    )
+    pd.DataFrame(
+        {
+            "selected_stock_count": [2],
+            "matched_metadata_count": [2],
+            "unmatched_metadata_count": [0],
+            "duplicate_ticker_count": [0],
+            "listing_country_coverage_ratio": [1.0],
+            "issuer_country_coverage_ratio": [1.0],
+            "economic_country_coverage_ratio": [1.0],
+            "sector_coverage_ratio": [1.0],
+            "industry_coverage_ratio": [1.0],
+            "semantic_view_status": ["passed"],
+            "interpretation": ["fixture"],
+            "invalidation_condition": ["fixture"],
+        }
+    ).to_csv(processed / "global_selected_stocks_report_view_quality.csv", index=False)
     for filename in [
         "global_model_selection_report.csv",
         "global_model_selection_diagnostics.csv",
@@ -190,7 +232,9 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     html = " ".join(
         [
             "Executive Summary",
-            "Stock Scoring",
+            "<h2>Stock Scoring Methodology</h2>",
+            selected_view.to_html(index=False),
+            "<h2>Expected Return Forecasts</h2>",
             "Portfolio Model League",
             "Robust Model Selection",
             "Walk-Forward",
@@ -219,7 +263,8 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "VISUAL_ANALYTICS_DASHBOARD",
             "START_HERE",
             "EXECUTIVE_SUMMARY",
-            "SELECTED_STOCKS",
+            "SELECTED_STOCKS_RAW",
+            "SELECTED_METADATA_QUALITY",
             "STOCK_SCORES",
             "RETURN_FORECASTS",
             "MODEL_LEAGUE",
@@ -256,8 +301,21 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "CLAIM_CONTROL",
         ]:
             pd.DataFrame({"value": [1]}).to_excel(writer, sheet_name=sheet, index=False)
+        _write_selected_stocks_sheet(writer, selected_view)
     _write_pdf(
-        output / "pdf" / "quantverse_v2_research_report.pdf", "Executive Summary"
+        output / "pdf" / "quantverse_v2_research_report.pdf",
+        "\n".join(
+            [
+                "Executive Summary",
+                "Stock Scoring Methodology",
+                "ticker",
+                "listing_country",
+                "issuer_country",
+                "economic_country",
+                "listing_currency",
+                "Expected Return Forecasts",
+            ]
+        ),
     )
     _write_pdf(
         output / "thesis" / "quantverse_doctoral_dissertation_full.pdf",

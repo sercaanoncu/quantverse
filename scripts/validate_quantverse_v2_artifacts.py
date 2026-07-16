@@ -63,6 +63,8 @@ REQUIRED_CSVS = [
     "global_random_portfolio_percentile_report.csv",
     "global_robustness_sensitivity.csv",
     "global_top_holdings_explanation.csv",
+    "global_selected_stocks_report_view.csv",
+    "global_selected_stocks_report_view_quality.csv",
     "global_forecast_validation_by_horizon.csv",
     "global_listing_country_exposure.csv",
     "global_issuer_country_exposure.csv",
@@ -103,6 +105,8 @@ REQUIRED_EXCEL_SHEETS = [
     "START_HERE",
     "EXECUTIVE_SUMMARY",
     "SELECTED_STOCKS",
+    "SELECTED_STOCKS_RAW",
+    "SELECTED_METADATA_QUALITY",
     "STOCK_SCORES",
     "RETURN_FORECASTS",
     "MODEL_LEAGUE",
@@ -212,6 +216,7 @@ def validate_artifacts(root: Path) -> dict[str, object]:
     _check_numerical_integrity(root, summary, checks)
     _check_visual_analytics(root, checks)
     _check_exposure_metadata_quality(processed, checks)
+    checks.extend(validate_selected_stock_report_semantics(root)["checks"])
     _check_current_v2_reports_no_stale_decisions(root, summary, checks)
 
     failed = [check for check in checks if not check["passed"]]
@@ -541,6 +546,270 @@ def _check_exposure_metadata_quality(
         )
 
 
+def validate_selected_stock_report_semantics(root: Path) -> dict[str, object]:
+    """Validate the selected-stock table in its exact report-facing contexts."""
+
+    checks: list[dict[str, object]] = []
+    processed = root / "data" / "processed"
+    scores = _read_csv(processed / "global_stock_scores.csv")
+    view = _read_csv(processed / "global_selected_stocks_report_view.csv")
+    quality = _read_csv(processed / "global_selected_stocks_report_view_quality.csv")
+    exposure_quality = _read_csv(processed / "global_exposure_metadata_quality.csv")
+
+    required_columns = {
+        "ticker",
+        "selection_rank",
+        "composite_quant_score",
+        "listing_country",
+        "issuer_country",
+        "economic_country",
+        "listing_currency",
+        "exchange",
+        "sector",
+        "industry",
+        "metadata_source",
+        "metadata_confidence",
+        "adr_or_foreign_issuer_flag",
+        "warning_flags",
+        "selection_reason",
+    }
+    missing_columns = sorted(required_columns.difference(view.columns))
+    checks.append(
+        _check(
+            "selected_stock_report_view_non_empty",
+            not view.empty and not missing_columns,
+            f"rows={len(view)}; missing_columns={missing_columns}",
+        )
+    )
+
+    selected_count = _selected_score_count(scores)
+    checks.append(
+        _check(
+            "selected_stock_report_view_row_count_matches",
+            len(view) == selected_count,
+            f"report_view_rows={len(view)}; selected_score_rows={selected_count}",
+        )
+    )
+    duplicate_count = (
+        int(view["ticker"].astype(str).str.strip().str.upper().duplicated().sum())
+        if "ticker" in view
+        else len(view)
+    )
+    checks.append(
+        _check(
+            "selected_stock_report_view_no_duplicate_tickers",
+            duplicate_count == 0,
+            f"duplicate_ticker_count={duplicate_count}",
+        )
+    )
+
+    quality_required = {
+        "selected_stock_count",
+        "matched_metadata_count",
+        "unmatched_metadata_count",
+        "duplicate_ticker_count",
+        "semantic_view_status",
+    }
+    quality_missing = sorted(quality_required.difference(quality.columns))
+    if quality.empty or quality_missing:
+        quality_passed = False
+        quality_details = f"rows={len(quality)}; missing_columns={quality_missing}"
+    else:
+        row = quality.iloc[0]
+        quality_selected = int(_float(row["selected_stock_count"]))
+        matched = int(_float(row["matched_metadata_count"]))
+        unmatched = int(_float(row["unmatched_metadata_count"]))
+        quality_duplicates = int(_float(row["duplicate_ticker_count"]))
+        quality_passed = bool(
+            quality_selected == selected_count
+            and matched + unmatched == selected_count
+            and quality_duplicates == 0
+        )
+        quality_details = (
+            f"selected={quality_selected}; matched={matched}; unmatched={unmatched}; "
+            f"duplicates={quality_duplicates}; status={row['semantic_view_status']}"
+        )
+    checks.append(
+        _check(
+            "selected_stock_report_view_metadata_join_quality",
+            quality_passed,
+            quality_details,
+        )
+    )
+
+    pdf_text = _extract_text(
+        root / "output" / "pdf" / "quantverse_v2_research_report.pdf"
+    )
+    html_path = root / "output" / "html" / "quantverse_v2_research_report.html"
+    html_text = (
+        html_path.read_text(encoding="utf-8", errors="ignore")
+        if html_path.exists()
+        else ""
+    )
+    pdf_section = _extract_named_section(
+        pdf_text, "Stock Scoring Methodology", "Expected Return Forecasts"
+    )
+    html_section = _extract_named_section(
+        html_text,
+        "<h2>Stock Scoring Methodology</h2>",
+        "<h2>Expected Return Forecasts</h2>",
+    )
+    pdf_lines = {line.strip().lower() for line in pdf_section.splitlines()}
+    html_headers = {
+        re.sub(r"<[^>]+>", "", header).strip().lower()
+        for header in re.findall(r"<th[^>]*>(.*?)</th>", html_section, re.DOTALL)
+    }
+    checks.extend(
+        [
+            _check(
+                "report_selected_stocks_uses_listing_country",
+                "listing_country" in pdf_lines and "listing_country" in html_headers,
+                "checked exact PDF section lines and HTML selected-stock headers",
+            ),
+            _check(
+                "report_selected_stocks_uses_issuer_country",
+                "issuer_country" in pdf_lines and "issuer_country" in html_headers,
+                "checked exact PDF section lines and HTML selected-stock headers",
+            ),
+            _check(
+                "report_no_ambiguous_country_header",
+                "country" not in pdf_lines and "country" not in html_headers,
+                f"pdf_country_header={'country' in pdf_lines}; html_country_header={'country' in html_headers}",
+            ),
+            _check(
+                "report_no_ambiguous_currency_header",
+                "currency" not in pdf_lines and "currency" not in html_headers,
+                f"pdf_currency_header={'currency' in pdf_lines}; html_currency_header={'currency' in html_headers}",
+            ),
+        ]
+    )
+
+    economic_coverage = _economic_country_coverage(quality, exposure_quality)
+    disclosure = (
+        "Economic-country exposure is unavailable and is not inferred from "
+        "listing venue, trading currency or issuer domicile."
+    )
+    disclosure_required = economic_coverage == 0.0
+    disclosure_present = _normalize_report_text(disclosure) in _normalize_report_text(
+        pdf_section
+    ) and _normalize_report_text(disclosure) in _normalize_report_text(html_section)
+    checks.append(
+        _check(
+            "report_economic_country_unavailable_disclosed",
+            not disclosure_required or disclosure_present,
+            f"economic_coverage={economic_coverage}; disclosure_present={disclosure_present}",
+        )
+    )
+
+    if not view.empty and required_columns.issubset(view.columns):
+        economic_values = view["economic_country"].fillna("").astype(str).str.lower()
+        economic_not_inferred = bool(
+            economic_coverage > 0.0
+            or economic_values.isin({"unavailable", "missing", ""}).all()
+        )
+        foreign = view.loc[
+            view["adr_or_foreign_issuer_flag"].map(
+                lambda value: str(value).strip().lower() == "true"
+            )
+        ]
+        foreign_preserved = bool(
+            foreign.empty
+            or foreign["listing_country"]
+            .astype(str)
+            .ne(foreign["issuer_country"].astype(str))
+            .all()
+        )
+    else:
+        economic_not_inferred = False
+        foreign_preserved = False
+    checks.append(
+        _check(
+            "selected_stock_report_view_no_economic_country_inference",
+            economic_not_inferred,
+            f"economic_coverage={economic_coverage}",
+        )
+    )
+    checks.append(
+        _check(
+            "selected_stock_report_view_foreign_issuer_semantics_preserved",
+            foreign_preserved,
+            "flagged foreign issuers must retain distinct listing and issuer countries",
+        )
+    )
+
+    excel_path = root / "output" / "excel" / "quantverse_v2_research_output.xlsx"
+    try:
+        excel_selected = _read_excel_sheet_table(
+            excel_path, "SELECTED_STOCKS", header_row=3
+        )
+        excel_columns = set(excel_selected.columns.astype(str))
+    except Exception as exc:
+        excel_selected = pd.DataFrame()
+        excel_columns = set()
+        excel_error = str(exc)
+    else:
+        excel_error = ""
+    excel_required = {"listing_country", "issuer_country", "economic_country"}
+    checks.append(
+        _check(
+            "excel_selected_stocks_semantic_columns",
+            excel_required.issubset(excel_columns)
+            and len(excel_selected) == selected_count,
+            f"columns={sorted(excel_columns)}; rows={len(excel_selected)}; error={excel_error}",
+        )
+    )
+    checks.append(
+        _check(
+            "excel_selected_stocks_not_raw_legacy_table",
+            bool(excel_columns)
+            and "country" not in excel_columns
+            and "currency" not in excel_columns,
+            f"legacy_country={'country' in excel_columns}; legacy_currency={'currency' in excel_columns}",
+        )
+    )
+
+    failed = [check for check in checks if not check["passed"]]
+    return {
+        "overall_status": "passed" if not failed else "failed",
+        "failed_check_count": len(failed),
+        "checks": checks,
+    }
+
+
+def _selected_score_count(scores: pd.DataFrame) -> int:
+    if scores.empty:
+        return 0
+    if "selection_flag" not in scores:
+        return len(scores)
+    return int(
+        scores["selection_flag"]
+        .map(lambda value: str(value).strip().lower() in {"1", "true", "yes", "y"})
+        .sum()
+    )
+
+
+def _economic_country_coverage(
+    semantic_quality: pd.DataFrame,
+    exposure_quality: pd.DataFrame,
+) -> float:
+    for frame in [semantic_quality, exposure_quality]:
+        if not frame.empty and "economic_country_coverage_ratio" in frame:
+            return _float(frame["economic_country_coverage_ratio"].iloc[0])
+    return 0.0
+
+
+def _extract_named_section(text: str, start: str, end: str) -> str:
+    start_index = text.find(start)
+    if start_index < 0:
+        return ""
+    end_index = text.find(end, start_index + len(start))
+    return text[start_index : end_index if end_index >= 0 else len(text)]
+
+
+def _normalize_report_text(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
 def _check_current_v2_reports_no_stale_decisions(
     root: Path,
     summary: dict[str, object],
@@ -610,6 +879,102 @@ def _excel_sheet_names_from_zip(path: Path) -> list[str]:
         sheet.attrib["name"]
         for sheet in root.findall("main:sheets/main:sheet", namespace)
     ]
+
+
+def _read_excel_sheet_table(
+    path: Path,
+    sheet_name: str,
+    *,
+    header_row: int,
+) -> pd.DataFrame:
+    """Read a small XLSX table without requiring an optional Excel engine."""
+
+    with zipfile.ZipFile(path) as archive:
+        workbook_root = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+        main_ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        sheet = next(
+            (
+                item
+                for item in workbook_root.findall(
+                    f"{{{main_ns}}}sheets/{{{main_ns}}}sheet"
+                )
+                if item.attrib.get("name") == sheet_name
+            ),
+            None,
+        )
+        if sheet is None:
+            raise ValueError(f"missing Excel sheet: {sheet_name}")
+        relationship_id = sheet.attrib[f"{{{rel_ns}}}id"]
+
+        relationships = ElementTree.fromstring(
+            archive.read("xl/_rels/workbook.xml.rels")
+        )
+        package_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        target = next(
+            item.attrib["Target"]
+            for item in relationships.findall(f"{{{package_ns}}}Relationship")
+            if item.attrib.get("Id") == relationship_id
+        )
+        sheet_path = target.lstrip("/")
+        if not sheet_path.startswith("xl/"):
+            sheet_path = f"xl/{sheet_path}"
+
+        shared_strings: list[str] = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            shared_root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+            shared_strings = [
+                "".join(node.text or "" for node in item.findall(f".//{{{main_ns}}}t"))
+                for item in shared_root.findall(f"{{{main_ns}}}si")
+            ]
+        sheet_root = ElementTree.fromstring(archive.read(sheet_path))
+
+    rows: dict[int, dict[int, object]] = {}
+    for row in sheet_root.findall(f".//{{{main_ns}}}sheetData/{{{main_ns}}}row"):
+        row_number = int(row.attrib.get("r", "0"))
+        if row_number < header_row:
+            continue
+        cells: dict[int, object] = {}
+        for cell in row.findall(f"{{{main_ns}}}c"):
+            reference = cell.attrib.get("r", "A1")
+            column_index = _excel_column_index(reference)
+            cell_type = cell.attrib.get("t", "")
+            value_node = cell.find(f"{{{main_ns}}}v")
+            raw_value = value_node.text if value_node is not None else ""
+            if cell_type == "s" and raw_value:
+                value: object = shared_strings[int(raw_value)]
+            elif cell_type == "inlineStr":
+                value = "".join(
+                    node.text or "" for node in cell.findall(f".//{{{main_ns}}}t")
+                )
+            elif cell_type == "b":
+                value = raw_value == "1"
+            else:
+                value = raw_value
+            cells[column_index] = value
+        rows[row_number] = cells
+
+    header_cells = rows.get(header_row, {})
+    if not header_cells:
+        return pd.DataFrame()
+    max_column = max(header_cells)
+    headers = [str(header_cells.get(index, "")) for index in range(max_column + 1)]
+    values = [
+        [row.get(index, "") for index in range(max_column + 1)]
+        for row_number, row in sorted(rows.items())
+        if row_number > header_row and any(str(value) for value in row.values())
+    ]
+    return pd.DataFrame(values, columns=headers)
+
+
+def _excel_column_index(reference: str) -> int:
+    letters = re.match(r"[A-Z]+", reference.upper())
+    if letters is None:
+        raise ValueError(f"invalid Excel cell reference: {reference}")
+    index = 0
+    for character in letters.group(0):
+        index = index * 26 + (ord(character) - ord("A") + 1)
+    return index - 1
 
 
 def _extract_text(path: Path) -> str:

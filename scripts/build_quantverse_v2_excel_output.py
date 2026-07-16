@@ -14,6 +14,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from project.research.global_numerical_integrity import (
     validate_v2_numerical_integrity,
 )  # noqa: E402
+from project.reporting.selected_stock_report_view import (  # noqa: E402
+    write_selected_stock_report_artifacts,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 OUTPUT = ROOT / "output" / "excel" / "quantverse_v2_research_output.xlsx"
@@ -22,7 +25,9 @@ OUTPUT = ROOT / "output" / "excel" / "quantverse_v2_research_output.xlsx"
 SHEETS = {
     "UNIVERSE": "data/universe/current_global_equity_universe.csv",
     "STOCK_SCORES": "data/processed/global_stock_scores.csv",
-    "SELECTED_STOCKS": "data/processed/global_stock_scores.csv",
+    "SELECTED_STOCKS_RAW": "data/processed/global_stock_scores.csv",
+    "SELECTED_STOCKS": "data/processed/global_selected_stocks_report_view.csv",
+    "SELECTED_METADATA_QUALITY": "data/processed/global_selected_stocks_report_view_quality.csv",
     "RETURN_FORECASTS": "data/processed/global_stock_return_forecasts.csv",
     "MODEL_LEAGUE": "data/processed/global_portfolio_league.csv",
     "FINAL_WEIGHTS": "data/processed/global_portfolio_league_weights.csv",
@@ -67,6 +72,12 @@ SHEETS = {
 
 def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    write_selected_stock_report_artifacts(
+        _read_csv(PROCESSED / "global_stock_scores.csv"),
+        _read_csv(PROCESSED / "global_top_holdings_explanation.csv"),
+        PROCESSED,
+        _read_csv(ROOT / "data" / "universe" / "current_global_equity_universe.csv"),
+    )
     summary = _summary_rows()
     with pd.ExcelWriter(OUTPUT, engine="xlsxwriter") as writer:
         _write_dashboard(writer)
@@ -80,11 +91,14 @@ def main() -> int:
         for sheet, raw_path in SHEETS.items():
             frame = _read_csv(ROOT / raw_path)
             if (
-                sheet == "SELECTED_STOCKS"
+                sheet == "SELECTED_STOCKS_RAW"
                 and not frame.empty
                 and "selection_flag" in frame
             ):
                 frame = frame.loc[frame["selection_flag"].astype(bool)]
+            if sheet == "SELECTED_STOCKS":
+                _write_selected_stocks_sheet(writer, frame)
+                continue
             frame.to_excel(writer, sheet_name=sheet[:31], index=False)
         pd.DataFrame(_appendix()).to_excel(
             writer, sheet_name="APPENDIX_RAW_TABLES", index=False
@@ -342,6 +356,11 @@ def _write_visual_analytics_dashboard(writer: pd.ExcelWriter) -> None:
     forecast = _read_csv(PROCESSED / "quantverse_v2_visual_forecast_error.csv")
     random_bench = _read_csv(PROCESSED / "quantverse_v2_visual_random_benchmark.csv")
     exposure = _read_csv(PROCESSED / "quantverse_v2_visual_exposure.csv")
+    if not exposure.empty and "exposure_type" in exposure:
+        exposure = exposure.copy()
+        exposure["exposure_type"] = exposure["exposure_type"].replace(
+            {"currency": "listing_currency"}
+        )
     top_holdings = _read_csv(PROCESSED / "quantverse_v2_visual_top_holdings.csv")
 
     row = 3
@@ -592,6 +611,42 @@ def _write_excel_table(
     safe.to_excel(writer, sheet_name=sheet_name, startrow=startrow, index=False)
 
 
+def _write_selected_stocks_sheet(
+    writer: pd.ExcelWriter,
+    frame: pd.DataFrame,
+) -> None:
+    workbook = writer.book
+    worksheet = workbook.add_worksheet("SELECTED_STOCKS")
+    writer.sheets["SELECTED_STOCKS"] = worksheet
+    note = (
+        "Listing country is the trading/listing venue; issuer country is the "
+        "company domicile; economic country requires explicit business-exposure "
+        "metadata and is shown as unavailable when unsupported. Listing currency "
+        "is the security trading currency, not necessarily its economic currency risk."
+    )
+    note_format = workbook.add_format(
+        {
+            "bg_color": "#FEF3C7",
+            "font_color": "#78350F",
+            "text_wrap": True,
+            "valign": "vcenter",
+            "bold": True,
+        }
+    )
+    last_column = max(min(len(frame.columns) - 1, 16), 0)
+    worksheet.merge_range(0, 0, 0, last_column, note, note_format)
+    worksheet.set_row(0, 48)
+    frame.to_excel(writer, sheet_name="SELECTED_STOCKS", startrow=2, index=False)
+    worksheet.freeze_panes(3, 2)
+    if not frame.empty:
+        worksheet.autofilter(2, 0, len(frame) + 2, len(frame.columns) - 1)
+    worksheet.set_column("A:A", 12)
+    worksheet.set_column("B:B", 32)
+    worksheet.set_column("C:D", 18)
+    worksheet.set_column("E:K", 20)
+    worksheet.set_column("L:Q", 28)
+
+
 def _start_here() -> list[dict[str, str]]:
     return [
         {
@@ -627,8 +682,16 @@ def _start_here() -> list[dict[str, str]]:
             "message": "EXPOSURE_METADATA explains whether listing, issuer, economic, sector and industry exposure is usable or diagnostic-only. Listing-country exposure is not issuer-country or economic-country exposure unless explicit metadata is present.",
         },
         {
+            "section": "Selected stocks",
+            "message": "Use SELECTED_STOCKS for the curated semantic view, SELECTED_METADATA_QUALITY for join/coverage checks and SELECTED_STOCKS_RAW only for unmodified scoring evidence.",
+        },
+        {
             "section": "Country exposure distinction",
             "message": "Use EXPOSURE_LISTING_COUNTRY for listing venue, EXPOSURE_ISSUER_COUNTRY for company domicile and EXPOSURE_ECON_COUNTRY only where economic-risk geography is explicitly available.",
+        },
+        {
+            "section": "Legacy exposure aliases",
+            "message": "EXPOSURE_COUNTRY is a legacy listing-country alias and EXPOSURE_CURRENCY is a legacy listing-currency alias; neither is issuer, economic-country or economic-currency exposure.",
         },
     ]
 
