@@ -17,6 +17,11 @@ from project.research.global_exposure_analysis import (
     build_exposure_analysis,
     write_exposure_outputs,
 )
+from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 
@@ -53,7 +58,30 @@ def main() -> int:
         allow_yfinance_metadata=bool(config.get("allow_yfinance_metadata", True)),
         metadata_as_of_date=config.get("metadata_as_of_date"),
     )
+    run_metadata = read_run_manifest(PROCESSED)
+    exposure = {
+        key: attach_run_metadata(frame, run_metadata) for key, frame in exposure.items()
+    }
     write_exposure_outputs(exposure, PROCESSED)
+    register_artifacts(
+        PROCESSED,
+        [
+            PROCESSED / "global_region_exposure.csv",
+            PROCESSED / "global_country_exposure.csv",
+            PROCESSED / "global_listing_country_exposure.csv",
+            PROCESSED / "global_issuer_country_exposure.csv",
+            PROCESSED / "global_economic_country_exposure.csv",
+            PROCESSED / "global_currency_exposure.csv",
+            PROCESSED / "global_exchange_exposure.csv",
+            PROCESSED / "global_sleeve_exposure.csv",
+            PROCESSED / "global_sector_exposure.csv",
+            PROCESSED / "global_industry_exposure.csv",
+            PROCESSED / "global_top_holdings_explanation.csv",
+            PROCESSED / "global_exposure_warnings.csv",
+            PROCESSED / "global_exposure_metadata_quality.csv",
+        ],
+        run_metadata,
+    )
     print(f"Global exposure report written for final model: {final_model}")
     return 0
 

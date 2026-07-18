@@ -12,6 +12,7 @@ from project.optimization.black_litterman import black_litterman_weights
 from project.optimization.constraints import PortfolioConstraints
 from project.optimization.hierarchical import HRPOptimizer
 from project.optimization.risk_parity import RiskParityOptimizer
+from project.data_pipeline.security_identity import resolve_security_master_rows
 from project.research.global_numerical_integrity import portfolio_return_series
 from project.research.global_portfolio_risk import evaluate_return_series
 from project.research.global_stock_selection import (
@@ -446,10 +447,10 @@ def _selected_tickers(
     frame = scores.copy()
     frame["ticker"] = frame["ticker"].astype(str)
     if "selection_flag" in frame:
-        selected = frame.loc[frame["selection_flag"].astype(bool), "ticker"].tolist()
+        selected = frame.loc[frame["selection_flag"].map(_truthy), "ticker"].tolist()
     else:
         selected = []
-    if not selected:
+    if not selected and "selection_flag" not in frame:
         selected = frame.sort_values("composite_quant_score", ascending=False)[
             "ticker"
         ].tolist()
@@ -479,11 +480,16 @@ def _forecast_expected_returns(
 def _market_caps(metadata: pd.DataFrame | None, selected: list[str]) -> pd.Series:
     if metadata is None or metadata.empty or "market_cap_usd" not in metadata:
         return pd.Series(np.nan, index=selected)
+    metadata = resolve_security_master_rows(metadata)
     caps = pd.to_numeric(
         metadata.drop_duplicates("ticker").set_index("ticker")["market_cap_usd"],
         errors="coerce",
     )
     return caps.reindex(selected)
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 def _gmv_weights(returns: pd.DataFrame, max_weight: float) -> pd.Series:

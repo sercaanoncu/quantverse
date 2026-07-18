@@ -97,6 +97,13 @@ def _sections() -> list[dict[str, object]]:
         PROCESSED,
         universe,
     )
+    security_identity = _read_csv(PROCESSED / "global_security_identity_audit.csv")
+    feature_eligibility = _read_csv(
+        PROCESSED / "global_feature_history_eligibility.csv"
+    )
+    count_reconciliation = _read_csv(
+        PROCESSED / "global_cross_artifact_count_reconciliation.csv"
+    )
     final_model = str(summary.get("final_selected_model", "Policy Constrained"))
     final_weights = (
         weights.loc[weights["model_name"].astype(str).eq(final_model)]
@@ -114,6 +121,8 @@ def _sections() -> list[dict[str, object]]:
                 f"Numerical integrity: {summary.get('numerical_integrity_status', 'not available')}; failed checks: {summary.get('numerical_integrity_failed_checks', 'not available')}.",
                 f"Exposure metadata: {summary.get('exposure_metadata_status', 'not available')}; sector coverage: {summary.get('sector_coverage_ratio', 'not available')}; industry coverage: {summary.get('industry_coverage_ratio', 'not available')}; issuer-country coverage: {summary.get('issuer_country_coverage_ratio', 'not available')}; economic-country coverage: {summary.get('economic_country_coverage_ratio', 'not available')}.",
                 f"Universe rows: {summary.get('universe_rows', 'not available')}; assets with returns: {summary.get('assets_with_returns', 'not available')}.",
+                f"Security identity status: {summary.get('security_identity_status', 'not available')}; short-history diagnostics: {summary.get('short_history_diagnostic_count', 'not available')}.",
+                f"Cross-artifact reconciliation: {summary.get('cross_artifact_reconciliation_status', 'not available')}; run_id: {summary.get('run_id', 'not available')}.",
                 "Exact official top-100 and institutional point-in-time claims remain unsupported.",
             ],
             "chart": {
@@ -126,6 +135,61 @@ def _sections() -> list[dict[str, object]]:
             },
         },
         _stock_scoring_section(selected, selected_quality),
+        {
+            "title": "Security Identity and History Eligibility",
+            "bullets": [
+                "A ticker is a routing label, not a permanent security identifier; known symbol reuse requires an official listing boundary.",
+                "Standard composite scoring requires 252 valid daily returns so 12-month momentum and volatility are not computed from a shorter sample.",
+                "Short-history securities remain visible as diagnostic_short_history but are excluded from standard selection, forecasts and portfolio inputs.",
+                "SPCX is a verified ticker-reuse case: the current SpaceX security starts on 2026-06-12 and prior SPCX data must not be linked to it.",
+                "Cross-artifact counts and run IDs must reconcile before the report package is considered valid.",
+            ],
+            "table": (
+                security_identity.loc[
+                    security_identity["ticker"].astype(str).eq("SPCX")
+                ].head(5)
+                if not security_identity.empty and "ticker" in security_identity
+                else feature_eligibility.head(10)
+            ),
+            "pdf_columns": [
+                "ticker",
+                "current_listing_start_date",
+                "first_valid_return_date",
+                "observed_return_count",
+                "history_contamination_status",
+                "eligibility_status",
+            ],
+            "chart": {
+                "labels": ["Standard eligible", "Short-history diagnostic"],
+                "values": [
+                    float(
+                        feature_eligibility.get(
+                            "standard_composite_score_eligible",
+                            pd.Series(dtype=bool),
+                        )
+                        .map(_as_bool)
+                        .sum()
+                    ),
+                    float(
+                        feature_eligibility.get(
+                            "eligibility_status", pd.Series(dtype=str)
+                        )
+                        .astype(str)
+                        .eq("diagnostic_short_history")
+                        .sum()
+                    ),
+                ],
+            },
+        },
+        {
+            "title": "Cross-Artifact Count Reconciliation",
+            "bullets": [
+                "Selected-stock, forecast, portfolio-holding and walk-forward counts are different analytical stages and are reconciled under one run identity.",
+                "An unexplained same-run count mismatch invalidates the report package; a configured holding cap is accepted only when the relationship is explicit.",
+                "The run_id, data as-of date and universe snapshot prevent stale artifacts from being compared as if they came from one execution.",
+            ],
+            "table": count_reconciliation.head(12),
+        },
         {
             "title": "Expected Return Forecasts",
             "bullets": [
@@ -395,11 +459,13 @@ def _sections() -> list[dict[str, object]]:
 
 
 def _write_pdf(sections: list[dict[str, object]]) -> None:
+    from xml.sax.saxutils import escape
+
     from reportlab.graphics.charts.barcharts import VerticalBarChart
     from reportlab.graphics.shapes import Drawing, String
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.platypus import (
         Paragraph,
         SimpleDocTemplate,
@@ -409,6 +475,20 @@ def _write_pdf(sections: list[dict[str, object]]) -> None:
     )
 
     styles = getSampleStyleSheet()
+    table_header_style = ParagraphStyle(
+        "QuantVerseTableHeader",
+        parent=styles["BodyText"],
+        fontSize=5.5,
+        leading=6.5,
+        textColor=colors.white,
+    )
+    table_cell_style = ParagraphStyle(
+        "QuantVerseTableCell",
+        parent=styles["BodyText"],
+        fontSize=5.5,
+        leading=6.5,
+    )
+    available_width = A4[0] - 144
     story = [Paragraph("QuantVerse v2 Public-Data Research Report", styles["Title"])]
     for section in sections:
         story.append(Spacer(1, 10))
@@ -427,15 +507,31 @@ def _write_pdf(sections: list[dict[str, object]]) -> None:
             ]
             selected_table = table[requested_columns] if requested_columns else table
             small = selected_table.head(12).iloc[:, :8].astype(str)
-            data = [small.columns.tolist()] + small.values.tolist()
-            rendered = Table(data, repeatRows=1)
+            data = [
+                [
+                    Paragraph(escape(str(column)), table_header_style)
+                    for column in small.columns
+                ]
+            ]
+            data.extend(
+                [
+                    [Paragraph(escape(str(value)), table_cell_style) for value in row]
+                    for row in small.values.tolist()
+                ]
+            )
+            column_width = available_width / max(len(small.columns), 1)
+            rendered = Table(
+                data,
+                repeatRows=1,
+                colWidths=[column_width] * len(small.columns),
+            )
             rendered.setStyle(
                 TableStyle(
                     [
                         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
                         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                         ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                        ("FONTSIZE", (0, 0), (-1, -1), 6),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ]
                 )
             )
@@ -459,7 +555,7 @@ def _chart(config: dict, chart_cls, drawing_cls, string_cls, colors):
     chart.categoryAxis.labels.fontSize = 7
     chart.categoryAxis.labels.angle = 25
     chart.valueAxis.valueMin = 0
-    chart.valueAxis.valueMax = max(values or [1]) * 1.25
+    chart.valueAxis.valueMax = max(max(values or [1.0]), 1.0) * 1.25
     chart.bars[0].fillColor = colors.HexColor("#1f77b4")
     drawing.add(chart)
     for idx, value in enumerate(values):
@@ -561,6 +657,10 @@ def _float(value: object) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _as_bool(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 if __name__ == "__main__":

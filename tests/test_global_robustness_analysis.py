@@ -7,10 +7,10 @@ from project.research.global_stock_scoring import build_global_stock_scores
 
 def _returns() -> pd.DataFrame:
     rng = np.random.default_rng(12)
-    values = rng.normal(0.0004, 0.01, size=(140, 5))
+    values = rng.normal(0.0004, 0.01, size=(320, 5))
     return pd.DataFrame(
         values,
-        index=pd.date_range("2024-01-01", periods=140, freq="B"),
+        index=pd.date_range("2024-01-01", periods=320, freq="B"),
         columns=[f"A{i}" for i in range(5)],
     )
 
@@ -41,7 +41,7 @@ def test_sensitivity_output_schema_and_reproducibility():
         metadata=_universe(),
         max_assets_values=[5],
         max_weight_values=[0.40],
-        train_window_days_values=[126],
+        train_window_days_values=[252],
         test_window_days_values=[21],
         transaction_cost_bps_values=[0.0],
         random_seeds=[1],
@@ -54,7 +54,7 @@ def test_sensitivity_output_schema_and_reproducibility():
         metadata=_universe(),
         max_assets_values=[5],
         max_weight_values=[0.40],
-        train_window_days_values=[126],
+        train_window_days_values=[252],
         test_window_days_values=[21],
         transaction_cost_bps_values=[0.0],
         random_seeds=[1],
@@ -81,7 +81,7 @@ def test_changing_transaction_cost_reduces_net_return():
         metadata=_universe(),
         max_assets_values=[5],
         max_weight_values=[0.40],
-        train_window_days_values=[126],
+        train_window_days_values=[252],
         test_window_days_values=[21],
         transaction_cost_bps_values=[0.0, 50.0],
         random_seeds=[1],

@@ -17,6 +17,7 @@ from project.data_pipeline.security_universe import (
     REQUIRED_UNIVERSE_COLUMNS,
     validate_security_universe_schema,
 )
+from project.data_pipeline.security_identity import resolve_security_master_rows
 
 DEFAULT_FX_MAPPINGS: dict[str, dict[str, object]] = {
     "USD": {
@@ -228,7 +229,7 @@ def normalize_returns_to_base(
     report_rows: list[dict[str, object]] = []
     coverage_rows: list[dict[str, object]] = []
     metadata = (
-        universe.drop_duplicates("ticker", keep="first").set_index("ticker")
+        resolve_security_master_rows(universe).set_index("ticker")
         if not universe.empty and "ticker" in universe
         else pd.DataFrame()
     )

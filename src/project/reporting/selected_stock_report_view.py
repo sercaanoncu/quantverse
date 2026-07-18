@@ -12,6 +12,8 @@ from typing import Iterable
 
 import pandas as pd
 
+from project.data_pipeline.security_identity import resolve_security_master_rows
+
 REPORT_COLUMNS = [
     "ticker",
     "name",
@@ -294,7 +296,9 @@ def _prepare_metadata(
         return pd.DataFrame({"_ticker_key": pd.Series(dtype=str)})
     if "ticker" not in frame:
         raise ValueError(f"{prefix} metadata must contain a ticker column")
-    prepared = frame.copy()
+    prepared = (
+        resolve_security_master_rows(frame) if prefix == "universe" else frame.copy()
+    )
     prepared["_ticker_key"] = _normalized_tickers(prepared["ticker"])
     prepared = prepared.loc[prepared["_ticker_key"].isin(selected_keys)].copy()
     _raise_on_duplicate_keys(prepared, f"{prefix} metadata")

@@ -17,10 +17,14 @@ from project.data_pipeline.global_returns import load_global_universe
 from project.data_pipeline.market_cap_rank_evidence import (
     write_market_cap_rank_outputs,
 )
+from project.data_pipeline.security_identity import (
+    filter_standard_history_eligible_inputs,
+)
 from project.research.global_master_portfolio import (
     run_master_portfolio_research,
     write_master_portfolio_outputs,
 )
+from project.research.run_identity import read_run_manifest
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,6 +66,47 @@ def main() -> int:
         return 0
     write_market_cap_rank_outputs(metadata, output_dir)
     returns = _load_returns(returns_path)
+    eligibility_path = Path(
+        config.get(
+            "feature_history_eligibility_path",
+            "data/processed/global_feature_history_eligibility.csv",
+        )
+    )
+    if not eligibility_path.exists():
+        _write_status(
+            output_dir,
+            "missing_history_eligibility",
+            "Current feature-history eligibility audit is required.",
+        )
+        print(
+            "Global master portfolio not run: feature-history eligibility audit is missing."
+        )
+        return 0
+    feature_eligibility = _load_optional_csv(eligibility_path)
+    run_metadata = read_run_manifest(output_dir)
+    if feature_eligibility is None or not _eligibility_matches_run(
+        feature_eligibility, run_metadata
+    ):
+        _write_status(
+            output_dir,
+            "stale_history_eligibility",
+            "Feature-history eligibility does not match the current run identity.",
+        )
+        print(
+            "Global master portfolio not run: feature-history eligibility is stale "
+            "or invalid."
+        )
+        return 0
+    try:
+        returns, metadata, excluded = filter_standard_history_eligible_inputs(
+            returns,
+            metadata,
+            feature_eligibility,
+        )
+    except ValueError as exc:
+        _write_status(output_dir, "invalid_history_eligibility", str(exc))
+        print(f"Global master portfolio not run: {exc}")
+        return 0
     fx_report = _load_optional_csv(
         Path(
             config.get(
@@ -72,10 +117,19 @@ def main() -> int:
     selection = config.get("selection", {}) or {}
     random_cfg = config.get("random_portfolios", {}) or {}
     constraints = config.get("portfolio_constraints", {}) or {}
+    minimum_holdings = int(selection.get("min_holdings", 10))
+    if returns.shape[1] < minimum_holdings:
+        message = (
+            f"Only {returns.shape[1]} standard-history-eligible assets remain; "
+            f"{minimum_holdings} are required."
+        )
+        _write_status(output_dir, "insufficient_history_eligible_assets", message)
+        print(f"Global master portfolio not run: {message}")
+        return 0
     result = run_master_portfolio_research(
         returns,
         metadata,
-        min_holdings=int(selection.get("min_holdings", 10)),
+        min_holdings=minimum_holdings,
         max_holdings=int(selection.get("max_holdings", 40)),
         max_weight=float(selection.get("max_weight", 0.10)),
         n_random_portfolios=int(random_cfg.get("n_portfolios", 10000)),
@@ -83,7 +137,19 @@ def main() -> int:
         portfolio_constraints=constraints,
         fx_report=fx_report,
     )
+    result["decision_summary"].update(
+        {
+            **run_metadata,
+            "history_eligibility_gate": "passed",
+            "history_ineligible_assets_excluded": excluded,
+        }
+    )
     write_master_portfolio_outputs(result, output_dir)
+    if excluded:
+        print(
+            "Excluded from global master portfolio inputs by history gate: "
+            + ", ".join(excluded)
+        )
     print(result["decision_summary"]["promotion_decision"])
     return 0
 
@@ -105,9 +171,28 @@ def _load_optional_csv(path: Path) -> pd.DataFrame | None:
         return None
 
 
+def _eligibility_matches_run(
+    feature_eligibility: pd.DataFrame,
+    run_metadata: dict[str, str],
+) -> bool:
+    required = {"ticker", "standard_composite_score_eligible", "run_id"}
+    if feature_eligibility.empty or not required.issubset(feature_eligibility):
+        return False
+    expected = str(run_metadata.get("run_id", "")).strip()
+    observed = set(feature_eligibility["run_id"].dropna().astype(str))
+    return bool(expected and observed == {expected})
+
+
 def _write_status(output_dir: Path, status: str, message: str) -> None:
     (output_dir / "global_master_decision_summary.json").write_text(
-        json.dumps({"status": status, "message": message}, indent=2),
+        json.dumps(
+            {
+                "status": status,
+                "promotion_decision": "not promoted",
+                "message": message,
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
 

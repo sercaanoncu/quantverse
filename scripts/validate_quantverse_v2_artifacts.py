@@ -42,6 +42,9 @@ REQUIRED_JSON_FIELDS = {
         "promotion_decision",
         "weight_sum",
         "final_selected_holdings",
+        "run_id",
+        "data_as_of_date",
+        "universe_snapshot_id",
     ],
     "global_final_model_decision.json": [
         "final_selected_model",
@@ -50,6 +53,15 @@ REQUIRED_JSON_FIELDS = {
         "final_decision",
         "final_decision_reason",
         "publish_readiness_status",
+        "run_id",
+        "data_as_of_date",
+        "universe_snapshot_id",
+    ],
+    "quantverse_v2_run_manifest.json": [
+        "run_id",
+        "data_as_of_date",
+        "generated_at",
+        "universe_snapshot_id",
     ],
 }
 
@@ -65,6 +77,11 @@ REQUIRED_CSVS = [
     "global_top_holdings_explanation.csv",
     "global_selected_stocks_report_view.csv",
     "global_selected_stocks_report_view_quality.csv",
+    "global_security_identity_audit.csv",
+    "global_security_history_eligibility.csv",
+    "global_feature_history_eligibility.csv",
+    "global_cross_artifact_count_reconciliation.csv",
+    "quantverse_v2_artifact_run_registry.csv",
     "global_forecast_validation_by_horizon.csv",
     "global_listing_country_exposure.csv",
     "global_issuer_country_exposure.csv",
@@ -96,6 +113,7 @@ REQUIRED_HTML_SECTIONS = [
     "Forecast Error Versus Random Walk",
     "Random Benchmark Distribution",
     "Exposure and Concentration",
+    "Security Identity and History Eligibility",
     "Limitations",
 ]
 
@@ -107,6 +125,10 @@ REQUIRED_EXCEL_SHEETS = [
     "SELECTED_STOCKS",
     "SELECTED_STOCKS_RAW",
     "SELECTED_METADATA_QUALITY",
+    "SECURITY_IDENTITY",
+    "HISTORY_ELIGIBILITY",
+    "FEATURE_ELIGIBILITY",
+    "COUNT_RECONCILIATION",
     "STOCK_SCORES",
     "RETURN_FORECASTS",
     "MODEL_LEAGUE",
@@ -216,6 +238,7 @@ def validate_artifacts(root: Path) -> dict[str, object]:
     _check_numerical_integrity(root, summary, checks)
     _check_visual_analytics(root, checks)
     _check_exposure_metadata_quality(processed, checks)
+    _check_security_identity_history(processed, checks)
     checks.extend(validate_selected_stock_report_semantics(root)["checks"])
     _check_current_v2_reports_no_stale_decisions(root, summary, checks)
 
@@ -544,6 +567,440 @@ def _check_exposure_metadata_quality(
                 f"flagged_holdings={len(flagged)}; collapsed_rows={len(bad)}",
             )
         )
+
+
+def _check_security_identity_history(
+    processed: Path,
+    checks: list[dict[str, object]],
+) -> None:
+    identity = _read_csv(processed / "global_security_identity_audit.csv")
+    history = _read_csv(processed / "global_security_history_eligibility.csv")
+    features = _read_csv(processed / "global_feature_history_eligibility.csv")
+    scores = _read_csv(processed / "global_stock_scores.csv")
+    reconciliation = _read_csv(
+        processed / "global_cross_artifact_count_reconciliation.csv"
+    )
+    registry = _read_csv(processed / "quantverse_v2_artifact_run_registry.csv")
+    manifest = _read_json(processed / "quantverse_v2_run_manifest.json")
+
+    identity_required = {
+        "ticker",
+        "current_listing_start_date",
+        "provider_history_start_date",
+        "first_valid_return_date",
+        "observations_before_current_listing",
+        "ticker_reuse_status",
+        "identity_continuity_status",
+        "history_contamination_status",
+        "standard_scoring_eligible",
+        "forecast_eligible",
+        "walk_forward_eligible",
+        "run_id",
+    }
+    checks.append(
+        _check(
+            "security_identity_audit_present",
+            not identity.empty and identity_required.issubset(identity.columns),
+            f"rows={len(identity)}; missing={sorted(identity_required.difference(identity.columns))}",
+        )
+    )
+    feature_required = {
+        "ticker",
+        "observations",
+        "12m_eligible",
+        "volatility_12m_eligible",
+        "standard_composite_score_eligible",
+        "eligibility_status",
+        "run_id",
+    }
+    checks.append(
+        _check(
+            "feature_history_eligibility_audit_present",
+            not features.empty and feature_required.issubset(features.columns),
+            f"rows={len(features)}; missing={sorted(feature_required.difference(features.columns))}",
+        )
+    )
+    history_required = {
+        "ticker",
+        "eligibility_status",
+        "standard_scoring_eligible",
+        "forecast_eligible",
+        "walk_forward_eligible",
+        "run_id",
+    }
+    checks.append(
+        _check(
+            "security_history_eligibility_audit_present",
+            not history.empty and history_required.issubset(history.columns),
+            f"rows={len(history)}; missing={sorted(history_required.difference(history.columns))}",
+        )
+    )
+
+    if identity.empty or not {
+        "ticker",
+        "ticker_reuse_status",
+        "identity_continuity_status",
+        "observations_before_current_listing",
+        "history_contamination_status",
+    }.issubset(identity):
+        unresolved_reuse = pd.DataFrame()
+        pre_listing_failures = pd.DataFrame()
+    else:
+        reuse = (
+            identity["ticker_reuse_status"]
+            .astype(str)
+            .str.contains("known_reuse", case=False, na=False)
+        )
+        continuity_verified = (
+            identity["identity_continuity_status"]
+            .astype(str)
+            .str.startswith("verified")
+        )
+        unresolved_reuse = identity.loc[reuse & ~continuity_verified]
+        pre_listing = pd.to_numeric(
+            identity["observations_before_current_listing"], errors="coerce"
+        ).fillna(0)
+        contamination_resolved = (
+            identity["history_contamination_status"]
+            .astype(str)
+            .isin(
+                [
+                    "none_detected",
+                    "detected_and_removed",
+                    "verified_continuity_preserved",
+                ]
+            )
+        )
+        pre_listing_failures = identity.loc[(pre_listing > 0) & ~contamination_resolved]
+        listing_dates = pd.to_datetime(
+            identity["current_listing_start_date"],
+            format="%Y-%m-%d",
+            errors="coerce",
+        )
+        first_return_dates = pd.to_datetime(
+            identity["first_valid_return_date"],
+            format="%Y-%m-%d",
+            errors="coerce",
+        )
+        preserved_continuity = (
+            identity["identity_continuity_status"]
+            .astype(str)
+            .isin(
+                [
+                    "verified_same_security_continuity",
+                    "verified_predecessor_continuity",
+                ]
+            )
+        )
+        invalid_return_start = (
+            listing_dates.notna()
+            & first_return_dates.notna()
+            & first_return_dates.lt(listing_dates)
+            & ~preserved_continuity
+        )
+        pre_listing_failures = pd.concat(
+            [pre_listing_failures, identity.loc[invalid_return_start]],
+            ignore_index=True,
+        ).drop_duplicates("ticker")
+    checks.append(
+        _check(
+            "no_unresolved_ticker_reuse_in_standard_selection",
+            unresolved_reuse.empty,
+            f"unresolved_tickers={unresolved_reuse.get('ticker', pd.Series(dtype=str)).astype(str).tolist()}",
+        )
+    )
+    checks.append(
+        _check(
+            "no_pre_listing_history_contamination",
+            pre_listing_failures.empty,
+            f"failed_tickers={pre_listing_failures.get('ticker', pd.Series(dtype=str)).astype(str).tolist()}",
+        )
+    )
+
+    score_feature_columns = {
+        "ticker",
+        "selection_flag",
+        "standard_composite_score_eligible",
+    }
+    feature_contract_columns = {
+        "ticker",
+        "observations",
+        "12m_eligible",
+        "volatility_12m_eligible",
+        "standard_composite_score_eligible",
+    }
+    feature_contract_available = bool(
+        not scores.empty
+        and not features.empty
+        and score_feature_columns.issubset(scores)
+        and feature_contract_columns.issubset(features)
+    )
+    if not feature_contract_available:
+        selected_short = pd.DataFrame()
+        feature_failures = pd.DataFrame()
+    else:
+        score_flags = scores[
+            ["ticker", "selection_flag", "standard_composite_score_eligible"]
+        ].copy()
+        merged = score_flags.merge(
+            features[
+                [
+                    "ticker",
+                    "observations",
+                    "12m_eligible",
+                    "volatility_12m_eligible",
+                    "standard_composite_score_eligible",
+                ]
+            ],
+            on="ticker",
+            how="left",
+            suffixes=("_score", "_feature"),
+        )
+        selected_mask = merged["selection_flag"].map(_truthy)
+        standard_mask = merged["standard_composite_score_eligible_score"].map(_truthy)
+        selected_short = merged.loc[selected_mask & ~standard_mask]
+        feature_failures = merged.loc[
+            standard_mask
+            & (
+                ~merged["12m_eligible"].map(_truthy)
+                | ~merged["volatility_12m_eligible"].map(_truthy)
+                | ~merged["standard_composite_score_eligible_feature"].map(_truthy)
+                | (
+                    pd.to_numeric(merged["observations"], errors="coerce").fillna(0)
+                    < 252
+                )
+            )
+        ]
+    checks.append(
+        _check(
+            "feature_history_sufficiency_valid",
+            feature_contract_available and feature_failures.empty,
+            (
+                "required score/feature columns missing"
+                if not feature_contract_available
+                else f"failed_tickers={feature_failures.get('ticker', pd.Series(dtype=str)).astype(str).tolist()}"
+            ),
+        )
+    )
+    checks.append(
+        _check(
+            "short_history_assets_not_silently_promoted",
+            feature_contract_available and selected_short.empty,
+            (
+                "required score/feature columns missing"
+                if not feature_contract_available
+                else f"selected_short_history={selected_short.get('ticker', pd.Series(dtype=str)).astype(str).tolist()}"
+            ),
+        )
+    )
+    ineligible_tickers = _ineligible_feature_tickers(features)
+    portfolio_input_violations = _portfolio_input_violations(
+        processed, ineligible_tickers
+    )
+    checks.append(
+        _check(
+            "no_short_history_assets_in_portfolio_inputs",
+            feature_contract_available and not portfolio_input_violations,
+            f"violations={portfolio_input_violations}",
+        )
+    )
+    reuse_tickers = (
+        set(
+            identity.loc[
+                identity.get("ticker_reuse_status", pd.Series(dtype=str))
+                .astype(str)
+                .str.contains("known_reuse", case=False, na=False),
+                "ticker",
+            ].astype(str)
+        )
+        if not identity.empty and "ticker" in identity
+        else set()
+    )
+    reuse_violations = sorted(reuse_tickers.intersection(portfolio_input_violations))
+    checks.append(
+        _check(
+            "no_ticker_reuse_warning_ignored_in_portfolio_inputs",
+            not reuse_violations,
+            f"violations={reuse_violations}",
+        )
+    )
+
+    reconciliation_pass = bool(
+        not reconciliation.empty
+        and "status" in reconciliation
+        and reconciliation["status"].astype(str).eq("passed").all()
+    )
+    checks.append(
+        _check(
+            "selected_forecast_count_reconciled",
+            reconciliation_pass
+            and _reconciliation_row_passed(
+                reconciliation, "forecast_output_ticker_count"
+            ),
+            _reconciliation_details(reconciliation, "forecast_output_ticker_count"),
+        )
+    )
+    checks.append(
+        _check(
+            "final_holdings_count_reconciled",
+            reconciliation_pass
+            and _reconciliation_row_passed(reconciliation, "final_model_holding_count"),
+            _reconciliation_details(reconciliation, "final_model_holding_count"),
+        )
+    )
+    checks.append(
+        _check(
+            "cross_artifact_count_reconciliation_passed",
+            reconciliation_pass,
+            f"failed={_failed_reconciliation_artifacts(reconciliation)}",
+        )
+    )
+
+    expected_run_id = str(manifest.get("run_id", "")).strip()
+    core_registry = (
+        registry.loc[
+            registry.get("artifact", pd.Series(dtype=str))
+            .astype(str)
+            .isin(
+                [
+                    "data/processed/global_security_identity_audit.csv",
+                    "data/processed/global_feature_history_eligibility.csv",
+                    "data/processed/global_stock_scores.csv",
+                    "data/processed/global_stock_return_forecasts.csv",
+                    "data/processed/global_portfolio_league_weights.csv",
+                    "data/processed/global_portfolio_risk_report.csv",
+                    "data/processed/global_final_model_decision.json",
+                    "data/processed/global_robustness_sensitivity.csv",
+                    "data/processed/global_exposure_metadata_quality.csv",
+                    "data/processed/global_walk_forward_window_summary.csv",
+                ]
+            )
+        ]
+        if not registry.empty and {"artifact", "run_id"}.issubset(registry)
+        else pd.DataFrame()
+    )
+    registered_ids = (
+        set(core_registry["run_id"].dropna().astype(str))
+        if "run_id" in core_registry
+        else set()
+    )
+    run_ids_consistent = bool(
+        expected_run_id
+        and len(core_registry) == 10
+        and registered_ids == {expected_run_id}
+    )
+    checks.append(
+        _check(
+            "generated_artifact_run_ids_consistent",
+            run_ids_consistent,
+            f"expected={expected_run_id}; registered={sorted(registered_ids)}; core_rows={len(core_registry)}",
+        )
+    )
+
+
+def _ineligible_feature_tickers(features: pd.DataFrame) -> set[str]:
+    if features.empty or not {
+        "ticker",
+        "standard_composite_score_eligible",
+    }.issubset(features):
+        return set()
+    eligible = features["standard_composite_score_eligible"].map(_truthy)
+    return set(features.loc[~eligible, "ticker"].astype(str))
+
+
+def _portfolio_input_violations(
+    processed: Path,
+    ineligible_tickers: set[str],
+) -> list[str]:
+    if not ineligible_tickers:
+        return []
+    violations: set[str] = set()
+    for filename in [
+        "global_portfolio_league_weights.csv",
+        "global_master_candidate_weights.csv",
+    ]:
+        frame = _read_csv(processed / filename)
+        columns = {str(column).lower(): column for column in frame.columns}
+        ticker_column = columns.get("ticker")
+        weight_column = columns.get("weight")
+        if ticker_column is None or weight_column is None:
+            continue
+        positive = (
+            pd.to_numeric(frame[weight_column], errors="coerce").fillna(0.0).abs()
+            > 1e-12
+        )
+        violations.update(
+            set(frame.loc[positive, ticker_column].astype(str)).intersection(
+                ineligible_tickers
+            )
+        )
+
+    selected = _read_csv(processed / "global_master_selected_assets.csv")
+    selected_columns = {str(column).lower(): column for column in selected.columns}
+    selected_ticker = selected_columns.get("ticker")
+    if selected_ticker is not None:
+        violations.update(
+            set(selected[selected_ticker].astype(str)).intersection(ineligible_tickers)
+        )
+
+    contributions = _read_csv(processed / "global_risk_contribution_report.csv")
+    contribution_columns = {
+        str(column).lower(): column for column in contributions.columns
+    }
+    contribution_ticker = contribution_columns.get("ticker")
+    if contribution_ticker is not None:
+        violations.update(
+            set(contributions[contribution_ticker].astype(str)).intersection(
+                ineligible_tickers
+            )
+        )
+
+    randoms = _read_csv(processed / "global_master_random_portfolio_benchmark.csv")
+    for column in randoms.columns:
+        label = str(column)
+        if not label.lower().startswith("weight_"):
+            continue
+        ticker = label[len("weight_") :]
+        if ticker in ineligible_tickers:
+            violations.add(ticker)
+
+    correlation = _read_csv(processed / "global_correlation_matrix.csv")
+    correlation_tickers = {str(column) for column in correlation.columns}
+    if not correlation.empty:
+        first = correlation.columns[0]
+        correlation_tickers.update(correlation[first].dropna().astype(str))
+    violations.update(correlation_tickers.intersection(ineligible_tickers))
+    return sorted(violations)
+
+
+def _reconciliation_row_passed(frame: pd.DataFrame, artifact: str) -> bool:
+    if frame.empty or not {"artifact", "status"}.issubset(frame):
+        return False
+    row = frame.loc[frame["artifact"].astype(str).eq(artifact)]
+    return bool(not row.empty and row["status"].astype(str).eq("passed").all())
+
+
+def _reconciliation_details(frame: pd.DataFrame, artifact: str) -> str:
+    if frame.empty or "artifact" not in frame:
+        return "reconciliation missing"
+    row = frame.loc[frame["artifact"].astype(str).eq(artifact)]
+    if row.empty:
+        return f"{artifact} row missing"
+    return str(row.iloc[0].get("observed_relationship", ""))
+
+
+def _failed_reconciliation_artifacts(frame: pd.DataFrame) -> list[str]:
+    if frame.empty or not {"artifact", "status"}.issubset(frame):
+        return ["missing"]
+    return (
+        frame.loc[frame["status"].astype(str).eq("failed"), "artifact"]
+        .astype(str)
+        .tolist()
+    )
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 def validate_selected_stock_report_semantics(root: Path) -> dict[str, object]:

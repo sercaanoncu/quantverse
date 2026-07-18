@@ -391,7 +391,7 @@ def _check_equity_scope(
     frames = []
     if not scores.empty and {"ticker", "sleeve", "selection_flag"}.issubset(scores):
         frames.append(
-            scores.loc[scores["selection_flag"].astype(bool), ["ticker", "sleeve"]]
+            scores.loc[scores["selection_flag"].map(_truthy), ["ticker", "sleeve"]]
         )
     if not weights.empty and {"ticker", "model_name"}.issubset(weights):
         final = weights.loc[
@@ -506,3 +506,7 @@ def _safe_max(series: pd.Series) -> float | None:
 
 def _check(name: str, passed: bool, details: str) -> dict[str, object]:
     return {"check": name, "passed": bool(passed), "details": str(details)}
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}

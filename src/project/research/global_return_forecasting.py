@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
 
+from project.data_pipeline.security_identity import attach_run_metadata
+
 TRADING_DAYS_BY_HORIZON = {"1M": 21, "3M": 63, "6M": 126, "12M": 252}
 
 FORECAST_COLUMNS = [
@@ -40,6 +42,10 @@ FORECAST_COLUMNS = [
     "model_status",
     "diagnostic_warning",
     "extreme_expected_return_warning",
+    "run_id",
+    "data_as_of_date",
+    "generated_at",
+    "universe_snapshot_id",
 ]
 
 
@@ -48,6 +54,7 @@ def build_return_forecasts(
     *,
     as_of_date: str | pd.Timestamp | None = None,
     horizons: dict[str, int] | None = None,
+    run_metadata: dict[str, object] | None = None,
 ) -> pd.DataFrame:
     """Build transparent expected-return diagnostics for each asset/horizon."""
     clean = _clean_returns(returns, as_of_date=as_of_date)
@@ -57,7 +64,9 @@ def build_return_forecasts(
         series = clean[ticker].dropna().astype(float)
         for horizon, days in horizon_map.items():
             rows.append(_forecast_one(ticker, series, horizon, int(days)))
-    return pd.DataFrame(rows, columns=FORECAST_COLUMNS)
+    frame = pd.DataFrame(rows)
+    frame = attach_run_metadata(frame, run_metadata)
+    return frame.reindex(columns=FORECAST_COLUMNS)
 
 
 def write_return_forecasts(forecasts: pd.DataFrame, output_path: str | Path) -> None:

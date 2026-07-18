@@ -16,6 +16,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from project.research.global_numerical_integrity import (
     validate_v2_numerical_integrity,
 )  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 SUMMARY_PATH = PROCESSED / "quantverse_v2_demo_summary.json"
@@ -56,6 +60,7 @@ def main() -> int:
         ["scripts/build_global_model_selection_report.py", "--config", config],
         ["scripts/run_global_robustness_analysis.py", "--config", config],
         ["scripts/build_global_exposure_report.py", "--config", config],
+        ["scripts/build_security_history_reconciliation.py", "--config", config],
         ["scripts/validate_global_forecasts.py", "--config", config],
         ["scripts/audit_global_scientific_sanity.py"],
         ["scripts/build_visual_scientific_audit_report.py"],
@@ -102,8 +107,14 @@ def build_demo_summary() -> dict[str, object]:
     )
     exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
     exposure_metadata = _read_csv(PROCESSED / "global_exposure_metadata_quality.csv")
+    identity_audit = _read_csv(PROCESSED / "global_security_identity_audit.csv")
+    feature_history = _read_csv(PROCESSED / "global_feature_history_eligibility.csv")
+    reconciliation = _read_csv(
+        PROCESSED / "global_cross_artifact_count_reconciliation.csv"
+    )
+    run_metadata = read_run_manifest(PROCESSED)
     selected = (
-        scores.loc[scores["selection_flag"].astype(bool)]
+        scores.loc[scores["selection_flag"].map(_truthy)]
         if "selection_flag" in scores
         else scores.head(0)
     )
@@ -236,11 +247,29 @@ def build_demo_summary() -> dict[str, object]:
             "Walk-forward is current-universe public-data research, not institutional PIT backtest.",
             "Model selection is publish-ready research evidence, not a promoted institutional allocation.",
         ],
+        "security_identity_status": _security_identity_status(identity_audit),
+        "short_history_diagnostic_count": (
+            int(
+                feature_history["eligibility_status"]
+                .astype(str)
+                .eq("diagnostic_short_history")
+                .sum()
+            )
+            if "eligibility_status" in feature_history
+            else 0
+        ),
+        "cross_artifact_reconciliation_status": (
+            "passed"
+            if not reconciliation.empty
+            and reconciliation["status"].astype(str).eq("passed").all()
+            else "failed_or_missing"
+        ),
         "report_paths": {
             "pdf": "output/pdf/quantverse_v2_research_report.pdf",
             "html": "output/html/quantverse_v2_research_report.html",
             "excel": "output/excel/quantverse_v2_research_output.xlsx",
         },
+        **run_metadata,
     }
     numerical_integrity = validate_v2_numerical_integrity(
         ROOT, summary_override=summary
@@ -390,6 +419,9 @@ def _write_summary(summary: dict[str, object]) -> None:
     SUMMARY_PATH.write_text(
         json.dumps(summary, indent=2, default=str), encoding="utf-8"
     )
+    run_metadata = read_run_manifest(PROCESSED)
+    if run_metadata:
+        register_artifacts(PROCESSED, [SUMMARY_PATH], run_metadata)
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
@@ -409,6 +441,29 @@ def _float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _security_identity_status(frame: pd.DataFrame) -> str:
+    if frame.empty:
+        return "missing"
+    blocked = (
+        frame.get("eligibility_status", pd.Series(dtype=str))
+        .astype(str)
+        .isin(
+            [
+                "blocked_identity_uncertain",
+                "blocked_ticker_reuse_contamination",
+                "manual_review_required",
+            ]
+        )
+    )
+    return (
+        "blocked_conflicts_present" if blocked.any() else "passed_with_provider_limits"
+    )
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 if __name__ == "__main__":

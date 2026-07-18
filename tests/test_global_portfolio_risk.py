@@ -43,3 +43,18 @@ def test_stock_and_portfolio_risk_outputs_are_directionally_valid():
         "turkey_specific_shock",
         "rate_shock",
     }.issubset(set(stress["scenario"]))
+
+
+def test_zero_weight_asset_is_not_a_portfolio_covariance_input():
+    returns = _returns()
+    weights = pd.DataFrame(
+        {
+            "Model": ["Equal Weight", "Equal Weight", "Equal Weight"],
+            "Ticker": ["A", "B", "C"],
+            "Weight": [0.5, 0.5, 0.0],
+        }
+    )
+
+    _, contributions, _, _ = build_portfolio_risk_report(returns, weights)
+
+    assert set(contributions["ticker"]) == {"A", "B"}

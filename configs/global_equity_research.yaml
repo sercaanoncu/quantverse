@@ -10,6 +10,9 @@ v2:
   include_crypto: false
   max_crypto_weight: 0.0
   max_selected_stocks: 40
+  minimum_standard_history_observations: 252
+  minimum_forecast_history_observations: 252
+  minimum_walk_forward_history_observations: 252
   walk_forward_max_assets: 20
   max_weight: 0.10
   transaction_cost_bps: 10.0

@@ -6,7 +6,10 @@ from reportlab.pdfgen import canvas
 
 from project.research.global_visual_analytics import build_visual_analytics_outputs
 from scripts.build_quantverse_v2_excel_output import _write_selected_stocks_sheet
-from scripts.validate_quantverse_v2_artifacts import validate_artifacts
+from scripts.validate_quantverse_v2_artifacts import (
+    _portfolio_input_violations,
+    validate_artifacts,
+)
 
 
 def _write_pdf(path: Path, text: str) -> None:
@@ -26,6 +29,15 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     (output / "excel").mkdir(parents=True)
     (output / "pdf").mkdir(parents=True)
     (output / "thesis").mkdir(parents=True)
+    run_metadata = {
+        "run_id": "qv2-2026-07-09-fixture",
+        "data_as_of_date": "2026-07-09",
+        "generated_at": "2026-07-10T00:00:00+00:00",
+        "universe_snapshot_id": "universe-fixture",
+    }
+    (processed / "quantverse_v2_run_manifest.json").write_text(
+        json.dumps(run_metadata), encoding="utf-8"
+    )
 
     (processed / "quantverse_v2_demo_summary.json").write_text(
         json.dumps(
@@ -40,6 +52,7 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
                 "final_selected_holdings": 2,
                 "numerical_integrity_status": "passed",
                 "numerical_integrity_failed_checks": 0,
+                **run_metadata,
             }
         ),
         encoding="utf-8",
@@ -53,6 +66,7 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
                 "final_decision": "not promoted",
                 "final_decision_reason": "Fixture.",
                 "publish_readiness_status": "research_publish_ready_with_limitations",
+                **run_metadata,
             }
         ),
         encoding="utf-8",
@@ -74,9 +88,9 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     ).to_csv(processed / "global_portfolio_league.csv", index=False)
     pd.DataFrame(
         {
-            "Date": pd.date_range("2024-01-01", periods=80, freq="B"),
-            "A": [0.001] * 80,
-            "B": [0.002, -0.001] * 40,
+            "Date": pd.date_range("2024-01-01", periods=260, freq="B"),
+            "A": [0.001] * 260,
+            "B": [0.002, -0.001] * 130,
         }
     ).to_csv(processed / "global_security_simple_returns_usd.csv", index=False)
     pd.DataFrame(
@@ -124,8 +138,98 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "ticker": ["A", "B"],
             "sleeve": ["global_equity_us", "global_equity_us"],
             "selection_flag": [True, True],
+            "standard_composite_score_eligible": [True, True],
+            **{key: [value, value] for key, value in run_metadata.items()},
         }
     ).to_csv(processed / "global_stock_scores.csv", index=False)
+    pd.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "current_listing_start_date": ["unavailable", "unavailable"],
+            "provider_history_start_date": ["2024-01-01", "2024-01-01"],
+            "first_valid_return_date": ["2024-01-02", "2024-01-02"],
+            "observations_before_current_listing": [0, 0],
+            "ticker_reuse_status": ["not_known", "not_known"],
+            "identity_continuity_status": [
+                "no_known_conflict_provider_only",
+                "no_known_conflict_provider_only",
+            ],
+            "history_contamination_status": [
+                "not_assessable_without_listing_date",
+                "not_assessable_without_listing_date",
+            ],
+            "eligibility_status": ["eligible", "eligible"],
+            "standard_scoring_eligible": [True, True],
+            "forecast_eligible": [True, True],
+            "walk_forward_eligible": [True, True],
+            **{key: [value, value] for key, value in run_metadata.items()},
+        }
+    ).to_csv(processed / "global_security_identity_audit.csv", index=False)
+    pd.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "eligibility_status": ["eligible", "eligible"],
+            "standard_scoring_eligible": [True, True],
+            "forecast_eligible": [True, True],
+            "walk_forward_eligible": [True, True],
+            **{key: [value, value] for key, value in run_metadata.items()},
+        }
+    ).to_csv(processed / "global_security_history_eligibility.csv", index=False)
+    pd.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "observations": [260, 260],
+            "12m_eligible": [True, True],
+            "volatility_12m_eligible": [True, True],
+            "standard_composite_score_eligible": [True, True],
+            "eligibility_status": ["eligible", "eligible"],
+            **{key: [value, value] for key, value in run_metadata.items()},
+        }
+    ).to_csv(processed / "global_feature_history_eligibility.csv", index=False)
+    pd.DataFrame(
+        {
+            "artifact": [
+                "stocks_scored",
+                "stocks_selection_flag_true",
+                "semantic_selected_stock_count",
+                "standard_scoring_eligible_count",
+                "short_history_diagnostic_count",
+                "forecast_input_count",
+                "forecast_output_ticker_count",
+                "portfolio_candidate_count",
+                "final_model_holding_count",
+                "walk_forward_latest_selected_count",
+                "core_generated_artifact_run_ids",
+            ],
+            "count": [2, 2, 2, 2, 0, 2, 2, 2, 2, 2, 1],
+            "status": ["passed"] * 11,
+            "observed_relationship": ["fixture"] * 11,
+            **{key: [value] * 11 for key, value in run_metadata.items()},
+        }
+    ).to_csv(processed / "global_cross_artifact_count_reconciliation.csv", index=False)
+    core_artifacts = [
+        "data/processed/global_security_identity_audit.csv",
+        "data/processed/global_feature_history_eligibility.csv",
+        "data/processed/global_stock_scores.csv",
+        "data/processed/global_stock_return_forecasts.csv",
+        "data/processed/global_portfolio_league_weights.csv",
+        "data/processed/global_portfolio_risk_report.csv",
+        "data/processed/global_final_model_decision.json",
+        "data/processed/global_robustness_sensitivity.csv",
+        "data/processed/global_exposure_metadata_quality.csv",
+        "data/processed/global_walk_forward_window_summary.csv",
+    ]
+    pd.DataFrame(
+        [
+            {
+                "artifact": artifact,
+                **run_metadata,
+                "file_size": 1,
+                "sha256": "fixture",
+            }
+            for artifact in core_artifacts
+        ]
+    ).to_csv(processed / "quantverse_v2_artifact_run_registry.csv", index=False)
     selected_view = pd.DataFrame(
         {
             "ticker": ["A", "B"],
@@ -245,6 +349,7 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "Forecast Error Versus Random Walk",
             "Random Benchmark Distribution",
             "Exposure and Concentration",
+            "Security Identity and History Eligibility",
             "Listing exposure",
             "Issuer exposure",
             "Economic exposure",
@@ -265,6 +370,10 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "EXECUTIVE_SUMMARY",
             "SELECTED_STOCKS_RAW",
             "SELECTED_METADATA_QUALITY",
+            "SECURITY_IDENTITY",
+            "HISTORY_ELIGIBILITY",
+            "FEATURE_ELIGIBILITY",
+            "COUNT_RECONCILIATION",
             "STOCK_SCORES",
             "RETURN_FORECASTS",
             "MODEL_LEAGUE",
@@ -418,3 +527,31 @@ def test_artifact_validator_fails_on_current_report_stale_decision_phrase(tmp_pa
         and not check["passed"]
         for check in result["checks"]
     )
+
+
+def test_portfolio_input_audit_detects_short_history_weight_leakage(tmp_path):
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "Model": ["Equal Weight"],
+            "Ticker": ["SPCX"],
+            "Weight": [1.0],
+        }
+    ).to_csv(processed / "global_master_candidate_weights.csv", index=False)
+    pd.DataFrame(
+        {
+            "Sharpe": [1.0],
+            "weight_SPCX": [1.0],
+        }
+    ).to_csv(processed / "global_master_random_portfolio_benchmark.csv", index=False)
+    pd.DataFrame({"ticker": ["SPCX"]}).to_csv(
+        processed / "global_master_selected_assets.csv", index=False
+    )
+    pd.DataFrame({"SPCX": [1.0]}).to_csv(
+        processed / "global_correlation_matrix.csv", index=False
+    )
+
+    violations = _portfolio_input_violations(processed, {"SPCX"})
+
+    assert violations == ["SPCX"]

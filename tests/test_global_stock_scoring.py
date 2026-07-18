@@ -57,6 +57,11 @@ def test_stock_scoring_schema_rankings_and_penalties_are_deterministic():
         "high_volatility"
         in first.loc[first["ticker"].eq("VOL"), "warning_flags"].iloc[0]
     )
+    low = first.loc[first["ticker"].eq("LOW")].iloc[0]
+    assert low["eligibility_status"] == "diagnostic_short_history"
+    assert bool(low["selection_flag"]) is False
+    assert pd.isna(low["momentum_12m"])
+    assert pd.isna(low["volatility_12m"])
     assert int(first["selection_flag"].sum()) == 3
 
 

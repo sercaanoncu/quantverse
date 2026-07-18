@@ -16,6 +16,11 @@ from project.research.global_portfolio_risk import (
     build_stock_risk_metrics,
     write_risk_outputs,
 )  # noqa: E402
+from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 
 def main() -> int:
@@ -41,8 +46,25 @@ def main() -> int:
         returns,
         weights,
     )
+    run_metadata = read_run_manifest(output)
+    stock_metrics = attach_run_metadata(stock_metrics, run_metadata)
+    portfolio_report = attach_run_metadata(portfolio_report, run_metadata)
+    contributions = attach_run_metadata(contributions, run_metadata)
+    stress = attach_run_metadata(stress, run_metadata)
+    tail = attach_run_metadata(tail, run_metadata)
     write_risk_outputs(
         stock_metrics, portfolio_report, contributions, stress, tail, output
+    )
+    register_artifacts(
+        output,
+        [
+            output / "global_stock_risk_metrics.csv",
+            output / "global_portfolio_risk_report.csv",
+            output / "global_risk_contribution_report.csv",
+            output / "global_stress_test_results.csv",
+            output / "global_tail_risk_report.csv",
+        ],
+        run_metadata,
     )
     print(f"Global risk report written: {len(portfolio_report)} portfolios")
     return 0

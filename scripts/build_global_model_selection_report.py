@@ -19,6 +19,11 @@ from project.research.global_model_selection import (
     simulate_constrained_random_distribution,
     write_model_selection_outputs,
 )  # noqa: E402
+from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 
@@ -71,12 +76,28 @@ def main() -> int:
         robustness_status=str(robustness.get("robustness_status", "stable")),
     )
     decision = build_final_model_decision(selection)
+    run_metadata = read_run_manifest(PROCESSED)
+    selection = attach_run_metadata(selection, run_metadata)
+    random_distribution = attach_run_metadata(random_distribution, run_metadata)
+    random_percentiles = attach_run_metadata(random_percentiles, run_metadata)
+    decision.update(run_metadata)
     write_model_selection_outputs(
         selection,
         decision,
         random_distribution,
         random_percentiles,
         PROCESSED,
+    )
+    register_artifacts(
+        PROCESSED,
+        [
+            PROCESSED / "global_model_selection_report.csv",
+            PROCESSED / "global_final_model_decision.csv",
+            PROCESSED / "global_final_model_decision.json",
+            PROCESSED / "global_random_portfolio_distribution.csv",
+            PROCESSED / "global_random_portfolio_percentile_report.csv",
+        ],
+        run_metadata,
     )
     print(
         "Global model selection report written: "

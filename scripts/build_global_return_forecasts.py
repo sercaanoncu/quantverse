@@ -19,6 +19,10 @@ from project.research.global_return_forecasting import (
 from project.research.global_stock_scoring import (
     build_global_stock_scores,
 )  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 
 def main() -> int:
@@ -35,10 +39,12 @@ def main() -> int:
         return 0
     returns = _read_returns(returns_path)
     tickers = _forecast_tickers(scores_path, universe_path, returns, config)
-    if tickers:
-        returns = returns[tickers]
-    forecasts = build_return_forecasts(returns)
-    write_return_forecasts(forecasts, output / "global_stock_return_forecasts.csv")
+    returns = returns[tickers]
+    run_metadata = read_run_manifest(output)
+    forecasts = build_return_forecasts(returns, run_metadata=run_metadata)
+    forecast_path = output / "global_stock_return_forecasts.csv"
+    write_return_forecasts(forecasts, forecast_path)
+    register_artifacts(output, [forecast_path], run_metadata)
     print(f"Global return forecasts written: {len(forecasts)} rows")
     return 0
 
@@ -62,7 +68,11 @@ def _forecast_tickers(
         scores = pd.read_csv(scores_path)
         if "ticker" in scores:
             if "selection_flag" in scores:
-                scores = scores.loc[scores["selection_flag"].astype(bool)]
+                scores = scores.loc[scores["selection_flag"].map(_truthy)]
+            if "standard_composite_score_eligible" in scores:
+                scores = scores.loc[
+                    scores["standard_composite_score_eligible"].map(_truthy)
+                ]
             return [
                 ticker
                 for ticker in scores["ticker"].dropna().astype(str).drop_duplicates()
@@ -83,6 +93,10 @@ def _forecast_tickers(
             if ticker in returns.columns
         ]
     return []
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 def _read_returns(path: Path) -> pd.DataFrame:

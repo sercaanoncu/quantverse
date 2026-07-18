@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from project.data_pipeline.security_identity import resolve_security_master_rows
+
 EXPOSURE_COLUMNS = ["bucket", "weight", "asset_count", "interpretation"]
 
 TOP_HOLDINGS_COLUMNS = [
@@ -220,7 +222,7 @@ def _metadata(universe: pd.DataFrame) -> pd.DataFrame:
                 "metadata_missing_reason",
             ]
         )
-    frame = universe.copy()
+    frame = resolve_security_master_rows(universe)
     frame["ticker"] = frame["ticker"].astype(str)
     for column in ["name", "sleeve", "region", "country", "currency", "sector"]:
         _ensure_column(frame, column)
@@ -258,7 +260,7 @@ def _metadata(universe: pd.DataFrame) -> pd.DataFrame:
     frame["metadata_missing_reason"] = _clean_text_series(
         frame["metadata_missing_reason"]
     )
-    return frame.drop_duplicates("ticker", keep="first")[
+    return frame[
         [
             "ticker",
             "name",

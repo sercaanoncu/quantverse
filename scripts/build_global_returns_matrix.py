@@ -10,6 +10,9 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.data_pipeline.global_returns import (
     build_log_returns_matrix,
     build_returns_matrix,
@@ -25,6 +28,19 @@ from project.data_pipeline.global_returns import (
     required_fx_tickers,
 )
 from project.data_pipeline.security_universe import filter_included_investable_assets
+from project.data_pipeline.security_identity import (
+    apply_security_history_boundaries,
+    attach_run_metadata,
+    build_security_history_eligibility,
+    build_security_identity_audit,
+    load_security_identity_overrides,
+    resolve_security_master_rows,
+)
+from project.research.run_identity import (
+    build_run_manifest,
+    register_artifacts,
+    write_run_manifest,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,6 +70,7 @@ def main() -> int:
         _write_status(output_dir, "missing_universe", "No universe files were found.")
         print("No universe files found; returns matrix not built.")
         return 0
+    universe = resolve_security_master_rows(universe)
 
     investable = filter_included_investable_assets(universe)
     if investable.empty:
@@ -80,6 +97,16 @@ def main() -> int:
         )
         print("No prices available; returns matrix not built.")
         return 0
+    provider_prices = prices.copy()
+    identity_overrides = load_security_identity_overrides(
+        config.get(
+            "security_identity_overrides_path",
+            "data/reference/security_identity_overrides.csv",
+        )
+    )
+    prices, truncation_report = apply_security_history_boundaries(
+        prices, identity_overrides
+    )
 
     fx_config = config.get("fx", {}) or {}
     fx_mappings = fx_mappings_from_config(fx_config)
@@ -108,8 +135,36 @@ def main() -> int:
         fx_mappings=fx_mappings,
         max_forward_fill_days=int(fx_config.get("max_forward_fill_days", 2)),
     )
-    simple_returns_usd = simple_returns_usd.dropna(how="all")
+    simple_returns_usd = simple_returns_usd.dropna(axis=1, how="all").dropna(how="all")
     log_returns_usd = simple_to_log_returns(simple_returns_usd).dropna(how="all")
+    data_as_of = (
+        pd.Timestamp(prices.dropna(how="all").index.max()).date().isoformat()
+        if not prices.dropna(how="all").empty
+        else "unavailable"
+    )
+    run_manifest = build_run_manifest(universe, data_as_of_date=data_as_of)
+    write_run_manifest(output_dir, run_manifest, reset_registry=True)
+    identity_audit = build_security_identity_audit(
+        universe,
+        provider_prices,
+        prices,
+        simple_returns_usd,
+        identity_overrides,
+        truncation_report,
+        minimum_standard_observations=int(
+            config.get("minimum_standard_history_observations", 252)
+        ),
+        minimum_forecast_observations=int(
+            config.get("minimum_forecast_history_observations", 252)
+        ),
+        minimum_walk_forward_observations=int(
+            config.get("minimum_walk_forward_history_observations", 252)
+        ),
+    )
+    identity_audit = attach_run_metadata(identity_audit, run_manifest)
+    history_eligibility = attach_run_metadata(
+        build_security_history_eligibility(identity_audit), run_manifest
+    )
     prices.to_csv(output_dir / "global_security_prices.csv", index_label="Date")
     simple_returns_local.to_csv(
         output_dir / "global_security_simple_returns_local.csv", index_label="Date"
@@ -138,10 +193,33 @@ def main() -> int:
     return_outlier_report(simple_returns_usd).to_csv(
         output_dir / "global_return_outlier_report.csv", index=False
     )
+    identity_audit.to_csv(
+        output_dir / "global_security_identity_audit.csv", index=False
+    )
+    history_eligibility.to_csv(
+        output_dir / "global_security_history_eligibility.csv", index=False
+    )
     _write_status(
         output_dir,
         "completed",
         f"Built USD-normalized simple/log returns for {simple_returns_usd.shape[1]} assets.",
+        run_manifest=run_manifest,
+    )
+    register_artifacts(
+        output_dir,
+        [
+            output_dir / "global_security_prices.csv",
+            output_dir / "global_security_simple_returns_local.csv",
+            output_dir / "global_security_simple_returns_usd.csv",
+            output_dir / "global_security_log_returns_local.csv",
+            output_dir / "global_security_log_returns_usd.csv",
+            output_dir / "global_returns_coverage_report.csv",
+            output_dir / "global_fx_normalization_report.csv",
+            output_dir / "global_security_identity_audit.csv",
+            output_dir / "global_security_history_eligibility.csv",
+            output_dir / "global_returns_matrix_status.json",
+        ],
+        run_manifest,
     )
     print(f"Global returns matrix assets: {simple_returns_usd.shape[1]}")
     return 0
@@ -174,9 +252,17 @@ def _fx_prices(
     ]
 
 
-def _write_status(output_dir: Path, status: str, message: str) -> None:
+def _write_status(
+    output_dir: Path,
+    status: str,
+    message: str,
+    *,
+    run_manifest: dict[str, str] | None = None,
+) -> None:
+    payload = {"status": status, "message": message}
+    payload.update(run_manifest or {})
     (output_dir / "global_returns_matrix_status.json").write_text(
-        json.dumps({"status": status, "message": message}, indent=2),
+        json.dumps(payload, indent=2),
         encoding="utf-8",
     )
 

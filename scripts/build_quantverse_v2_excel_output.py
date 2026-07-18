@@ -28,6 +28,10 @@ SHEETS = {
     "SELECTED_STOCKS_RAW": "data/processed/global_stock_scores.csv",
     "SELECTED_STOCKS": "data/processed/global_selected_stocks_report_view.csv",
     "SELECTED_METADATA_QUALITY": "data/processed/global_selected_stocks_report_view_quality.csv",
+    "SECURITY_IDENTITY": "data/processed/global_security_identity_audit.csv",
+    "HISTORY_ELIGIBILITY": "data/processed/global_security_history_eligibility.csv",
+    "FEATURE_ELIGIBILITY": "data/processed/global_feature_history_eligibility.csv",
+    "COUNT_RECONCILIATION": "data/processed/global_cross_artifact_count_reconciliation.csv",
     "RETURN_FORECASTS": "data/processed/global_stock_return_forecasts.csv",
     "MODEL_LEAGUE": "data/processed/global_portfolio_league.csv",
     "FINAL_WEIGHTS": "data/processed/global_portfolio_league_weights.csv",
@@ -80,14 +84,15 @@ def main() -> int:
     )
     summary = _summary_rows()
     with pd.ExcelWriter(OUTPUT, engine="xlsxwriter") as writer:
+        tabular_frames: dict[str, pd.DataFrame] = {}
         _write_dashboard(writer)
         _write_visual_analytics_dashboard(writer)
-        pd.DataFrame(_start_here()).to_excel(
-            writer, sheet_name="START_HERE", index=False
-        )
-        pd.DataFrame(summary).to_excel(
-            writer, sheet_name="EXECUTIVE_SUMMARY", index=False
-        )
+        start_here = pd.DataFrame(_start_here())
+        start_here.to_excel(writer, sheet_name="START_HERE", index=False)
+        tabular_frames["START_HERE"] = start_here
+        executive_summary = pd.DataFrame(summary)
+        executive_summary.to_excel(writer, sheet_name="EXECUTIVE_SUMMARY", index=False)
+        tabular_frames["EXECUTIVE_SUMMARY"] = executive_summary
         for sheet, raw_path in SHEETS.items():
             frame = _read_csv(ROOT / raw_path)
             if (
@@ -95,19 +100,88 @@ def main() -> int:
                 and not frame.empty
                 and "selection_flag" in frame
             ):
-                frame = frame.loc[frame["selection_flag"].astype(bool)]
+                frame = frame.loc[frame["selection_flag"].map(_truthy)]
             if sheet == "SELECTED_STOCKS":
                 _write_selected_stocks_sheet(writer, frame)
                 continue
             frame.to_excel(writer, sheet_name=sheet[:31], index=False)
-        pd.DataFrame(_appendix()).to_excel(
-            writer, sheet_name="APPENDIX_RAW_TABLES", index=False
-        )
-        pd.DataFrame(_formula_dictionary()).to_excel(
-            writer, sheet_name="APPENDIX_FORMULAS", index=False
-        )
+            tabular_frames[sheet[:31]] = frame
+        appendix = pd.DataFrame(_appendix())
+        appendix.to_excel(writer, sheet_name="APPENDIX_RAW_TABLES", index=False)
+        tabular_frames["APPENDIX_RAW_TABLES"] = appendix
+        formulas = pd.DataFrame(_formula_dictionary())
+        formulas.to_excel(writer, sheet_name="APPENDIX_FORMULAS", index=False)
+        tabular_frames["APPENDIX_FORMULAS"] = formulas
+        _format_tabular_sheets(writer, tabular_frames)
     print(f"QuantVerse v2 Excel written: {OUTPUT}")
     return 0
+
+
+def _format_tabular_sheets(
+    writer: pd.ExcelWriter,
+    frames: dict[str, pd.DataFrame],
+) -> None:
+    """Apply bounded, readable formatting to evidence tables."""
+    workbook = writer.book
+    header = workbook.add_format(
+        {
+            "bold": True,
+            "bg_color": "#1F2937",
+            "font_color": "white",
+            "text_wrap": True,
+            "valign": "top",
+            "border": 1,
+        }
+    )
+    body = workbook.add_format({"text_wrap": True, "valign": "top"})
+    for sheet_name, frame in frames.items():
+        worksheet = writer.sheets[sheet_name]
+        worksheet.freeze_panes(1, 0)
+        worksheet.set_row(0, 30, header)
+        if not frame.empty and len(frame.columns):
+            worksheet.autofilter(0, 0, len(frame), len(frame.columns) - 1)
+        for column_index, column in enumerate(frame.columns):
+            worksheet.write(0, column_index, column, header)
+            sample = frame[column].head(100).fillna("").astype(str)
+            maximum = max(
+                [len(str(column)), *(len(value) for value in sample)],
+                default=len(str(column)),
+            )
+            width = min(max(maximum + 2, 10), 32)
+            worksheet.set_column(column_index, column_index, width, body)
+
+    start = writer.sheets.get("START_HERE")
+    if start is not None:
+        start.set_column("A:A", 30, body)
+        start.set_column("B:B", 92, body)
+        for row in range(1, len(frames["START_HERE"]) + 1):
+            start.set_row(row, 42)
+
+    executive = writer.sheets.get("EXECUTIVE_SUMMARY")
+    if executive is not None:
+        executive.set_column("A:A", 42, body)
+        executive.set_column("B:B", 82, body)
+
+    reconciliation = writer.sheets.get("COUNT_RECONCILIATION")
+    if reconciliation is not None:
+        reconciliation.set_column("A:A", 30, body)
+        reconciliation.set_column("B:C", 14, body)
+        reconciliation.set_column("D:D", 36, body)
+        reconciliation.set_column("E:F", 38, body)
+        reconciliation.set_column("G:G", 12, body)
+        reconciliation.set_column("H:H", 68, body)
+        reconciliation.set_column("I:J", 32, body)
+        for row in range(1, len(frames["COUNT_RECONCILIATION"]) + 1):
+            reconciliation.set_row(row, 44)
+
+    identity = writer.sheets.get("SECURITY_IDENTITY")
+    if identity is not None:
+        identity.freeze_panes(1, 2)
+        identity.set_column("A:B", 13, body)
+        identity.set_column("C:D", 38, body)
+        identity.set_column("E:G", 24, body)
+        identity.set_column("X:X", 65, body)
+        identity.set_column("AD:AD", 58, body)
 
 
 def _write_dashboard(writer: pd.ExcelWriter) -> None:
@@ -686,6 +760,18 @@ def _start_here() -> list[dict[str, str]]:
             "message": "Use SELECTED_STOCKS for the curated semantic view, SELECTED_METADATA_QUALITY for join/coverage checks and SELECTED_STOCKS_RAW only for unmodified scoring evidence.",
         },
         {
+            "section": "Security identity",
+            "message": "Read SECURITY_IDENTITY before interpreting returns. A ticker is not a permanent identifier; known reuse, verified listing dates and any history truncation are recorded there.",
+        },
+        {
+            "section": "Short history",
+            "message": "FEATURE_ELIGIBILITY shows whether 1M/3M/6M/12M features have enough observations. diagnostic_short_history rows remain visible but cannot enter the standard portfolio selection.",
+        },
+        {
+            "section": "Run consistency",
+            "message": "COUNT_RECONCILIATION must pass before selected-stock, forecast, final-holding and walk-forward counts are compared; all core outputs must share one run_id.",
+        },
+        {
             "section": "Country exposure distinction",
             "message": "Use EXPOSURE_LISTING_COUNTRY for listing venue, EXPOSURE_ISSUER_COUNTRY for company domicile and EXPOSURE_ECON_COUNTRY only where economic-risk geography is explicitly available.",
         },
@@ -775,6 +861,10 @@ def _first_cell(frame: pd.DataFrame, column: str) -> object:
     if frame.empty or column not in frame:
         return "not available"
     return frame[column].iloc[0]
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 if __name__ == "__main__":

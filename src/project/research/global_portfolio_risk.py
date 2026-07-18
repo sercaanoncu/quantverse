@@ -51,10 +51,12 @@ def build_portfolio_risk_report(
     tail_rows: list[dict[str, object]] = []
     for model, model_weights in weight_map.items():
         aligned = model_weights.reindex(clean.columns).fillna(0.0)
+        aligned = aligned.loc[aligned.abs() > 1e-12]
         if aligned.sum() <= 0:
             continue
         aligned = aligned / aligned.sum()
-        portfolio_returns = portfolio_return_series(clean, aligned)
+        model_returns = clean.loc[:, aligned.index]
+        portfolio_returns = portfolio_return_series(model_returns, aligned)
         metrics = evaluate_return_series(portfolio_returns)
         diagnostics = return_series_diagnostics(portfolio_returns)
         risk_rows.append(
@@ -69,7 +71,7 @@ def build_portfolio_risk_report(
                 "extreme_metric_warning": _extreme_metric_warning(metrics),
             }
         )
-        contribution_rows.extend(_risk_contributions(clean, aligned, model))
+        contribution_rows.extend(_risk_contributions(model_returns, aligned, model))
         stress_rows.extend(_stress_tests(aligned, model))
         tail_rows.append(
             {

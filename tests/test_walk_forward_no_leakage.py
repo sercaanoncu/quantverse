@@ -26,14 +26,14 @@ def _universe() -> pd.DataFrame:
 
 
 def test_walk_forward_recomputes_scores_inside_train_window_without_future_winner():
-    index = pd.date_range("2024-01-01", periods=90, freq="B")
+    index = pd.date_range("2024-01-01", periods=282, freq="B")
     train = pd.DataFrame(
         {
-            "GOOD": [0.002] * 60,
-            "FUTURE_WINNER": [-0.002] * 60,
-            "BAD": [-0.004] * 60,
+            "GOOD": [0.002] * 252,
+            "FUTURE_WINNER": [-0.002] * 252,
+            "BAD": [-0.004] * 252,
         },
-        index=index[:60],
+        index=index[:252],
     )
     test = pd.DataFrame(
         {
@@ -41,14 +41,14 @@ def test_walk_forward_recomputes_scores_inside_train_window_without_future_winne
             "FUTURE_WINNER": [0.20] * 30,
             "BAD": [0.0] * 30,
         },
-        index=index[60:],
+        index=index[252:],
     )
     returns = pd.concat([train, test])
 
     result = run_public_data_walk_forward(
         returns,
         _universe(),
-        train_window_days=60,
+        train_window_days=252,
         test_window_days=20,
         step_days=20,
         max_assets=1,

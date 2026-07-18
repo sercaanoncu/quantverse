@@ -8,6 +8,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from project.data_pipeline.security_identity import (
+    build_feature_history_eligibility,
+    resolve_security_master_rows,
+)
 from project.research.global_numerical_integrity import portfolio_return_series
 from project.research.global_portfolio_league import build_portfolio_league
 from project.research.global_portfolio_risk import evaluate_return_series
@@ -29,9 +33,19 @@ def run_public_data_walk_forward(
     max_folds: int | None = 12,
     default_scope: str = "equity_only",
     include_crypto: bool = False,
+    security_identity_audit: pd.DataFrame | None = None,
+    minimum_standard_observations: int = 252,
 ) -> dict[str, pd.DataFrame | dict[str, object]]:
     """Run current-universe public-data walk-forward research validation."""
     clean = _clean_returns(returns)
+    scoped_tickers = _scope_tickers(
+        universe,
+        default_scope=default_scope,
+        include_crypto=include_crypto,
+    )
+    available_scoped = [ticker for ticker in scoped_tickers if ticker in clean]
+    if available_scoped:
+        clean = clean[available_scoped].dropna(how="all")
     if clean.shape[0] < train_window_days + test_window_days:
         summary = {
             "walk_forward_status": "insufficient_history",
@@ -70,6 +84,11 @@ def run_public_data_walk_forward(
         if train.empty or test.empty:
             continue
         as_of_date = train.index.max()
+        feature_eligibility = build_feature_history_eligibility(
+            train,
+            security_identity_audit,
+            minimum_standard_observations=minimum_standard_observations,
+        )
         scores = build_global_stock_scores(
             train,
             universe,
@@ -77,9 +96,11 @@ def run_public_data_walk_forward(
             max_selected=max_assets,
             default_scope=default_scope,
             include_crypto=include_crypto,
+            feature_history_eligibility=feature_eligibility,
+            minimum_standard_observations=minimum_standard_observations,
         )
         selected_for_fold = (
-            scores.loc[scores["selection_flag"].astype(bool), "ticker"]
+            scores.loc[scores["selection_flag"].map(_truthy), "ticker"]
             .astype(str)
             .tolist()
         )
@@ -99,6 +120,15 @@ def run_public_data_walk_forward(
                 "test_observations": int(test.shape[0]),
                 "selected_count": int(len(selected_for_fold)),
                 "selected_tickers": ";".join(selected_for_fold),
+                "standard_scoring_eligible_count": int(
+                    scores["standard_composite_score_eligible"].map(_truthy).sum()
+                ),
+                "short_history_diagnostic_count": int(
+                    scores["eligibility_status"]
+                    .astype(str)
+                    .eq("diagnostic_short_history")
+                    .sum()
+                ),
             }
         )
         leakage_rows.extend(
@@ -398,3 +428,37 @@ def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
     clean = clean.loc[clean.index.notna()]
     clean = clean.apply(pd.to_numeric, errors="coerce")
     return clean.dropna(axis=1, how="all").dropna(how="all")
+
+
+def _scope_tickers(
+    universe: pd.DataFrame,
+    *,
+    default_scope: str,
+    include_crypto: bool,
+) -> list[str]:
+    if universe.empty or "ticker" not in universe:
+        return []
+    frame = resolve_security_master_rows(universe)
+    for column, default in [
+        ("include", True),
+        ("investable", True),
+        ("signal_only", False),
+    ]:
+        if column not in frame:
+            frame[column] = default
+    frame = frame.loc[
+        frame["include"].map(_truthy)
+        & frame["investable"].map(_truthy)
+        & ~frame["signal_only"].map(_truthy)
+    ]
+    sleeve = frame.get("sleeve", pd.Series("", index=frame.index)).astype(str)
+    scope = str(default_scope or "equity_only").strip().lower()
+    if scope == "equity_only":
+        frame = frame.loc[sleeve.str.startswith("global_equity", na=False)]
+    elif scope == "multi_asset_no_crypto" or not include_crypto:
+        frame = frame.loc[~sleeve.str.contains("crypto", case=False, na=False)]
+    return frame["ticker"].dropna().astype(str).drop_duplicates().tolist()
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
