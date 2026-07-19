@@ -57,11 +57,11 @@ python scripts/run_full_pipeline.py --config configs/base.yaml
 Latest validated pytest result:
 
 ```text
-102 passed
+306 passed
 ```
 
 If deterministic tests are added or removed later, update README and
 reproducibility docs to match the actual `pytest -q` output.
 
-Passing criterion: every command exits successfully. No commit or push should be
-performed in the old local folder.
+Passing criterion: every command exits successfully. Generated artifacts remain
+uncommitted, and no push is performed without explicit approval.

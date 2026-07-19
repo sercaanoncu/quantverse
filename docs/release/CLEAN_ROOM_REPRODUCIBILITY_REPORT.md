@@ -1,5 +1,12 @@
 # Clean-Room Reproducibility Report
 
+> Historical record: this file describes the earlier isolated
+> `quantverse_release_check` run. Its Policy Constrained model and 164/166-test
+> counts are not the current QuantVerse v2 result. The current corrected clean
+> output rebuild is documented in
+> `docs/audit/QUANTVERSE_V2_FULL_AUDIT_REPAIR_IMPACT.md`; it selects Equal
+> Weight as the public-data research model and remains `not promoted`.
+
 Clean-room path:
 
 `<desktop>/quantverse_release_check`

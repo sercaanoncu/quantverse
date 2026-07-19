@@ -2,10 +2,14 @@
 
 ## Decision
 
-The final public-data research model remains HRP. This audit changes reporting
-semantics only; it does not change stock scores, portfolio weights, the model
-league, or the model-selection gate. Institutional/global master promotion
-remains `not_promoted`.
+The semantic repair remains valid, but the latest corrected evidence now
+selects **Equal Weight** as the public-data research model. HRP remains an
+actually-run defensive candidate. This document does not select either model;
+it governs how their holdings and exposures are described.
+
+Institutional/global master promotion remains `not_promoted`. The canonical
+report must keep the public-data v2 decision, legacy global-master candidate,
+and institutional promotion as separate scopes.
 
 The canonical user-facing selected-stock view is
 `data/processed/global_selected_stocks_report_view.csv`. Its join and coverage

@@ -1,89 +1,96 @@
 # QuantVerse v2 Release Notes
 
-QuantVerse v2 is a public-data global equity research, portfolio model comparison, and risk analytics project. It produces research candidates and evidence reports, but it does not provide investment advice and does not promote an institutional global USD master portfolio.
+## Release Position
 
-## What QuantVerse v2 Does
+QuantVerse v2 is a public-data global equity research, model-comparison, and
+risk-analytics project. Current verdict:
 
-- Builds a current public-provider global equity research universe.
-- Generates USD-normalized return matrices where the public-data FX path is available.
-- Scores stocks using deterministic public-data research features.
-- Compares portfolio construction models under constraints.
-- Evaluates Equal Weight and random portfolios as mandatory benchmarks.
-- Runs walk-forward validation on the current public-data universe.
-- Produces risk, exposure, forecast-diagnostic, robustness, and claim-control outputs.
-- Generates PDF, HTML, Excel, thesis-style, and defense-style research artifacts.
+**RESEARCH_READY_WITH_LIMITATIONS**
 
-## Major Modules
+It is not investment advice, an official exact top-100 universe, an
+institutional point-in-time backtest, a production trading system, or a
+promoted global USD master portfolio.
 
-- Universe and source validation
-- Return matrix and FX normalization checks
-- Stock scoring
-- Portfolio model league
-- Robust model selection
-- Random portfolio benchmarking
-- Walk-forward validation
-- Forecast diagnostics
-- Exposure and risk reporting
-- Publish-readiness claim controls
-- Generated artifact validation
+## Current Clean-Run Decision
+
+| Item | Result |
+|---|---|
+| Data as of | 2026-07-17 |
+| Run ID | `qv2-2026-07-17-259efc27e54d3d25` |
+| Universe rows | 890 |
+| Assets with returns | 100 |
+| Selected stocks | 40 |
+| Final public-data research model | Equal Weight |
+| Final holdings | 40 |
+| Decision | `not promoted` |
+| Institutional/global-master promotion | `not_promoted` |
+| Publish scope | public-data research with limitations |
+
+Equal Weight is selected because no active challenger clears all comparable
+walk-forward, paired uncertainty, robustness, random-benchmark, cost,
+downside-risk, and metric-review gates. It is not hard-coded as winner.
+
+## Scientific Hardening
+
+- strict portfolio-weight and missing-return contracts;
+- security identity, ticker-history, and feature-history controls;
+- crypto/stable-value master-input gates;
+- explicit optimizer failure and infeasibility states;
+- true chronological walk-forward daily OOS evidence;
+- same-protocol OOS random portfolio benchmarking;
+- paired circular block-bootstrap model differences;
+- metric-review warnings in active selection gates;
+- corrected Sharpe, Sortino, Calmar, VaR/CVaR, and benchmark overlap semantics;
+- valid log-space Monte Carlo support;
+- deterministic run/data/config/input fingerprints;
+- mixed-run and cross-artifact reconciliation;
+- independent reference math checks;
+- explicit v2, legacy candidate, and institutional decision scopes.
 
 ## Model League
 
-The v2 model league includes constrained and benchmark-aware public-data research models. Models are evaluated for weight validity, constraints, risk metrics, walk-forward evidence, benchmark comparison, random-portfolio percentile, robustness, and limitations.
+Actually run: Inverse Volatility, GMV, HRP, Risk Parity, and Min CVaR.
 
-## Final Model Selection Logic
+Benchmark: Equal Weight. Random portfolios are a benchmark distribution and
+cannot be selected.
 
-The final research model is selected by `robust_public_data_evidence_gate`. The model selection result is not equivalent to a promoted global USD master portfolio.
+Diagnostic only: Max Sharpe, Black-Litterman, Policy Constrained,
+Forecast-Enhanced Constrained, ML Forecast, and Ensemble Forecast.
 
-Final validation generated output showed:
+## Current Limitations
 
-- Final selected model: `Policy Constrained`
-- Final model decision: `not promoted`
-- Publish readiness: `research_publish_ready_with_limitations`
+- only 252 OOS observations;
+- current-universe survivorship/current-membership bias;
+- no official dated exact top-100 market-cap evidence;
+- no complete point-in-time delisting/corporate-action database;
+- no nested OOS robustness across every tested policy dimension;
+- incomplete multiple-testing control;
+- economic-country exposure unavailable;
+- simplified costs and no execution/capacity layer;
+- no production model approval, monitoring, limits, access control, or audit trail.
 
-Clean-room generated output also selected `Policy Constrained` and retained the same `not promoted` decision. If a future public-data rerun selects a different research model, that must be treated as generated-output drift and the latest validation run should be treated as the source of truth for the current artifact set.
+## Generated Outputs
 
-## Outputs
+Generated `data/processed/*` and `output/*` artifacts are excluded from source
+commits. The current package includes PDF, HTML, Excel, visual audit,
+presentation, cross-artifact reconciliation, and independent math evidence.
 
-- `data/processed/quantverse_v2_demo_summary.json`
-- `data/processed/global_final_model_decision.json`
-- `data/processed/global_model_selection_report.csv`
-- `data/processed/global_portfolio_league.csv`
-- `data/processed/global_portfolio_league_weights.csv`
-- `data/processed/global_random_portfolio_percentile_report.csv`
-- `data/processed/global_robustness_sensitivity.csv`
-- `data/processed/global_forecast_validation_by_horizon.csv`
-- `output/pdf/quantverse_v2_research_report.pdf`
-- `output/html/quantverse_v2_research_report.html`
-- `output/excel/quantverse_v2_research_output.xlsx`
-- `output/thesis/quantverse_doctoral_dissertation_full.pdf`
-- `output/thesis/quantverse_doctoral_defense_presentation_full.pdf`
+## Validation Gates
 
-The output files above are generated artifacts and should not be committed.
+Release requires:
 
-## Validation Result
+```text
+python scripts/run_quantverse_v2_demo.py --config configs/global_equity_research.yaml
+python scripts/run_full_pipeline.py --config configs/base.yaml
+python scripts/validate_quantverse_v2_artifacts.py
+python scripts/qa/verify_quantverse_reference_math.py
+python -m pytest -q
+python -m black src scripts tests
+python -m black --check src scripts tests
+python -m ruff check src scripts tests
+python -m compileall src scripts
+git diff --check
+```
 
-Release-candidate QA added `scripts/validate_quantverse_v2_artifacts.py`, which checks required generated files, schemas, row counts, model-decision consistency, weight sums, PDF page/text extraction, HTML sections, Excel sheets, and generated-report claim language.
-
-Validation status observed before final rerun:
-
-- Artifact validation: passed
-- Required checks: 19
-- Failed checks: 0
-- Initial pytest: 164 passed
-- Clean-room pytest: 164 passed
-- Final pytest after adding release QA: 166 passed
-
-## Limitations
-
-- Official exact top-100 market-cap support remains unavailable.
-- Point-in-time historical constituent evidence remains unavailable.
-- Delisting and institutional corporate-action reconciliation remain unavailable.
-- The current walk-forward evidence uses a current public-data universe, not institutional PIT membership.
-- Public data can drift between runs.
-- Extreme annualized return and Sharpe estimates are warning flags requiring review, not success claims.
-- The global master portfolio remains `not promoted`.
-
-## Release Position
-
-QuantVerse v2 is ready to publish as a transparent public-data research project if final validation passes. It is not ready to present as a production trading platform or an institutional point-in-time investment system.
+The exact final test count belongs in the final release response because tests
+can be added during the audit.

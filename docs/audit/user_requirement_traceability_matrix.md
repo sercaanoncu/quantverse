@@ -11,14 +11,14 @@ This matrix reconstructs the user's requirements and maps each one to evidence, 
 
 | # | Requirement | Status | Evidence | Limitation | Sprint Fix |
 |---:|---|---|---|---|---|
-| 1 | Real stocks must enter the analysis. | `met` | data/processed/real_global_universe_population_summary.csv | No exact historical point-in-time membership. | True |
+| 1 | Real stocks must enter the analysis. | `met` | data/processed/current_global_universe_summary.csv | No exact historical point-in-time membership. | True |
 | 2 | NASDAQ and NYSE must be represented separately. | `partially_met` | data/universe/sources/nasdaq_top100_candidates.csv; data/universe/sources/nyse_top100_candidates.csv | NYSE file is S&P 100 proxy, not pure NYSE top-100. | False |
-| 3 | Europe, Germany, UK, BIST, Japan and China/HK must be represented. | `met` | data/processed/real_global_universe_population_summary.csv | Several are index proxies. | True |
+| 3 | Europe, Germany, UK, BIST, Japan and China/HK must be represented. | `met` | data/processed/current_global_universe_summary.csv | Several are index proxies. | True |
 | 4 | Gold, silver, oil, platinum and copper must be represented. | `met` | data/universe/sources/commodity_candidates.csv | ETF/fund proxies differ from spot/futures. | True |
 | 5 | Crypto top 100 must be represented. | `met` | data/universe/sources/crypto_top100_candidates.csv | Yahoo ticker mapping can fail. | True |
 | 6 | Bonds, bills and cash proxies must be represented. | `met` | data/universe/sources/bond_bill_candidates.csv | ETF proxy risk differs from direct bills/bonds. | True |
 | 7 | Distinguish exact market-cap top-100 from index proxies. | `met` | source_method columns | Visual report was previously too table-heavy. | True |
-| 8 | Do not claim exact top-100 when cap/rank evidence is missing. | `met` | data/processed/real_global_universe_market_cap_coverage.csv | Exact top-100 still blocked. | True |
+| 8 | Do not claim exact top-100 when cap/rank evidence is missing. | `met` | data/processed/global_exact_proxy_classification_report.csv | Exact top-100 still blocked. | True |
 | 9 | Region/sleeve clustering must be shown. | `partially_met` | global_master_asset_class_weights.csv; global_master_region_weights.csv | Exchange-level clustering is not separate. | True |
 | 10 | Correlation clustering must be shown. | `met` | global_cluster_membership.csv | Cluster stability not bootstrapped. | True |
 | 11 | Number of clusters must be justified. | `partially_met` | global_cluster_diagnostics.csv | Selection rule is still heuristic. | True |
