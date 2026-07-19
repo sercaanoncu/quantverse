@@ -807,7 +807,10 @@ def _formula_dictionary() -> list[dict[str, str]]:
         },
         {
             "metric": "Sharpe",
-            "formula": "(annualized_return - risk_free_rate) / annualized_volatility",
+            "formula": (
+                "mean(daily_simple_return - compounded_daily_risk_free_hurdle) "
+                "* 252 / annualized_volatility"
+            ),
             "interpretation": "Return per unit risk; current v2 output uses zero risk-free assumption unless configured otherwise.",
         },
         {

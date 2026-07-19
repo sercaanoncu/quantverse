@@ -43,6 +43,15 @@ def main() -> int:
         pd.read_csv(universe_path) if universe_path.exists() else None,
         max_assets=int(config.get("v2", {}).get("max_selected_stocks", 40)),
         max_weight=float(config.get("v2", {}).get("max_weight", 0.10)),
+        risk_free_rate_annual=float(
+            config.get("v2", {}).get("risk_free_rate_annual", 0.0)
+        ),
+        risk_free_policy=str(
+            config.get("v2", {}).get(
+                "risk_free_policy",
+                "zero_rate_labeled_research_assumption",
+            )
+        ),
     )
     run_metadata = read_run_manifest(output)
     league = attach_run_metadata(league, run_metadata)

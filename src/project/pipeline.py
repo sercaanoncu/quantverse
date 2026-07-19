@@ -776,6 +776,8 @@ def _write_backtest_artifacts(
                 "Total_Turnover": result["total_turnover"],
                 "Total_Cost": result["total_cost"],
                 "Annualized_Cost_Drag_%": result["annualized_cost_drag_%"],
+                "Optimizer_Failure_Count": result["optimizer_failure_count"],
+                "Optimization_Status": result["optimization_status"],
             }
             for name, result in results.items()
         }
@@ -1183,6 +1185,8 @@ def _write_transaction_cost_sensitivity_artifacts(
                     "Max_Drawdown": metrics["Max Drawdown"],
                     "Total_Cost": result["total_cost"],
                     "Annualized_Cost_Drag_%": result["annualized_cost_drag_%"],
+                    "Optimizer_Failure_Count": result["optimizer_failure_count"],
+                    "Optimization_Status": result["optimization_status"],
                     "Interpretation": _cost_sensitivity_interpretation(bps, strategy),
                 }
             )

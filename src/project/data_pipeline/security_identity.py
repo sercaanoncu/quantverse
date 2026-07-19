@@ -517,9 +517,13 @@ def attach_run_metadata(
     result = frame.copy()
     for column in [
         "run_id",
+        "execution_id",
         "data_as_of_date",
         "generated_at",
         "universe_snapshot_id",
+        "data_snapshot_id",
+        "config_hash",
+        "input_fingerprint",
     ]:
         result[column] = str((metadata or {}).get(column, "unavailable"))
     return result

@@ -14,6 +14,8 @@ from scipy import stats
 import logging
 from typing import Dict, Optional, Tuple
 
+from project.portfolio_contract import align_portfolio_weights
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,11 +37,13 @@ class VaRCVaRCalculator:
             Portfolio weights. If None, equal weight.
         """
         self.asset_returns = returns.dropna()
+        if self.asset_returns.empty:
+            raise ValueError("VaR/CVaR return history is empty")
         self.tickers = list(returns.columns)
         self.n_assets = len(self.tickers)
 
         if weights is not None:
-            self.weights = weights.reindex(self.tickers).fillna(0).values
+            self.weights = self._aligned_weights(weights)
         else:
             self.weights = np.ones(self.n_assets) / self.n_assets
 
@@ -47,8 +51,20 @@ class VaRCVaRCalculator:
 
     def set_weights(self, weights: pd.Series):
         """Update portfolio weights."""
-        self.weights = weights.reindex(self.tickers).fillna(0).values
+        self.weights = self._aligned_weights(weights)
         self.portfolio_returns = self.asset_returns.values @ self.weights
+
+    def _aligned_weights(self, weights: pd.Series) -> np.ndarray:
+        return align_portfolio_weights(
+            weights,
+            self.tickers,
+            context="VaR/CVaR portfolio",
+        ).to_numpy(dtype=float)
+
+    @staticmethod
+    def _validate_alpha(alpha: float) -> None:
+        if not 0.0 < float(alpha) < 1.0:
+            raise ValueError("alpha must be strictly between 0 and 1")
 
     def historical_horizon(
         self,
@@ -56,6 +72,9 @@ class VaRCVaRCalculator:
         horizon: int = 252,
     ) -> Dict[str, float]:
         """Empirical horizon VaR/CVaR from rolling compounded portfolio returns."""
+        self._validate_alpha(alpha)
+        if horizon <= 0:
+            raise ValueError("horizon must be positive")
         r = pd.Series(self.portfolio_returns, index=self.asset_returns.index)
         if len(r) < horizon:
             return {"VaR": np.nan, "CVaR": np.nan, "horizon": horizon, "n_obs": 0}
@@ -91,6 +110,7 @@ class VaRCVaRCalculator:
 
         Underestimates tail risk for fat-tailed distributions.
         """
+        self._validate_alpha(alpha)
         mu = self.portfolio_returns.mean()
         sigma = self.portfolio_returns.std()
 
@@ -103,8 +123,10 @@ class VaRCVaRCalculator:
             "VaR": var,
             "CVaR": cvar,
             "alpha": alpha,
-            "VaR_annual": var * np.sqrt(252),
-            "CVaR_annual": cvar * np.sqrt(252),
+            "VaR_annual": np.nan,
+            "CVaR_annual": np.nan,
+            "annualization_status": "not_reported_no_model_free_sqrt_time_scaling",
+            "loss_convention": "positive_loss_magnitude",
         }
 
     # ------------------------------------------------------------------
@@ -115,6 +137,7 @@ class VaRCVaRCalculator:
         Non-parametric VaR/CVaR from actual return distribution.
         No distributional assumptions — uses the empirical quantile.
         """
+        self._validate_alpha(alpha)
         sorted_returns = np.sort(self.portfolio_returns)
         n = len(sorted_returns)
         cutoff = int(n * alpha)
@@ -134,6 +157,8 @@ class VaRCVaRCalculator:
             "CVaR_annual": annual["CVaR"],
             "n_tail_obs": cutoff,
             "n_annual_obs": annual["n_obs"],
+            "annualization_status": "empirical_252_day_rolling_compounded_horizon",
+            "loss_convention": "positive_loss_magnitude",
         }
 
     # ------------------------------------------------------------------
@@ -148,6 +173,7 @@ class VaRCVaRCalculator:
 
         Better than Gaussian for moderately non-normal distributions.
         """
+        self._validate_alpha(alpha)
         mu = self.portfolio_returns.mean()
         sigma = self.portfolio_returns.std()
         s = stats.skew(self.portfolio_returns)
@@ -177,6 +203,8 @@ class VaRCVaRCalculator:
             "skewness": s,
             "excess_kurtosis": k,
             "z_adjusted": z_cf,
+            "annualization_status": "not_reported_no_model_free_sqrt_time_scaling",
+            "loss_convention": "positive_loss_magnitude",
         }
 
     # ------------------------------------------------------------------
@@ -195,6 +223,9 @@ class VaRCVaRCalculator:
         horizon : int
             Holding period in trading days
         """
+        self._validate_alpha(alpha)
+        if n_sims <= 0 or horizon <= 0:
+            raise ValueError("n_sims and horizon must be positive")
         mu = self.portfolio_returns.mean()
         sigma = self.portfolio_returns.std()
 
@@ -213,8 +244,10 @@ class VaRCVaRCalculator:
             "VaR": var,
             "CVaR": cvar,
             "alpha": alpha,
-            "VaR_annual": var * np.sqrt(252 / horizon),
-            "CVaR_annual": cvar * np.sqrt(252 / horizon),
+            "VaR_annual": np.nan,
+            "CVaR_annual": np.nan,
+            "annualization_status": "not_reported_no_model_free_sqrt_time_scaling",
+            "loss_convention": "positive_loss_magnitude",
             "n_sims": n_sims,
             "horizon": horizon,
         }
@@ -242,7 +275,11 @@ class VaRCVaRCalculator:
 
         betas = np.array(betas)
         component_var = self.weights * betas * port_var
-        pct_contribution = component_var / port_var * 100
+        pct_contribution = (
+            component_var / port_var * 100
+            if abs(port_var) > 1e-12
+            else np.zeros_like(component_var)
+        )
 
         return pd.DataFrame(
             {
@@ -275,6 +312,8 @@ class VaRCVaRCalculator:
                     "CVaR_Daily": m["CVaR"],
                     "VaR_Annual": m["VaR_annual"],
                     "CVaR_Annual": m["CVaR_annual"],
+                    "Annualization_Status": m["annualization_status"],
+                    "Loss_Convention": m["loss_convention"],
                 }
             )
 

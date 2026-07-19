@@ -75,12 +75,14 @@ def _workbook_payload(processed: Path) -> dict[str, Any]:
         ),
         _sheet(
             "REQUIREMENT_TRACEABILITY",
-            _csv(processed / "user_requirement_traceability_matrix.csv", 200),
+            _requirement_traceability_rows(
+                processed / "user_requirement_traceability_matrix.csv", 200
+            ),
             "Kullanıcı talepleri ve karşılanma durumu.",
         ),
         _sheet(
             "UNIVERSE",
-            _csv(processed / "real_global_universe_population_summary.csv", 100),
+            _csv(processed / "current_global_universe_summary.csv", 100),
             "Kaynak evren satır sayıları.",
         ),
         _sheet(
@@ -140,7 +142,7 @@ def _workbook_payload(processed: Path) -> dict[str, Any]:
         ),
         _sheet(
             "METHODOLOGY_SOURCE_BASIS",
-            _csv(processed / "methodology_source_check.csv", 200),
+            _methodology_source_rows(processed / "methodology_source_check.csv", 200),
             "Metodoloji alanı, kaynak ve doğru kullanım.",
         ),
         _sheet(
@@ -152,7 +154,7 @@ def _workbook_payload(processed: Path) -> dict[str, Any]:
     return {
         "title": "QuantVerse Explainable Global Stock Output",
         "generated_by": "scripts/build_explainable_excel_output.py",
-        "chart_folder": str(FIG_DIR.resolve()),
+        "chart_folder": FIG_DIR.as_posix(),
         "sheets": sheets,
     }
 
@@ -209,12 +211,12 @@ def _executive_summary(processed: Path, decision: dict[str, Any]) -> list[list[A
     coverage = _read_csv(processed / "global_returns_coverage_report.csv")
     fx = _read_csv(processed / "global_fx_normalization_report.csv")
     included = (
-        int(coverage["included_in_returns"].astype(bool).sum())
+        int(_as_boolean_mask(coverage["included_in_returns"]).sum())
         if "included_in_returns" in coverage
         else 0
     )
     excluded = (
-        int((~coverage["included_in_returns"].astype(bool)).sum())
+        int((~_as_boolean_mask(coverage["included_in_returns"])).sum())
         if "included_in_returns" in coverage
         else 0
     )
@@ -254,14 +256,17 @@ def _executive_summary(processed: Path, decision: dict[str, Any]) -> list[list[A
 
 def _data_quality(processed: Path) -> list[list[Any]]:
     rows = [["Area", "Metric", "Value", "Interpretation"]]
-    market = _read_csv(processed / "real_global_universe_market_cap_coverage.csv")
+    market = _read_csv(processed / "global_exact_proxy_classification_report.csv")
     fx = _read_csv(processed / "global_fx_normalization_report.csv")
     coverage = _read_csv(processed / "global_returns_coverage_report.csv")
-    source = _read_csv(processed / "real_global_universe_source_coverage.csv")
-    if not market.empty and {"sleeve", "market_cap_rows"}.issubset(market.columns):
+    source = _read_csv(processed / "source_universe_validation_summary.csv")
+    if not market.empty and {
+        "sleeve",
+        "exact_supported_rows",
+    }.issubset(market.columns):
         equity_zero_cap = market.loc[
             market["sleeve"].astype(str).str.startswith("global_equity")
-            & pd.to_numeric(market["market_cap_rows"], errors="coerce").eq(0)
+            & pd.to_numeric(market["exact_supported_rows"], errors="coerce").eq(0)
         ]
         rows.append(
             [
@@ -290,17 +295,17 @@ def _data_quality(processed: Path) -> list[list[Any]]:
             [
                 "Price",
                 "excluded assets",
-                int((~coverage["included_in_returns"].astype(bool)).sum()),
+                int((~_as_boolean_mask(coverage["included_in_returns"])).sum()),
                 "Coverage/ticker mapping review needed.",
             ]
         )
-    if not source.empty and "source_urls" in source:
+    if not source.empty and "status" in source:
         rows.append(
             [
                 "Source",
-                "rows with source URLs",
-                int(pd.to_numeric(source["source_urls"], errors="coerce").sum()),
-                "Source path exists; quality still depends on method.",
+                "validated source files",
+                int(source["status"].astype(str).eq("validated").sum()),
+                "File validation does not by itself prove exact top-100 support.",
             ]
         )
     return rows
@@ -450,6 +455,10 @@ def _appendix_paths() -> list[list[Any]]:
     files = sorted(PROCESSED.glob("global_*.csv")) + sorted(
         PROCESSED.glob("real_global_*.csv")
     )
+    files += sorted(PROCESSED.glob("current_global_*.csv"))
+    files += sorted(PROCESSED.glob("user_requirement_*.csv"))
+    files += sorted(PROCESSED.glob("methodology_source_*.csv"))
+    files = sorted(set(files))
     rows = [["File", "Purpose"]]
     rows.extend([str(path), "Raw generated output; not committed."] for path in files)
     return rows
@@ -457,6 +466,37 @@ def _appendix_paths() -> list[list[Any]]:
 
 def _csv(path: Path, max_rows: int) -> list[list[Any]]:
     return _frame_to_rows(_read_csv(path), max_rows)
+
+
+def _requirement_traceability_rows(path: Path, max_rows: int) -> list[list[Any]]:
+    if path.exists():
+        return _csv(path, max_rows)
+    try:
+        from scripts.build_user_requirement_traceability import build_traceability
+    except ModuleNotFoundError:
+        from build_user_requirement_traceability import build_traceability
+
+    return _frame_to_rows(build_traceability(), max_rows)
+
+
+def _methodology_source_rows(path: Path, max_rows: int) -> list[list[Any]]:
+    if path.exists():
+        return _csv(path, max_rows)
+    try:
+        from scripts.build_methodology_source_audit import (
+            build_methodology_source_check,
+        )
+    except ModuleNotFoundError:
+        from build_methodology_source_audit import build_methodology_source_check
+
+    return _frame_to_rows(build_methodology_source_check(), max_rows)
+
+
+def _as_boolean_mask(values: pd.Series) -> pd.Series:
+    if pd.api.types.is_bool_dtype(values):
+        return values.fillna(False).astype(bool)
+    normalized = values.astype(str).str.strip().str.lower()
+    return normalized.isin({"true", "1", "yes", "y"})
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
@@ -593,6 +633,13 @@ def _js_builder() -> str:
           sheet.getRange(tableRange).format.borders = {preset: "inside", style: "thin", color: "#D9E2E8"};
           sheet.getRange(tableRange).format.autofitColumns();
           sheet.getRange(tableRange).format.autofitRows();
+          if (spec.name === "START_HERE") {
+            const lastRow = 4 + rowCount;
+            sheet.getRange(`A5:B${lastRow}`).format.wrapText = true;
+            sheet.getRange(`A5:A${lastRow}`).format.columnWidthPx = 210;
+            sheet.getRange(`B5:B${lastRow}`).format.columnWidthPx = 850;
+            sheet.getRange(`A5:B${lastRow}`).format.autofitRows();
+          }
           sheet.freezePanes.freezeRows(5);
         }
 

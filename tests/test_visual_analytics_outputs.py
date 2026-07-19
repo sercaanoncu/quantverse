@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from project.research.global_visual_analytics import (
     VISUAL_ANALYTICS_FILES,
@@ -75,7 +76,13 @@ def test_forecast_error_chart_compares_model_and_random_walk():
 
 def test_random_benchmark_chart_is_not_degenerate():
     random_distribution = pd.DataFrame(
-        {"sharpe": np.linspace(-0.5, 1.5, 50), "portfolio_id": range(50)}
+        {
+            "sharpe": np.linspace(-0.5, 1.5, 50),
+            "portfolio_id": range(50),
+            "sampling_method": ["iid_uniform_raw_scores_projected_to_capped_simplex"]
+            * 50,
+            "benchmark_scope": ["walk_forward_oos_net"] * 50,
+        }
     )
     random_percentiles = pd.DataFrame(
         {"model_name": ["HRP"], "sharpe_percentile": [0.86]}
@@ -91,6 +98,10 @@ def test_random_benchmark_chart_is_not_degenerate():
 
     assert chart["portfolio_count"].sum() == 50
     assert not chart["is_degenerate"].any()
+    assert set(chart["sampling_method"]) == {
+        "iid_uniform_raw_scores_projected_to_capped_simplex"
+    }
+    assert set(chart["benchmark_scope"]) == {"walk_forward_oos_net"}
 
 
 def test_exposure_chart_sums_to_one(tmp_path):
@@ -149,6 +160,15 @@ def test_visual_analytics_outputs_have_required_schema(tmp_path):
         outputs["summary"].loc[outputs["summary"]["chart_name"].eq("exposure")].iloc[0]
     )
     assert exposure_summary["validation_status"] == "passed_with_metadata_warning"
+
+
+def test_visual_analytics_does_not_fabricate_final_model(tmp_path):
+    processed = _write_visual_fixture(tmp_path)
+    (processed / "global_final_model_decision.json").unlink()
+    (processed / "quantverse_v2_demo_summary.json").unlink()
+
+    with pytest.raises(ValueError, match="explicit, available final-model"):
+        build_visual_analytics_outputs(processed)
 
 
 def _write_visual_fixture(root: Path) -> Path:

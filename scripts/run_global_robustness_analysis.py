@@ -46,6 +46,13 @@ def main() -> int:
         metadata=universe,
         random_portfolios=int(config.get("robustness_random_portfolios", 150)),
         max_scenarios=int(config.get("robustness_max_scenarios", 48)),
+        risk_free_rate_annual=float(config.get("risk_free_rate_annual", 0.0)),
+        risk_free_policy=str(
+            config.get(
+                "risk_free_policy",
+                "zero_rate_labeled_research_assumption",
+            )
+        ),
     )
     run_metadata = read_run_manifest(PROCESSED)
     for key in ["sensitivity", "model_stability", "weight_stability"]:

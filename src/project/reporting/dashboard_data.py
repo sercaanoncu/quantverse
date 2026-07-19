@@ -13,6 +13,7 @@ import logging
 from typing import Dict, Optional, List
 
 from project.constants import DEFAULT_RISK_FREE_RATE
+from project.portfolio_contract import align_portfolio_weights
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,11 @@ class DashboardDataBuilder:
         self.strategies = list(all_weights.columns)
 
     def _port_returns(self, strategy: str) -> pd.Series:
-        w = self.all_weights[strategy].reindex(self.tickers).fillna(0).values
+        w = align_portfolio_weights(
+            self.all_weights[strategy],
+            self.tickers,
+            context=f"Dashboard strategy {strategy}",
+        ).to_numpy(dtype=float)
         return pd.Series(
             self.returns.values @ w, index=self.returns.index, name=strategy
         )

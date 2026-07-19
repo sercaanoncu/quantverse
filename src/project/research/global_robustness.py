@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from itertools import product
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,8 @@ SENSITIVITY_COLUMNS = [
     "max_weight",
     "train_window_days",
     "test_window_days",
+    "test_window_applied",
+    "evidence_scope",
     "transaction_cost_bps",
     "random_seed",
     "final_model",
@@ -78,6 +81,8 @@ def run_robustness_sensitivity(
     random_seeds: list[int] | None = None,
     random_portfolios: int = 150,
     max_scenarios: int = 48,
+    risk_free_rate_annual: float = 0.0,
+    risk_free_policy: str = "zero_rate_labeled_research_assumption",
 ) -> dict[str, pd.DataFrame | dict[str, object]]:
     """Run a practical bounded sensitivity grid over existing v2 models."""
     clean = _clean_returns(returns)
@@ -93,93 +98,80 @@ def run_robustness_sensitivity(
     max_assets_grid = max_assets_values or [20, 30, 40]
     max_weight_grid = max_weight_values or [0.05, 0.10, 0.15]
     train_grid = train_window_days_values or [126, 252]
-    test_grid = test_window_days_values or [21, 63]
+    test_grid = test_window_days_values or [21]
     cost_grid = transaction_cost_bps_values or [0.0, 10.0, 25.0, 50.0]
     seed_grid = random_seeds or [42, 43, 44]
 
+    scenario_grid, total_feasible_scenarios = _bounded_scenario_grid(
+        clean,
+        max_assets_grid=max_assets_grid,
+        max_weight_grid=max_weight_grid,
+        train_grid=train_grid,
+        test_grid=test_grid,
+        cost_grid=cost_grid,
+        seed_grid=seed_grid,
+        max_scenarios=max_scenarios,
+    )
     scenario_rows: list[dict[str, object]] = []
     weight_rows: list[pd.DataFrame] = []
     base_tickers: set[str] | None = None
     base_top10: set[str] | None = None
     base_weights: pd.Series | None = None
-    scenario_id = 0
-    for max_assets in max_assets_grid:
-        for max_weight in max_weight_grid:
-            if float(max_weight) * int(max_assets) < 1.0 - 1e-12:
-                continue
-            for train_window_days in train_grid:
-                if clean.shape[0] < int(train_window_days):
-                    continue
-                for test_window_days in test_grid:
-                    for cost_bps in cost_grid:
-                        for seed in seed_grid:
-                            if scenario_id >= max_scenarios:
-                                break
-                            result = _one_scenario(
-                                clean,
-                                scores,
-                                forecasts,
-                                metadata,
-                                scenario_id=scenario_id,
-                                max_assets=int(max_assets),
-                                max_weight=float(max_weight),
-                                train_window_days=int(train_window_days),
-                                test_window_days=int(test_window_days),
-                                transaction_cost_bps=float(cost_bps),
-                                random_seed=int(seed),
-                                random_portfolios=int(random_portfolios),
-                            )
-                            tickers = set(result["weights"].index)
-                            top10 = set(
-                                result["weights"]
-                                .sort_values(ascending=False)
-                                .head(10)
-                                .index
-                            )
-                            if base_tickers is None:
-                                base_tickers = tickers
-                                base_top10 = top10
-                                base_weights = result["weights"]
-                            overlap = _jaccard(tickers, base_tickers or set())
-                            top_overlap = _jaccard(top10, base_top10 or set())
-                            turnover = _weight_turnover(
-                                result["weights"],
-                                (
-                                    base_weights
-                                    if base_weights is not None
-                                    else result["weights"]
-                                ),
-                            )
-                            row = result["row"]
-                            row["selected_holdings_overlap_with_base"] = overlap
-                            row["top10_overlap_with_base"] = top_overlap
-                            row["weight_turnover_vs_base"] = turnover
-                            scenario_rows.append(row)
-                            scenario_weights = (
-                                result["weights"].rename("weight").reset_index()
-                            )
-                            scenario_weights.columns = ["ticker", "weight"]
-                            scenario_weights["scenario_id"] = scenario_id
-                            weight_rows.append(scenario_weights)
-                            scenario_id += 1
-                        if scenario_id >= max_scenarios:
-                            break
-                    if scenario_id >= max_scenarios:
-                        break
-                if scenario_id >= max_scenarios:
-                    break
-            if scenario_id >= max_scenarios:
-                break
-        if scenario_id >= max_scenarios:
-            break
+    for scenario_id, scenario in enumerate(scenario_grid):
+        result = _one_scenario(
+            clean,
+            scores,
+            forecasts,
+            metadata,
+            scenario_id=scenario_id,
+            max_assets=int(scenario["max_assets"]),
+            max_weight=float(scenario["max_weight"]),
+            train_window_days=int(scenario["train_window_days"]),
+            test_window_days=int(scenario["test_window_days"]),
+            transaction_cost_bps=float(scenario["transaction_cost_bps"]),
+            random_seed=int(scenario["random_seed"]),
+            random_portfolios=int(random_portfolios),
+            risk_free_rate_annual=risk_free_rate_annual,
+            risk_free_policy=risk_free_policy,
+        )
+        tickers = set(result["weights"].index)
+        top10 = set(result["weights"].sort_values(ascending=False).head(10).index)
+        if base_tickers is None:
+            base_tickers = tickers
+            base_top10 = top10
+            base_weights = result["weights"]
+        overlap = _jaccard(tickers, base_tickers or set())
+        top_overlap = _jaccard(top10, base_top10 or set())
+        turnover = _weight_turnover(
+            result["weights"],
+            base_weights if base_weights is not None else result["weights"],
+        )
+        row = result["row"]
+        row["selected_holdings_overlap_with_base"] = overlap
+        row["top10_overlap_with_base"] = top_overlap
+        row["weight_turnover_vs_base"] = turnover
+        scenario_rows.append(row)
+        scenario_weights = result["weights"].rename("weight").reset_index()
+        scenario_weights.columns = ["ticker", "weight"]
+        scenario_weights["scenario_id"] = scenario_id
+        weight_rows.append(scenario_weights)
 
     sensitivity = pd.DataFrame(scenario_rows, columns=SENSITIVITY_COLUMNS)
     all_weights = (
         pd.concat(weight_rows, ignore_index=True) if weight_rows else pd.DataFrame()
     )
     model_stability = _model_stability(sensitivity)
-    weight_stability = _weight_stability(all_weights, max(int(scenario_id), 1))
+    weight_stability = _weight_stability(all_weights, max(len(scenario_grid), 1))
     summary = _summary(sensitivity, model_stability, weight_stability)
+    summary.update(
+        {
+            "feasible_scenario_count": int(total_feasible_scenarios),
+            "evaluated_scenario_count": int(len(scenario_grid)),
+            "scenario_sampling_method": (
+                "base_case_plus_seeded_uniform_sample_without_replacement"
+            ),
+        }
+    )
     return {
         "sensitivity": sensitivity,
         "model_stability": model_stability,
@@ -223,6 +215,8 @@ def _one_scenario(
     transaction_cost_bps: float,
     random_seed: int,
     random_portfolios: int,
+    risk_free_rate_annual: float,
+    risk_free_policy: str,
 ) -> dict[str, object]:
     league, weights, _status = build_portfolio_league(
         returns.tail(train_window_days),
@@ -232,6 +226,8 @@ def _one_scenario(
         max_assets=max_assets,
         max_weight=max_weight,
         random_state=random_seed,
+        risk_free_rate_annual=risk_free_rate_annual,
+        risk_free_policy=risk_free_policy,
     )
     selected_tickers = _selected_tickers(weights, returns)
     random_distribution = simulate_constrained_random_distribution(
@@ -247,6 +243,7 @@ def _one_scenario(
         risk_report=None,
         turnover=None,
         random_percentiles=percentiles,
+        robustness_status="diagnostic_configuration_stability_only",
     )
     decision = build_final_model_decision(selection)
     final_model = str(decision["final_selected_model"])
@@ -267,6 +264,8 @@ def _one_scenario(
             "max_weight": max_weight,
             "train_window_days": train_window_days,
             "test_window_days": test_window_days,
+            "test_window_applied": False,
+            "evidence_scope": "current_sample_configuration_diagnostic",
             "transaction_cost_bps": transaction_cost_bps,
             "random_seed": random_seed,
             "final_model": final_model,
@@ -371,9 +370,13 @@ def _summary(
         if not weight_stability.empty
         else 0.0
     )
-    status = "stable" if top_share >= 0.67 and max_weight_std <= 0.05 else "fragile"
+    allocation_stability = (
+        "stable" if top_share >= 0.67 and max_weight_std <= 0.05 else "fragile"
+    )
     return {
-        "robustness_status": status,
+        "robustness_status": "diagnostic_configuration_stability_only",
+        "allocation_stability_status": allocation_stability,
+        "promotion_eligible": False,
         "scenario_count": int(len(sensitivity)),
         "dominant_final_model": (
             str(model_stability["final_model"].iloc[0])
@@ -383,11 +386,77 @@ def _summary(
         "dominant_model_scenario_share": top_share,
         "max_weight_standard_deviation": max_weight_std,
         "sensitivity_status": (
-            "Model choice is relatively stable across bounded sensitivity scenarios."
-            if status == "stable"
-            else "Model choice or weights are fragile across bounded sensitivity scenarios."
+            "Model choice is relatively stable across bounded configuration scenarios."
+            if allocation_stability == "stable"
+            else "Model choice or weights are fragile across bounded configuration scenarios."
         ),
+        "limitation": (
+            "This grid measures current-sample allocation/configuration sensitivity. "
+            "It does not rerun nested chronological OOS selection for every scenario "
+            "and therefore cannot satisfy a promotion robustness gate. "
+            "test_window_days is retained for schema compatibility but is not "
+            "evaluated in this diagnostic."
+        ),
+        "dimensions_not_evaluated": [
+            "test_window_days",
+            "covariance_estimator",
+            "score_component_weights",
+            "model_selection_thresholds",
+        ],
     }
+
+
+def _bounded_scenario_grid(
+    returns: pd.DataFrame,
+    *,
+    max_assets_grid: list[int],
+    max_weight_grid: list[float],
+    train_grid: list[int],
+    test_grid: list[int],
+    cost_grid: list[float],
+    seed_grid: list[int],
+    max_scenarios: int,
+) -> tuple[list[dict[str, float | int]], int]:
+    feasible = [
+        {
+            "max_assets": int(max_assets),
+            "max_weight": float(max_weight),
+            "train_window_days": int(train_window_days),
+            "test_window_days": int(test_window_days),
+            "transaction_cost_bps": float(cost_bps),
+            "random_seed": int(seed),
+        }
+        for (
+            max_assets,
+            max_weight,
+            train_window_days,
+            test_window_days,
+            cost_bps,
+            seed,
+        ) in product(
+            max_assets_grid,
+            max_weight_grid,
+            train_grid,
+            test_grid,
+            cost_grid,
+            seed_grid,
+        )
+        if float(max_weight) * int(max_assets) >= 1.0 - 1e-12
+        and returns.shape[0] >= int(train_window_days)
+    ]
+    if max_scenarios <= 0 or not feasible:
+        return [], len(feasible)
+    if len(feasible) <= int(max_scenarios):
+        return feasible, len(feasible)
+    rng = np.random.default_rng(42)
+    remaining = np.arange(1, len(feasible))
+    chosen = rng.choice(
+        remaining,
+        size=min(int(max_scenarios) - 1, len(remaining)),
+        replace=False,
+    )
+    selected_indices = [0, *sorted(chosen.astype(int).tolist())]
+    return [feasible[index] for index in selected_indices], len(feasible)
 
 
 def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:

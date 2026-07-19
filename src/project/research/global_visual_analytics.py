@@ -51,11 +51,7 @@ def build_visual_analytics_outputs(
 
     decision = _read_json(processed / "global_final_model_decision.json")
     summary_json = _read_json(processed / "quantverse_v2_demo_summary.json")
-    final_model = str(
-        decision.get("final_selected_model")
-        or summary_json.get("final_selected_model")
-        or "Equal Weight"
-    )
+    final_model = _resolve_final_model(decision, summary_json)
     returns = _read_returns(processed / "global_security_simple_returns_usd.csv")
     weights = _read_csv(processed / "global_portfolio_league_weights.csv")
     risk = _read_csv(processed / "global_portfolio_risk_report.csv")
@@ -69,6 +65,10 @@ def build_visual_analytics_outputs(
     forecast = _read_csv(processed / "global_forecast_validation_by_horizon.csv")
 
     final_weights = _weights_for_model(weights, final_model)
+    if final_weights.empty:
+        raise ValueError(
+            f"No portfolio weights were available for final model {final_model!r}."
+        )
     final_returns = portfolio_return_series(returns, final_weights)
 
     equity_curve = build_equity_curve(final_returns, final_model=final_model)
@@ -124,6 +124,18 @@ def build_visual_analytics_outputs(
     for key, frame in outputs.items():
         frame.to_csv(output / VISUAL_ANALYTICS_FILES[key], index=False)
     return outputs
+
+
+def _resolve_final_model(
+    decision: dict[str, object], summary: dict[str, object]
+) -> str:
+    for payload in (decision, summary):
+        value = str(payload.get("final_selected_model", "")).strip()
+        if value and value.lower() not in {"nan", "none", "not_available"}:
+            return value
+    raise ValueError(
+        "Visual analytics require an explicit, available final-model decision."
+    )
 
 
 def build_equity_curve(
@@ -320,6 +332,8 @@ def build_random_benchmark_chart(
                 "final_model_percentile",
                 "distribution_std",
                 "is_degenerate",
+                "sampling_method",
+                "benchmark_scope",
             ]
         )
     else:
@@ -332,6 +346,16 @@ def build_random_benchmark_chart(
             random_percentiles, final_model, "sharpe_percentile"
         )
         std = float(sharpe.std(ddof=1)) if len(sharpe) > 1 else 0.0
+        sampling_method = _single_label(
+            random_distribution,
+            "sampling_method",
+            default="not_available",
+        )
+        benchmark_scope = _single_label(
+            random_distribution,
+            "benchmark_scope",
+            default="not_available",
+        )
         frame = pd.DataFrame(
             {
                 "bucket_left": [float(interval.left) for interval in counts.index],
@@ -343,6 +367,8 @@ def build_random_benchmark_chart(
                 "final_model_percentile": percentile,
                 "distribution_std": std,
                 "is_degenerate": std <= 1e-12 or counts.shape[0] <= 1,
+                "sampling_method": sampling_method,
+                "benchmark_scope": benchmark_scope,
             }
         )
     return _with_metadata(
@@ -350,8 +376,8 @@ def build_random_benchmark_chart(
         formula_method="Histogram of constrained random portfolio Sharpe values with final-model Sharpe percentile marker.",
         source_basis="Market practice and validation: compare candidates against random portfolios under the same constraints.",
         why_valid="A non-degenerate distribution contextualizes whether the candidate is unusual relative to random constrained allocations.",
-        limitation="Random portfolio superiority is benchmark context, not proof of future performance.",
-        invalidation_condition="Invalid if distribution standard deviation is zero, all percentiles are identical, or random portfolios use a different universe.",
+        limitation="Random portfolio superiority is benchmark context, not proof of future performance. The current projected-raw-score sampler is not uniform over the capped simplex.",
+        invalidation_condition="Invalid if distribution standard deviation is zero, all percentiles are identical, benchmark_scope is not comparable, or random portfolios use a different universe.",
         tested_by="tests/test_visual_analytics_outputs.py::test_random_benchmark_chart_is_not_degenerate",
         output_status="diagnostic",
     )
@@ -676,6 +702,20 @@ def _final_metric(frame: pd.DataFrame, final_model: str, column: str) -> float:
 
 def _final_percentile(frame: pd.DataFrame, final_model: str, column: str) -> float:
     return _final_metric(frame, final_model, column)
+
+
+def _single_label(
+    frame: pd.DataFrame,
+    column: str,
+    *,
+    default: str,
+) -> str:
+    if frame.empty or column not in frame:
+        return default
+    values = frame[column].dropna().astype(str).unique()
+    if len(values) != 1:
+        return "mixed_or_unavailable"
+    return str(values[0])
 
 
 def _first_value(frame: pd.DataFrame, column: str) -> float | None:

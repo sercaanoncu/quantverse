@@ -1,12 +1,14 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from reportlab.pdfgen import canvas
 
 from project.research.global_visual_analytics import build_visual_analytics_outputs
 from scripts.build_quantverse_v2_excel_output import _write_selected_stocks_sheet
 from scripts.validate_quantverse_v2_artifacts import (
+    _portable_exception_details,
     _portfolio_input_violations,
     validate_artifacts,
 )
@@ -21,6 +23,28 @@ def _write_pdf(path: Path, text: str) -> None:
     pdf.save()
 
 
+def test_artifact_exception_details_do_not_expose_local_absolute_paths():
+    separator = "\\"
+    path = Path(
+        "C:"
+        + separator
+        + "Users"
+        + separator
+        + "example"
+        + separator
+        + "Desktop"
+        + separator
+        + "quantverse"
+        + separator
+        + "output"
+        + separator
+        + "report.pdf"
+    )
+    details = _portable_exception_details(FileNotFoundError(str(path)), path)
+
+    assert details == "error_type=FileNotFoundError; artifact=report.pdf"
+
+
 def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     processed = tmp_path / "data" / "processed"
     output = tmp_path / "output"
@@ -31,12 +55,37 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     (output / "thesis").mkdir(parents=True)
     run_metadata = {
         "run_id": "qv2-2026-07-09-fixture",
+        "execution_id": "qv2-2026-07-09-fixture",
         "data_as_of_date": "2026-07-09",
         "generated_at": "2026-07-10T00:00:00+00:00",
         "universe_snapshot_id": "universe-fixture",
+        "data_snapshot_id": "data-fixture",
+        "config_hash": "config-fixture",
+        "input_fingerprint": "input-fixture",
     }
     (processed / "quantverse_v2_run_manifest.json").write_text(
         json.dumps(run_metadata), encoding="utf-8"
+    )
+    pd.DataFrame(
+        {
+            "check": ["fixture_reference_math"],
+            "passed": [True],
+            "run_id": [run_metadata["run_id"]],
+        }
+    ).to_csv(processed / "quantverse_v2_reference_math_checks.csv", index=False)
+    (processed / "quantverse_v2_reference_math_summary.json").write_text(
+        json.dumps(
+            {
+                "status": "passed",
+                "check_count": 1,
+                "failed_check_count": 0,
+                "run_id": run_metadata["run_id"],
+                "checks_path": (
+                    "data/processed/quantverse_v2_reference_math_checks.csv"
+                ),
+            }
+        ),
+        encoding="utf-8",
     )
 
     (processed / "quantverse_v2_demo_summary.json").write_text(
@@ -124,6 +173,18 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
             "avg_sortino": [1.1],
             "avg_max_drawdown": [-0.01],
             "avg_cvar_95": [-0.001],
+            "oos_annualized_return": [0.09],
+            "oos_volatility": [0.03],
+            "oos_sharpe": [1.0],
+            "oos_sortino": [1.1],
+            "oos_max_drawdown": [-0.01],
+            "oos_cvar_95": [-0.001],
+            "uncertainty_status": ["benchmark_self_comparison_not_applicable"],
+            "uncertainty_method": ["paired_circular_block_bootstrap"],
+            "paired_observations": [252],
+            "sharpe_diff_ci_lower": [np.nan],
+            "sharpe_diff_ci_upper": [np.nan],
+            "probability_sharpe_improvement": [np.nan],
         }
     ).to_csv(processed / "global_walk_forward_model_comparison.csv", index=False)
     pd.DataFrame(
@@ -271,13 +332,31 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
         }
     ).to_csv(processed / "global_selected_stocks_report_view_quality.csv", index=False)
     for filename in [
-        "global_model_selection_report.csv",
         "global_model_selection_diagnostics.csv",
         "global_final_model_decision.csv",
         "global_robustness_sensitivity.csv",
         "global_top_holdings_explanation.csv",
     ]:
         pd.DataFrame({"value": [1]}).to_csv(processed / filename, index=False)
+    pd.DataFrame(
+        {
+            "model_name": ["Equal Weight"],
+            "walk_forward_annualized_return": [0.09],
+            "walk_forward_volatility": [0.03],
+            "walk_forward_sharpe": [1.0],
+            "walk_forward_sortino": [1.1],
+            "walk_forward_max_drawdown": [-0.01],
+            "walk_forward_cvar_95": [-0.001],
+            "uncertainty_status": ["benchmark_self_comparison_not_applicable"],
+            "uncertainty_method": ["paired_circular_block_bootstrap"],
+            "paired_oos_observations": [252],
+            "sharpe_diff_ci_lower": [np.nan],
+            "sharpe_diff_ci_upper": [np.nan],
+            "probability_sharpe_improvement": [np.nan],
+            "uncertainty_gate_pass": [True],
+            "random_benchmark_scope": ["walk_forward_oos_net"],
+        }
+    ).to_csv(processed / "global_model_selection_report.csv", index=False)
     pd.DataFrame(
         {
             "model_name": ["Equal Weight", "Policy Constrained"],
@@ -302,6 +381,31 @@ def test_artifact_validator_passes_on_minimal_valid_fixture(tmp_path):
     pd.DataFrame(
         {"portfolio_id": range(40), "sharpe": [idx / 40 for idx in range(40)]}
     ).to_csv(processed / "global_random_portfolio_distribution.csv", index=False)
+    pd.DataFrame(
+        {
+            "portfolio_id": range(40),
+            "benchmark_scope": ["walk_forward_oos_net"] * 40,
+            "annualized_return": [0.08 + idx / 1000 for idx in range(40)],
+            "volatility": [0.20 + idx / 1000 for idx in range(40)],
+            "sharpe": [idx / 40 for idx in range(40)],
+            "max_drawdown": [-0.30 + idx / 1000 for idx in range(40)],
+            "cvar_95": [-0.04 + idx / 10000 for idx in range(40)],
+        }
+    ).to_csv(processed / "global_walk_forward_random_distribution.csv", index=False)
+    pd.DataFrame(
+        {
+            "model_name": ["Equal Weight"],
+            "uncertainty_status": ["benchmark_self_comparison_not_applicable"],
+            "uncertainty_method": ["paired_circular_block_bootstrap"],
+            "paired_observations": [252],
+            "bootstrap_samples": [1000],
+            "block_length": [21],
+            "confidence_level": [0.95],
+            "sharpe_diff_ci_lower": [np.nan],
+            "sharpe_diff_ci_upper": [np.nan],
+            "probability_sharpe_improvement": [np.nan],
+        }
+    ).to_csv(processed / "global_walk_forward_uncertainty.csv", index=False)
     for filename in [
         "global_region_exposure.csv",
         "global_country_exposure.csv",

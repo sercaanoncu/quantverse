@@ -64,22 +64,31 @@ def portfolio_return_series(
     returns: pd.DataFrame,
     weights: pd.Series,
     *,
-    min_available_weight: float = 0.50,
+    min_available_weight: float = 1.00,
     min_assets: int = 1,
 ) -> pd.Series:
-    """Build portfolio returns with per-date available-weight normalization.
+    """Build portfolio returns under an explicit selected-weight coverage rule.
 
-    Public providers often have different listing histories across global
-    equities. A direct matrix product turns any row with one missing constituent
-    into NaN. This helper uses only constituents available on each date and
-    rescales by available selected weight, while dropping dates with too little
-    coverage.
+    The conservative default requires every selected portfolio weight to have a
+    return on that date. A lower ``min_available_weight`` explicitly opts into
+    available-weight renormalization for diagnostics; it must not be interpreted
+    as a historically implemented rebalance.
     """
     clean = clean_returns_matrix(returns)
     if clean.empty:
         return pd.Series(dtype=float, name="portfolio_return")
 
-    aligned = pd.Series(weights, dtype=float).reindex(clean.columns).fillna(0.0)
+    supplied = pd.Series(weights, dtype=float)
+    nonzero_supplied = supplied[supplied.abs() > 1e-12]
+    missing_weight_tickers = [
+        str(ticker) for ticker in nonzero_supplied.index if ticker not in clean.columns
+    ]
+    if missing_weight_tickers:
+        raise ValueError(
+            "Nonzero portfolio weights are missing from the returns matrix: "
+            + ", ".join(missing_weight_tickers)
+        )
+    aligned = supplied.reindex(clean.columns).fillna(0.0)
     aligned = aligned[aligned.abs() > 1e-12]
     if aligned.empty or float(aligned.abs().sum()) <= 0:
         return pd.Series(dtype=float, name="portfolio_return")
@@ -92,7 +101,7 @@ def portfolio_return_series(
     available_count = available.sum(axis=1)
     weighted_sum = selected.mul(aligned, axis=1).sum(axis=1, skipna=True)
     series = weighted_sum / available_weight.replace(0.0, np.nan)
-    valid = (available_weight >= float(min_available_weight)) & (
+    valid = (available_weight >= float(min_available_weight) - 1e-12) & (
         available_count >= int(min_assets)
     )
     series = series.loc[valid].replace([np.inf, -np.inf], np.nan).dropna()
@@ -221,7 +230,17 @@ def _check_final_return_series(
     checks: list[dict[str, object]],
 ) -> None:
     model_weights = _weights_for_model(weights, final_model)
-    series = portfolio_return_series(returns, model_weights)
+    try:
+        series = portfolio_return_series(returns, model_weights)
+    except ValueError as exc:
+        checks.append(
+            _check(
+                "final_portfolio_return_series_non_empty_nonzero",
+                False,
+                f"final_model={final_model}; error={type(exc).__name__}: {exc}",
+            )
+        )
+        return
     diagnostics = return_series_diagnostics(series)
     passed = bool(
         diagnostics["observations"] > 0

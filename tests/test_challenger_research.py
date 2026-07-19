@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import project.research.challenger as challenger_module
 from project.backtest.rebalancing import TransactionCosts
 from project.research.challenger import (
     ALLOWED_EVIDENCE_CLASSES,
@@ -161,3 +162,23 @@ def test_champion_challenger_outputs_have_required_schema(tmp_path):
         "model_overfit_diagnostics.csv",
     ]:
         assert (tmp_path / filename).exists()
+
+
+def test_shrunk_max_sharpe_optimizer_failure_is_not_relabelled(monkeypatch):
+    class FailedResult:
+        success = False
+        message = "synthetic non-convergence"
+        x = np.full(6, 1.0 / 6.0)
+
+    monkeypatch.setattr(
+        challenger_module,
+        "minimize",
+        lambda *args, **kwargs: FailedResult(),
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic non-convergence"):
+        challenger_module._max_sharpe_weights(
+            _synthetic_returns(80),
+            ChallengerConfig(max_weight=0.5),
+            shrinkage=0.75,
+        )

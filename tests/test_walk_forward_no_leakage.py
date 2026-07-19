@@ -54,6 +54,7 @@ def test_walk_forward_recomputes_scores_inside_train_window_without_future_winne
         max_assets=1,
         max_weight=1.00,
         max_folds=1,
+        random_benchmark_portfolios=5,
     )
 
     assert result["summary"]["leakage_audit_passed"] is True

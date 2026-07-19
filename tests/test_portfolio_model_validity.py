@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from sklearn.covariance import LedoitWolf
 
 from project.research.global_portfolio_league import (
     REQUIRED_MODELS,
@@ -58,10 +59,14 @@ def test_model_league_statuses_final_model_and_gmv_variance_are_valid():
         metadata=_universe(),
         max_assets=4,
         max_weight=0.80,
+        risk_free_rate_annual=0.03,
+        risk_free_policy="unit_test_fixed_rate",
     )
 
     assert set(league["model_name"]) == set(REQUIRED_MODELS)
     assert set(league["actual_status"]).issubset(VALID_STATUSES)
+    assert set(league["risk_free_rate_annual"]) == {0.03}
+    assert set(league["risk_free_policy"]) == {"unit_test_fixed_rate"}
 
     final = demo._final_model(league)
     final_status = league.loc[league["model_name"].eq(final), "actual_status"].iloc[0]
@@ -70,10 +75,15 @@ def test_model_league_statuses_final_model_and_gmv_variance_are_valid():
     pivot = weights.pivot(index="ticker", columns="model_name", values="weight").fillna(
         0.0
     )
-    cov = returns.cov().reindex(index=pivot.index, columns=pivot.index).to_numpy()
+    matrix = returns[pivot.index].dropna(how="any")
+    cov = LedoitWolf().fit(matrix.to_numpy(dtype=float)).covariance_
     ew = pivot["Equal Weight"].to_numpy()
     gmv = pivot["GMV"].to_numpy()
     assert float(gmv @ cov @ gmv) <= float(ew @ cov @ ew) + 1e-10
+
+    policy = league.loc[league["model_name"].eq("Policy Constrained")].iloc[0]
+    assert policy["actual_status"] == "diagnostic_only"
+    assert not bool(policy["promotion_eligible"])
 
 
 def test_black_litterman_cannot_be_promoted_without_market_cap_priors():

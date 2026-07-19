@@ -120,7 +120,7 @@ def black_litterman_weights(
     )
     if result.success:
         return _cap_and_normalize(pd.Series(result.x, index=assets), max_weight)
-    return _cap_and_normalize(posterior["market_weights"], max_weight)
+    raise ValueError("Black-Litterman optimization failed: " + str(result.message))
 
 
 def _cap_and_normalize(weights: pd.Series, max_weight: float) -> pd.Series:

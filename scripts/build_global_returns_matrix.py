@@ -142,7 +142,12 @@ def main() -> int:
         if not prices.dropna(how="all").empty
         else "unavailable"
     )
-    run_manifest = build_run_manifest(universe, data_as_of_date=data_as_of)
+    run_manifest = build_run_manifest(
+        universe,
+        data_as_of_date=data_as_of,
+        data_snapshot=simple_returns_usd,
+        config=config,
+    )
     write_run_manifest(output_dir, run_manifest, reset_registry=True)
     identity_audit = build_security_identity_audit(
         universe,

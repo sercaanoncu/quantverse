@@ -46,15 +46,31 @@ def main() -> int:
     if league.empty or returns.empty:
         print("Missing league or returns; model selection report not built.")
         return 0
-    selected_tickers = _selected_tickers_from_weights(weights, returns)
-    selected_returns = returns[selected_tickers] if selected_tickers else returns
-    random_distribution = simulate_constrained_random_distribution(
-        selected_returns,
-        n_portfolios=int(config.get("random_portfolio_samples", 1000)),
-        max_weight=float(config.get("max_weight", 0.10)),
-        random_state=int(config.get("random_state", 42)),
+    oos_random = _read_csv(PROCESSED / "global_walk_forward_random_distribution.csv")
+    if (
+        not oos_random.empty
+        and "benchmark_scope" in oos_random
+        and oos_random["benchmark_scope"].astype(str).eq("walk_forward_oos_net").all()
+    ):
+        random_distribution = oos_random
+        random_benchmark_scope = "walk_forward_oos_net"
+        benchmark_model_metrics = _oos_model_metrics(league, walk)
+    else:
+        selected_tickers = _selected_tickers_from_weights(weights, returns)
+        selected_returns = returns[selected_tickers] if selected_tickers else returns
+        random_distribution = simulate_constrained_random_distribution(
+            selected_returns,
+            n_portfolios=int(config.get("random_portfolio_samples", 1000)),
+            max_weight=float(config.get("max_weight", 0.10)),
+            random_state=int(config.get("random_state", 42)),
+        )
+        random_distribution["benchmark_scope"] = "full_sample_static_weights_diagnostic"
+        random_benchmark_scope = "full_sample_static_weights_diagnostic"
+        benchmark_model_metrics = league
+    random_percentiles = build_random_percentile_report(
+        benchmark_model_metrics,
+        random_distribution,
     )
-    random_percentiles = build_random_percentile_report(league, random_distribution)
     selection = build_model_selection_report(
         league,
         walk_forward=walk,
@@ -73,7 +89,8 @@ def main() -> int:
         ),
         max_turnover=float(config.get("max_turnover", 2.0)),
         forecast_validation_status=_forecast_validation_status(forecast_validation),
-        robustness_status=str(robustness.get("robustness_status", "stable")),
+        robustness_status=str(robustness.get("robustness_status", "missing")),
+        random_benchmark_scope=random_benchmark_scope,
     )
     decision = build_final_model_decision(selection)
     run_metadata = read_run_manifest(PROCESSED)
@@ -114,6 +131,37 @@ def _selected_tickers_from_weights(
     tickers = weights["ticker"].dropna().astype(str).drop_duplicates().tolist()
     selected = [ticker for ticker in tickers if ticker in returns.columns]
     return selected or list(returns.columns)
+
+
+def _oos_model_metrics(
+    league: pd.DataFrame,
+    walk: pd.DataFrame,
+) -> pd.DataFrame:
+    if walk.empty or "model_name" not in walk:
+        return league.iloc[0:0].copy()
+    aliases = {
+        "annualized_return": ["oos_annualized_return", "avg_annualized_return"],
+        "volatility": ["oos_volatility", "avg_volatility"],
+        "sharpe": ["oos_sharpe", "avg_sharpe"],
+        "max_drawdown": ["oos_max_drawdown", "avg_max_drawdown"],
+        "cvar_95": ["oos_cvar_95", "avg_cvar_95"],
+    }
+    output = pd.DataFrame({"model_name": walk["model_name"].astype(str)})
+    for target, candidates in aliases.items():
+        source = next((column for column in candidates if column in walk), None)
+        output[target] = (
+            pd.to_numeric(walk[source], errors="coerce") if source else float("nan")
+        )
+    return output.dropna(
+        subset=[
+            "annualized_return",
+            "volatility",
+            "sharpe",
+            "max_drawdown",
+            "cvar_95",
+        ],
+        how="any",
+    )
 
 
 def _config(path: str) -> dict:

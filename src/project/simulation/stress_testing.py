@@ -11,6 +11,8 @@ import logging
 from typing import Dict, Optional, List, Tuple
 from dataclasses import dataclass, field
 
+from project.portfolio_contract import align_portfolio_weights
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,9 +45,15 @@ class StressTester:
         asset_class_map: Dict[str, str],
     ):
         self.returns = returns.dropna()
+        if self.returns.empty:
+            raise ValueError("Stress-test return history is empty")
         self.prices = prices
         self.tickers = list(returns.columns)
-        self.weights = weights.reindex(self.tickers).fillna(0)
+        self.weights = align_portfolio_weights(
+            weights,
+            self.tickers,
+            context="Stress-test portfolio",
+        )
         self.asset_class_map = asset_class_map
         self.port_returns = pd.Series(
             self.returns.values @ self.weights.values, index=self.returns.index

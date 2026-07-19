@@ -110,9 +110,7 @@ def _load_returns(path: Path) -> pd.DataFrame:
     first = raw.columns[0]
     if str(first).lower() in {"date", "datetime", "timestamp"}:
         raw = raw.set_index(first)
-    return (
-        raw.apply(pd.to_numeric, errors="coerce").dropna(axis=1, how="all").fillna(0.0)
-    )
+    return raw.apply(pd.to_numeric, errors="coerce").dropna(axis=1, how="all")
 
 
 def _load_final_weights(path: Path, output_dir: Path) -> pd.Series:

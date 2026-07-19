@@ -663,7 +663,11 @@ def _max_sharpe_weights(
         constraints=[{"type": "eq", "fun": lambda weights: weights.sum() - 1.0}],
         options={"maxiter": 500, "ftol": 1e-9},
     )
-    weights = result.x if result.success else start
+    if not result.success:
+        raise RuntimeError(
+            "Shrunk Max Sharpe optimization failed: " + str(result.message)
+        )
+    weights = result.x
     return pd.Series(_sanitize_weights(weights, cap), index=train.columns)
 
 

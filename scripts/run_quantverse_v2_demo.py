@@ -30,7 +30,35 @@ def main() -> int:
     parser.add_argument("--config", default="configs/global_equity_research.yaml")
     args = parser.parse_args()
     config = args.config
-    steps = [
+    steps = _pipeline_steps(config)
+    for step in steps:
+        result = subprocess.run([sys.executable, *step], cwd=ROOT, check=False)
+        if result.returncode != 0:
+            _write_summary({"run_status": "failed", "failed_step": " ".join(step)})
+            return int(result.returncode)
+    summary = build_demo_summary()
+    _write_summary(summary)
+    for report_step in [
+        ["scripts/build_quantverse_v2_visual_analytics.py", "--config", config],
+        ["scripts/build_quantverse_v2_research_report.py"],
+        ["scripts/build_quantverse_v2_excel_output.py"],
+    ]:
+        result = subprocess.run([sys.executable, *report_step], cwd=ROOT, check=False)
+        if result.returncode != 0:
+            failed_summary = {
+                **summary,
+                "run_status": "failed",
+                "failed_step": " ".join(report_step),
+            }
+            _write_summary(failed_summary)
+            return int(result.returncode)
+    print(f"QuantVerse v2 demo summary written: {SUMMARY_PATH}")
+    return 0
+
+
+def _pipeline_steps(config: str) -> list[list[str]]:
+    """Return the dependency-ordered evidence build for one coherent run."""
+    return [
         [
             "scripts/validate_source_universe_inputs.py",
             "--config",
@@ -47,6 +75,7 @@ def main() -> int:
             "--config",
             "configs/global_returns_matrix.yaml",
         ],
+        ["scripts/run_global_statistical_diagnostics.py"],
         ["scripts/build_global_stock_scores.py", "--config", config],
         ["scripts/build_global_return_forecasts.py", "--config", config],
         ["scripts/build_global_portfolio_league.py", "--config", config],
@@ -57,32 +86,16 @@ def main() -> int:
             "--config",
             "configs/global_master_portfolio.yaml",
         ],
-        ["scripts/build_global_model_selection_report.py", "--config", config],
         ["scripts/run_global_robustness_analysis.py", "--config", config],
+        ["scripts/build_global_model_selection_report.py", "--config", config],
         ["scripts/build_global_exposure_report.py", "--config", config],
         ["scripts/build_security_history_reconciliation.py", "--config", config],
         ["scripts/validate_global_forecasts.py", "--config", config],
         ["scripts/audit_global_scientific_sanity.py"],
+        ["scripts/qa/verify_quantverse_reference_math.py"],
         ["scripts/build_visual_scientific_audit_report.py"],
         ["scripts/build_explainable_excel_output.py"],
     ]
-    for step in steps:
-        result = subprocess.run([sys.executable, *step], cwd=ROOT, check=False)
-        if result.returncode != 0:
-            _write_summary({"run_status": "failed", "failed_step": " ".join(step)})
-            return int(result.returncode)
-    summary = build_demo_summary()
-    _write_summary(summary)
-    for report_step in [
-        ["scripts/build_quantverse_v2_visual_analytics.py", "--config", config],
-        ["scripts/build_quantverse_v2_research_report.py"],
-        ["scripts/build_quantverse_v2_excel_output.py"],
-    ]:
-        result = subprocess.run([sys.executable, *report_step], cwd=ROOT, check=False)
-        if result.returncode != 0:
-            return int(result.returncode)
-    print(f"QuantVerse v2 demo summary written: {SUMMARY_PATH}")
-    return 0
 
 
 def build_demo_summary() -> dict[str, object]:
@@ -289,7 +302,7 @@ def _final_model(
         if final:
             return final
     if league.empty:
-        return "Policy Constrained"
+        return "not_available"
     constraints_pass = league["constraints_pass"].map(
         lambda value: str(value).strip().lower() in {"1", "true", "yes"}
     )
@@ -298,7 +311,7 @@ def _final_model(
         & league["actual_status"].astype(str).isin(["actually_run", "benchmark_only"])
     ].copy()
     if candidates.empty:
-        return "Equal Weight"
+        return "not_available"
     candidates = candidates.sort_values(["sharpe", "cagr"], ascending=False)
     return str(candidates.iloc[0]["model_name"])
 

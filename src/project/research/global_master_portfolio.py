@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import linprog, minimize
+from sklearn.covariance import LedoitWolf
 
+from project.constants import TRADING_DAYS_PER_YEAR
 from project.data_pipeline.market_cap_rank_evidence import (
     EXACT_TOP100_UNSUPPORTED_TEXT,
     black_litterman_priors_available,
     validate_market_cap_rank_evidence,
 )
+from project.data_pipeline.security_identity import resolve_security_master_rows
+from project.data_pipeline.security_universe import filter_included_investable_assets
 from project.optimization.black_litterman import black_litterman_weights
 from project.projection.portfolio_projection import (
     correlation_diagnostics,
@@ -22,6 +27,7 @@ from project.projection.portfolio_projection import (
     stress_test_portfolio,
 )
 from project.research.global_stock_selection import (
+    apply_max_weight_cap,
     build_equal_weight_portfolio,
     build_inverse_volatility_portfolio,
     build_min_cvar_portfolio,
@@ -54,11 +60,18 @@ def run_master_portfolio_research(
         max_weight=max_weight,
         overrides=portfolio_constraints,
     )
-    clean = returns.apply(pd.to_numeric, errors="coerce").dropna(how="all").fillna(0.0)
-    metadata = metadata.drop_duplicates("ticker").copy()
+    clean = (
+        returns.apply(pd.to_numeric, errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna(how="all")
+        .dropna(axis=1, how="all")
+    )
+    metadata = filter_included_investable_assets(resolve_security_master_rows(metadata))
     available = [ticker for ticker in metadata["ticker"].astype(str) if ticker in clean]
     if not available:
-        raise ValueError("No metadata tickers overlap the returns matrix.")
+        raise ValueError(
+            "No eligible investable metadata tickers overlap the returns matrix."
+        )
     clean = clean[available]
     initial_selected = select_assets_by_cluster(
         clean,
@@ -73,16 +86,25 @@ def run_master_portfolio_research(
         constraints=constraints,
         random_state=random_state,
     )
-    selected_returns = clean[selected]
-    selected_metadata = metadata.loc[
-        metadata["ticker"].astype(str).isin(selected)
-    ].copy()
+    selected_returns = clean[selected].dropna(how="any")
+    if len(selected_returns) < 2:
+        raise ValueError(
+            "At least two common return observations are required; missing returns "
+            "are not imputed as zero."
+        )
+    selected_metadata = (
+        metadata.set_index("ticker", drop=False)
+        .reindex(selected)
+        .reset_index(drop=True)
+    )
     _selected_evidence_report, classification, _, bl_prerequisites = (
         validate_market_cap_rank_evidence(selected_metadata)
     )
     clusters = _constraint_clusters(selected_returns, constraints)
-    candidates = _candidate_weights(selected_returns, selected_metadata, max_weight)
-    model_comparison = _compare_models(selected_returns, candidates)
+    candidates, candidate_failures = _candidate_weights(
+        selected_returns, selected_metadata, max_weight
+    )
+    model_comparison = _compare_models(selected_returns, candidates, candidate_failures)
     constraint_audit = _constraint_audit(
         candidates,
         selected_metadata,
@@ -109,7 +131,12 @@ def run_master_portfolio_research(
         constraint_audit["Model"].eq(final_model)
     ].iloc[0]
     fx_status = _fx_status(selected_metadata, fx_report)
-    gate = _apply_non_performance_blocks(gate, final_constraint, fx_status)
+    gate = _apply_non_performance_blocks(
+        gate,
+        final_constraint,
+        fx_status,
+        institutional_point_in_time_available=False,
+    )
     if not gate["Promoted"]:
         policy_row = constraint_audit.loc[
             constraint_audit["Model"].eq("Policy Constrained")
@@ -129,7 +156,12 @@ def run_master_portfolio_research(
         final_constraint = constraint_audit.loc[
             constraint_audit["Model"].eq(final_model)
         ].iloc[0]
-        gate = _apply_non_performance_blocks(gate, final_constraint, fx_status)
+        gate = _apply_non_performance_blocks(
+            gate,
+            final_constraint,
+            fx_status,
+            institutional_point_in_time_available=False,
+        )
         gate["Reason"] = _append_reason(
             str(gate["Reason"]),
             "Legacy global master gate fallback remains not promoted; the best "
@@ -189,7 +221,7 @@ def run_master_portfolio_research(
             else EXACT_TOP100_UNSUPPORTED_TEXT
         ),
         "black_litterman_prerequisite_status": (
-            "allowed"
+            "selected_subset_priors_available_diagnostic_only"
             if not bl_prerequisites.empty
             and bl_prerequisites["black_litterman_prior_valid"].astype(bool).all()
             else "blocked_by_data"
@@ -200,6 +232,8 @@ def run_master_portfolio_research(
                 "All_Constraints_Pass",
             ].iloc[0]
         ),
+        "point_in_time_membership_status": "unavailable_current_universe_only",
+        "institutional_promotion_eligible": False,
     }
     return {
         "selected_assets": selected_metadata,
@@ -284,31 +318,71 @@ def _candidate_weights(
     returns: pd.DataFrame,
     metadata: pd.DataFrame,
     max_weight: float,
-) -> dict[str, pd.Series]:
-    candidates = {
-        "Equal Weight": build_equal_weight_portfolio(returns, returns.columns),
-        "Inverse Volatility": build_inverse_volatility_portfolio(
+) -> tuple[dict[str, pd.Series], dict[str, tuple[str, str]]]:
+    candidates: dict[str, pd.Series] = {}
+    failures: dict[str, tuple[str, str]] = {}
+
+    def add_candidate(name: str, builder, failure_status: str) -> None:
+        try:
+            built = builder()
+            candidates[name] = _checked_candidate_weights(
+                built,
+                returns.columns,
+                max_weight=max_weight,
+            )
+        except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
+            failures[name] = (failure_status, str(exc))
+
+    add_candidate(
+        "Equal Weight",
+        lambda: build_equal_weight_portfolio(returns, returns.columns),
+        "construction_failed",
+    )
+    add_candidate(
+        "Inverse Volatility",
+        lambda: build_inverse_volatility_portfolio(
             returns,
             returns.columns,
             max_weight=max_weight,
         ),
-        "Min Variance": _min_variance_weights(returns, max_weight=max_weight),
-        "Max Sharpe": build_shrinkage_max_sharpe_portfolio(
+        "construction_failed",
+    )
+    add_candidate(
+        "Min Variance",
+        lambda: _min_variance_weights(returns, max_weight=max_weight),
+        "optimizer_failed",
+    )
+    add_candidate(
+        "Max Sharpe",
+        lambda: build_shrinkage_max_sharpe_portfolio(
             returns,
             returns.columns,
             max_weight=max_weight,
         ),
-        "Min CVaR": build_min_cvar_portfolio(
+        "optimizer_failed",
+    )
+    add_candidate(
+        "Min CVaR",
+        lambda: build_min_cvar_portfolio(
             returns,
             returns.columns,
             max_weight=max_weight,
         ),
-        "Cluster Balanced": _cluster_balanced_weights(returns, max_weight=max_weight),
-    }
-    candidates["Policy Constrained"] = _policy_constrained_weights(
-        returns,
-        metadata,
-        max_weight=max_weight,
+        "optimizer_failed",
+    )
+    add_candidate(
+        "Cluster Balanced",
+        lambda: _cluster_balanced_weights(returns, max_weight=max_weight),
+        "construction_failed",
+    )
+    add_candidate(
+        "Policy Constrained",
+        lambda: _policy_constrained_weights(
+            returns,
+            metadata,
+            max_weight=max_weight,
+        ),
+        "infeasible_constraints",
     )
     caps = (
         pd.to_numeric(metadata.set_index("ticker")["market_cap_usd"], errors="coerce")
@@ -324,37 +398,45 @@ def _candidate_weights(
             returns.columns,
         )
     ):
-        candidates["Black-Litterman"] = black_litterman_weights(
-            returns.cov() * 252,
-            caps,
-            max_weight=max_weight,
+        add_candidate(
+            "Black-Litterman",
+            lambda: black_litterman_weights(
+                _ledoit_wolf_covariance(returns),
+                caps,
+                max_weight=max_weight,
+            ),
+            "optimizer_failed",
         )
-    return candidates
+    else:
+        failures["Black-Litterman"] = (
+            "blocked_missing_market_cap_priors",
+            "Valid market-cap priors are not available for every selected asset.",
+        )
+    if "Equal Weight" not in candidates:
+        raise ValueError("Equal Weight benchmark construction failed.")
+    return candidates, failures
 
 
 def _compare_models(
     returns: pd.DataFrame,
     candidates: dict[str, pd.Series],
+    failures: dict[str, tuple[str, str]],
 ) -> pd.DataFrame:
     rows = []
     for name, weights in candidates.items():
         metrics = evaluate_portfolio_return_series(returns @ weights)
-        rows.append({"Model": name, "Status": "computed", **metrics})
-    if "Black-Litterman" not in candidates:
-        rows.append(
-            {
-                "Model": "Black-Litterman",
-                "Status": "blocked_missing_market_cap_priors",
-                "CAGR": np.nan,
-                "Annual_Return": np.nan,
-                "Volatility": np.nan,
-                "Sharpe": np.nan,
-                "Sortino": np.nan,
-                "Max_Drawdown": np.nan,
-                "CVaR_95": np.nan,
-                "Total_Return": np.nan,
-            }
+        status = "computed_diagnostic_only" if name == "Black-Litterman" else "computed"
+        notes = (
+            "Prior-only Black-Litterman diagnostic on the selected current subset; "
+            "not promotion-eligible evidence."
+            if name == "Black-Litterman"
+            else ""
         )
+        rows.append({"Model": name, "Status": status, "Notes": notes, **metrics})
+    rows.extend(
+        _uncomputed_model_row(name, status, reason)
+        for name, (status, reason) in failures.items()
+    )
     for name in [
         "HRP",
         "Risk Parity",
@@ -363,6 +445,47 @@ def _compare_models(
     ]:
         rows.append({"Model": name, "Status": "not_available_in_this_run"})
     return pd.DataFrame(rows)
+
+
+def _uncomputed_model_row(name: str, status: str, reason: str) -> dict[str, object]:
+    return {
+        "Model": name,
+        "Status": status,
+        "Notes": reason,
+        "CAGR": np.nan,
+        "Annual_Return": np.nan,
+        "Volatility": np.nan,
+        "Sharpe": np.nan,
+        "Sortino": np.nan,
+        "Max_Drawdown": np.nan,
+        "CVaR_95": np.nan,
+        "Total_Return": np.nan,
+    }
+
+
+def _checked_candidate_weights(
+    weights: pd.Series,
+    assets: Iterable[str],
+    *,
+    max_weight: float,
+) -> pd.Series:
+    expected = [str(asset) for asset in assets]
+    candidate = pd.Series(weights, dtype=float)
+    if candidate.index.duplicated().any():
+        raise ValueError("Candidate weights contain duplicate assets.")
+    candidate = candidate.reindex(expected)
+    if candidate.isna().any() or not np.isfinite(candidate.to_numpy()).all():
+        raise ValueError("Candidate weights contain missing or non-finite values.")
+    if (candidate < -1e-10).any():
+        raise ValueError("Candidate weights violate the long-only constraint.")
+    total = float(candidate.sum())
+    if abs(total - 1.0) > 1e-6:
+        raise ValueError(f"Candidate weights sum to {total:.12f}, not 1.")
+    candidate = candidate / total
+    if float(candidate.max()) > float(max_weight) + 1e-8:
+        raise ValueError("Candidate weights violate the maximum-weight constraint.")
+    candidate.name = "Weight"
+    return candidate
 
 
 def _comparison_and_gate(
@@ -392,6 +515,8 @@ def _apply_non_performance_blocks(
     gate: dict[str, object],
     constraint_row: pd.Series,
     fx_status: str,
+    *,
+    institutional_point_in_time_available: bool,
 ) -> dict[str, object]:
     blocked = dict(gate)
     failed_constraints = str(constraint_row.get("Failed_Constraints", "None"))
@@ -409,6 +534,21 @@ def _apply_non_performance_blocks(
             str(blocked["Reason"]),
             "FX normalization is insufficient for a promoted global USD portfolio.",
         )
+    if not institutional_point_in_time_available:
+        blocked["Promoted"] = False
+        blocked["Promotion_Decision"] = "not promoted"
+        blocked["Reason"] = _append_reason(
+            str(blocked["Reason"]),
+            "Point-in-time historical universe membership and delisting evidence "
+            "are unavailable; a current-universe diagnostic cannot promote an "
+            "institutional global master portfolio.",
+        )
+    blocked["Institutional_Point_In_Time_Available"] = bool(
+        institutional_point_in_time_available
+    )
+    blocked["Institutional_Promotion_Eligible"] = bool(
+        blocked.get("Promoted", False) and institutional_point_in_time_available
+    )
     return blocked
 
 
@@ -457,7 +597,7 @@ def _risk_report(
 
 def _min_variance_weights(returns: pd.DataFrame, max_weight: float) -> pd.Series:
     assets = list(returns.columns)
-    cov = returns.cov().to_numpy(dtype=float)
+    cov = _ledoit_wolf_covariance(returns).to_numpy(dtype=float)
     x0 = np.repeat(1.0 / len(assets), len(assets))
 
     def objective(weights: np.ndarray) -> float:
@@ -471,9 +611,28 @@ def _min_variance_weights(returns: pd.DataFrame, max_weight: float) -> pd.Series
         method="SLSQP",
     )
     if not result.success:
-        return build_inverse_volatility_portfolio(returns, assets, max_weight)
+        raise ValueError("Min Variance optimization failed: " + str(result.message))
     weights = pd.Series(result.x, index=assets, name="Weight")
     return weights / weights.sum()
+
+
+def _ledoit_wolf_covariance(returns: pd.DataFrame) -> pd.DataFrame:
+    complete = returns.apply(pd.to_numeric, errors="coerce").dropna(how="any")
+    if complete.shape[0] < 2:
+        raise ValueError(
+            "At least two complete common observations are required for "
+            "Ledoit-Wolf covariance estimation."
+        )
+    covariance = (
+        LedoitWolf().fit(complete.to_numpy(dtype=float)).covariance_
+        * TRADING_DAYS_PER_YEAR
+    )
+    covariance = 0.5 * (covariance + covariance.T)
+    if not np.isfinite(covariance).all():
+        raise ValueError("Ledoit-Wolf covariance contains non-finite values.")
+    if float(np.linalg.eigvalsh(covariance).min()) < -1e-10:
+        raise ValueError("Ledoit-Wolf covariance is not positive semi-definite.")
+    return pd.DataFrame(covariance, index=complete.columns, columns=complete.columns)
 
 
 def _cluster_balanced_weights(returns: pd.DataFrame, max_weight: float) -> pd.Series:
@@ -482,8 +641,8 @@ def _cluster_balanced_weights(returns: pd.DataFrame, max_weight: float) -> pd.Se
     for _, tickers in clusters.groupby(clusters).groups.items():
         cluster_weight = 1.0 / clusters.nunique()
         per_asset = cluster_weight / len(tickers)
-        weights.loc[list(tickers)] = min(per_asset, max_weight)
-    weights = weights / weights.sum()
+        weights.loc[list(tickers)] = per_asset
+    weights = apply_max_weight_cap(weights, max_weight)
     weights.name = "Weight"
     return weights
 
@@ -550,7 +709,9 @@ def _policy_constrained_weights(
         method="highs",
     )
     if not result.success:
-        return pd.Series(1.0 / len(assets), index=assets, name="Weight")
+        raise ValueError(
+            "Policy-constrained optimization is infeasible: " + str(result.message)
+        )
     weights = pd.Series(result.x, index=assets, name="Weight")
     return weights / weights.sum()
 

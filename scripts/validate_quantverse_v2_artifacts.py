@@ -43,8 +43,12 @@ REQUIRED_JSON_FIELDS = {
         "weight_sum",
         "final_selected_holdings",
         "run_id",
+        "execution_id",
         "data_as_of_date",
         "universe_snapshot_id",
+        "data_snapshot_id",
+        "config_hash",
+        "input_fingerprint",
     ],
     "global_final_model_decision.json": [
         "final_selected_model",
@@ -54,14 +58,29 @@ REQUIRED_JSON_FIELDS = {
         "final_decision_reason",
         "publish_readiness_status",
         "run_id",
+        "execution_id",
         "data_as_of_date",
         "universe_snapshot_id",
+        "data_snapshot_id",
+        "config_hash",
+        "input_fingerprint",
     ],
     "quantverse_v2_run_manifest.json": [
         "run_id",
+        "execution_id",
         "data_as_of_date",
         "generated_at",
         "universe_snapshot_id",
+        "data_snapshot_id",
+        "config_hash",
+        "input_fingerprint",
+    ],
+    "quantverse_v2_reference_math_summary.json": [
+        "status",
+        "check_count",
+        "failed_check_count",
+        "run_id",
+        "checks_path",
     ],
 }
 
@@ -72,6 +91,8 @@ REQUIRED_CSVS = [
     "global_portfolio_league_weights.csv",
     "global_portfolio_risk_report.csv",
     "global_walk_forward_model_comparison.csv",
+    "global_walk_forward_random_distribution.csv",
+    "global_walk_forward_uncertainty.csv",
     "global_random_portfolio_percentile_report.csv",
     "global_robustness_sensitivity.csv",
     "global_top_holdings_explanation.csv",
@@ -98,6 +119,7 @@ REQUIRED_CSVS = [
     "quantverse_v2_visual_exposure.csv",
     "quantverse_v2_visual_top_holdings.csv",
     "quantverse_v2_visual_validation.csv",
+    "quantverse_v2_reference_math_checks.csv",
 ]
 
 REQUIRED_HTML_SECTIONS = [
@@ -214,6 +236,7 @@ def validate_artifacts(root: Path) -> dict[str, object]:
 
     _check_required_json_fields(processed, checks)
     _check_required_csvs(processed, checks)
+    _check_demo_run_status(summary, checks)
     _check_final_model_consistency(summary, decision, league, checks)
     _check_final_weights(summary, weights, checks)
     _check_pdf(root / "output" / "pdf" / "quantverse_v2_research_report.pdf", checks)
@@ -236,6 +259,8 @@ def validate_artifacts(root: Path) -> dict[str, object]:
     )
     _check_report_claim_language(root, checks)
     _check_numerical_integrity(root, summary, checks)
+    _check_reference_math(processed, checks)
+    _check_model_selection_evidence(processed, checks)
     _check_visual_analytics(root, checks)
     _check_exposure_metadata_quality(processed, checks)
     _check_security_identity_history(processed, checks)
@@ -284,6 +309,166 @@ def _check_required_csvs(processed: Path, checks: list[dict[str, object]]) -> No
                 f"rows={len(frame)}",
             )
         )
+
+
+def _check_model_selection_evidence(
+    processed: Path, checks: list[dict[str, object]]
+) -> None:
+    """Verify model selection uses comparable walk-forward OOS net evidence."""
+    walk = _read_csv(processed / "global_walk_forward_model_comparison.csv")
+    selection = _read_csv(processed / "global_model_selection_report.csv")
+    randoms = _read_csv(processed / "global_walk_forward_random_distribution.csv")
+    uncertainty = _read_csv(processed / "global_walk_forward_uncertainty.csv")
+
+    random_required = {
+        "portfolio_id",
+        "benchmark_scope",
+        "annualized_return",
+        "volatility",
+        "sharpe",
+        "max_drawdown",
+        "cvar_95",
+    }
+    random_schema_ok = not randoms.empty and random_required.issubset(randoms.columns)
+    random_scope_ok = bool(
+        random_schema_ok
+        and randoms["benchmark_scope"].astype(str).eq("walk_forward_oos_net").all()
+    )
+    random_sharpe = (
+        pd.to_numeric(randoms["sharpe"], errors="coerce")
+        if random_schema_ok
+        else pd.Series(dtype=float)
+    )
+    random_non_degenerate = bool(
+        random_scope_ok
+        and randoms["portfolio_id"].nunique() >= 2
+        and random_sharpe.notna().sum() >= 2
+        and random_sharpe.nunique(dropna=True) >= 2
+    )
+    checks.append(
+        _check(
+            "random_benchmark_is_same_protocol_walk_forward_oos_net",
+            random_scope_ok,
+            (
+                f"rows={len(randoms)}; scopes="
+                f"{sorted(randoms.get('benchmark_scope', pd.Series(dtype=str)).astype(str).unique())}"
+            ),
+        )
+    )
+    checks.append(
+        _check(
+            "random_benchmark_distribution_is_non_degenerate",
+            random_non_degenerate,
+            (
+                f"portfolios={randoms.get('portfolio_id', pd.Series(dtype=object)).nunique()}; "
+                f"unique_sharpe={random_sharpe.nunique(dropna=True)}"
+            ),
+        )
+    )
+
+    scope_column_ok = bool(
+        not selection.empty
+        and "random_benchmark_scope" in selection
+        and selection["random_benchmark_scope"]
+        .astype(str)
+        .eq("walk_forward_oos_net")
+        .all()
+    )
+    checks.append(
+        _check(
+            "model_selection_uses_walk_forward_oos_random_scope",
+            scope_column_ok,
+            (
+                "scopes="
+                f"{sorted(selection.get('random_benchmark_scope', pd.Series(dtype=str)).astype(str).unique())}"
+            ),
+        )
+    )
+
+    metric_pairs = {
+        "walk_forward_annualized_return": "oos_annualized_return",
+        "walk_forward_volatility": "oos_volatility",
+        "walk_forward_sharpe": "oos_sharpe",
+        "walk_forward_sortino": "oos_sortino",
+        "walk_forward_max_drawdown": "oos_max_drawdown",
+        "walk_forward_cvar_95": "oos_cvar_95",
+    }
+    required_selection = {"model_name", *metric_pairs}
+    required_walk = {"model_name", *metric_pairs.values()}
+    reconciled = False
+    max_difference = float("inf")
+    compared_rows = 0
+    if (
+        not selection.empty
+        and not walk.empty
+        and required_selection.issubset(selection.columns)
+        and required_walk.issubset(walk.columns)
+    ):
+        merged = selection[list(required_selection)].merge(
+            walk[list(required_walk)],
+            on="model_name",
+            how="inner",
+            validate="one_to_one",
+        )
+        differences: list[float] = []
+        for selection_column, walk_column in metric_pairs.items():
+            left = pd.to_numeric(merged[selection_column], errors="coerce")
+            right = pd.to_numeric(merged[walk_column], errors="coerce")
+            finite = left.notna() & right.notna()
+            differences.extend((left.loc[finite] - right.loc[finite]).abs().tolist())
+        compared_rows = len(merged)
+        max_difference = max(differences, default=float("inf"))
+        reconciled = bool(compared_rows > 0 and max_difference <= 1e-10)
+    checks.append(
+        _check(
+            "model_selection_metrics_reconcile_to_walk_forward_oos",
+            reconciled,
+            f"models_compared={compared_rows}; max_abs_difference={max_difference}",
+        )
+    )
+    uncertainty_required = {
+        "model_name",
+        "uncertainty_status",
+        "uncertainty_method",
+        "paired_observations",
+        "sharpe_diff_ci_lower",
+        "sharpe_diff_ci_upper",
+        "probability_sharpe_improvement",
+    }
+    uncertainty_schema_ok = bool(
+        not uncertainty.empty
+        and uncertainty_required.issubset(uncertainty.columns)
+        and uncertainty["uncertainty_method"]
+        .astype(str)
+        .eq("paired_circular_block_bootstrap")
+        .all()
+    )
+    checks.append(
+        _check(
+            "walk_forward_paired_block_uncertainty_present",
+            uncertainty_schema_ok,
+            (
+                f"rows={len(uncertainty)}; "
+                f"missing={sorted(uncertainty_required.difference(uncertainty.columns))}"
+            ),
+        )
+    )
+
+
+def _check_demo_run_status(
+    summary: dict[str, object], checks: list[dict[str, object]]
+) -> None:
+    status = str(summary.get("run_status", "missing")).strip().lower()
+    checks.append(
+        _check(
+            "demo_run_completed_without_failed_step",
+            status == "completed" and not str(summary.get("failed_step", "")).strip(),
+            (
+                f"run_status={status}; "
+                f"failed_step={summary.get('failed_step', 'none')}"
+            ),
+        )
+    )
 
 
 def _check_final_model_consistency(
@@ -364,7 +549,7 @@ def _check_pdf(
         details = f"pages={pages}; first_text_chars={len(first_text or '')}"
     except Exception as exc:
         passed = False
-        details = f"error={exc}"
+        details = _portable_exception_details(exc, path)
     checks.append(_check(label, passed, details))
 
 
@@ -388,7 +573,7 @@ def _check_excel(path: Path, checks: list[dict[str, object]]) -> None:
         details = f"missing_sheets={missing}; sheet_count={len(sheets)}"
     except Exception as exc:
         passed = False
-        details = f"error={exc}"
+        details = _portable_exception_details(exc, path)
     checks.append(_check("excel_required_sheets", passed, details))
 
 
@@ -444,6 +629,49 @@ def _check_numerical_integrity(
             (
                 f"summary_status={summary_status}; actual_status={result['overall_status']}; "
                 f"summary_failed={summary_failed}; actual_failed={result['failed_check_count']}"
+            ),
+        )
+    )
+
+
+def _check_reference_math(processed: Path, checks: list[dict[str, object]]) -> None:
+    summary = _read_json(processed / "quantverse_v2_reference_math_summary.json")
+    frame = _read_csv(processed / "quantverse_v2_reference_math_checks.csv")
+    manifest = _read_json(processed / "quantverse_v2_run_manifest.json")
+    if not summary or frame.empty:
+        checks.append(
+            _check(
+                "independent_reference_math_passed",
+                False,
+                "Independent reference-math summary or checks are missing.",
+            )
+        )
+        return
+    passed_values = frame.get("passed", pd.Series(dtype=bool)).map(
+        lambda value: str(value).strip().lower() in {"1", "true", "yes"}
+    )
+    failed = int((~passed_values).sum())
+    run_ids = (
+        frame.get("run_id", pd.Series(dtype=str)).dropna().astype(str).unique().tolist()
+    )
+    manifest_run_id = str(manifest.get("run_id", "missing"))
+    summary_run_id = str(summary.get("run_id", "missing"))
+    passed = bool(
+        str(summary.get("status")) == "passed"
+        and int(summary.get("failed_check_count", -1)) == 0
+        and int(summary.get("check_count", -1)) == len(frame)
+        and failed == 0
+        and run_ids == [manifest_run_id]
+        and summary_run_id == manifest_run_id
+    )
+    checks.append(
+        _check(
+            "independent_reference_math_passed",
+            passed,
+            (
+                f"summary_status={summary.get('status')}; checks={len(frame)}; "
+                f"failed={failed}; run_ids={run_ids}; "
+                f"manifest_run_id={manifest_run_id}"
             ),
         )
     )
@@ -1203,7 +1431,7 @@ def validate_selected_stock_report_semantics(root: Path) -> dict[str, object]:
     except Exception as exc:
         excel_selected = pd.DataFrame()
         excel_columns = set()
-        excel_error = str(exc)
+        excel_error = _portable_exception_details(exc, excel_path)
     else:
         excel_error = ""
     excel_required = {"listing_country", "issuer_country", "economic_country"}
@@ -1483,6 +1711,12 @@ def _float(value: object) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _portable_exception_details(exc: Exception, path: Path | None = None) -> str:
+    """Describe an artifact failure without leaking a local absolute path."""
+    artifact = path.name if path is not None else "unavailable"
+    return f"error_type={type(exc).__name__}; artifact={artifact}"
 
 
 def _check(name: str, passed: bool, details: str) -> dict[str, object]:

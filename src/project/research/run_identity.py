@@ -6,13 +6,22 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import pandas as pd
 
 RUN_MANIFEST_NAME = "quantverse_v2_run_manifest.json"
 RUN_REGISTRY_NAME = "quantverse_v2_artifact_run_registry.csv"
-RUN_FIELDS = ["run_id", "data_as_of_date", "generated_at", "universe_snapshot_id"]
+RUN_FIELDS = [
+    "run_id",
+    "execution_id",
+    "data_as_of_date",
+    "generated_at",
+    "universe_snapshot_id",
+    "data_snapshot_id",
+    "config_hash",
+    "input_fingerprint",
+]
 
 
 def build_run_manifest(
@@ -20,17 +29,31 @@ def build_run_manifest(
     *,
     data_as_of_date: str,
     generated_at: str | None = None,
+    data_snapshot: pd.DataFrame | pd.Series | None = None,
+    config: Mapping[str, object] | None = None,
 ) -> dict[str, str]:
-    """Create a traceable run identity from the universe snapshot and as-of date."""
+    """Create execution and stable-input identities for one evidence build."""
     generated = generated_at or datetime.now(timezone.utc).isoformat()
-    snapshot = universe_snapshot_id(universe)
-    seed = f"{snapshot}|{data_as_of_date}|{generated}".encode("utf-8")
-    run_hash = hashlib.sha256(seed).hexdigest()[:16]
+    universe_id = universe_snapshot_id(universe)
+    data_id = data_snapshot_id(data_snapshot)
+    config_id = config_snapshot_hash(config)
+    input_seed = f"{universe_id}|{data_as_of_date}|{data_id}|{config_id}".encode(
+        "utf-8"
+    )
+    input_fingerprint = f"input-{hashlib.sha256(input_seed).hexdigest()[:20]}"
+    execution_seed = f"{input_fingerprint}|{generated}".encode("utf-8")
+    execution_id = (
+        f"qv2-{data_as_of_date}-{hashlib.sha256(execution_seed).hexdigest()[:16]}"
+    )
     return {
-        "run_id": f"qv2-{data_as_of_date}-{run_hash}",
+        "run_id": execution_id,
+        "execution_id": execution_id,
         "data_as_of_date": str(data_as_of_date),
         "generated_at": generated,
-        "universe_snapshot_id": snapshot,
+        "universe_snapshot_id": universe_id,
+        "data_snapshot_id": data_id,
+        "config_hash": config_id,
+        "input_fingerprint": input_fingerprint,
     }
 
 
@@ -62,6 +85,38 @@ def universe_snapshot_id(universe: pd.DataFrame) -> str:
     normalized = universe[columns].fillna("").astype(str).sort_values(columns)
     payload = normalized.to_csv(index=False, lineterminator="\n").encode("utf-8")
     return f"universe-{hashlib.sha256(payload).hexdigest()[:16]}"
+
+
+def data_snapshot_id(data: pd.DataFrame | pd.Series | None) -> str:
+    """Return a stable digest of the dated numerical evidence matrix."""
+    if data is None:
+        return "data-unavailable"
+    frame = data.to_frame() if isinstance(data, pd.Series) else data.copy()
+    if frame.empty:
+        return "data-empty"
+    frame.columns = frame.columns.map(str)
+    frame = frame.reindex(sorted(frame.columns), axis=1).sort_index()
+    frame.index = frame.index.map(str)
+    payload = frame.to_csv(
+        index=True,
+        lineterminator="\n",
+        na_rep="<NA>",
+        float_format="%.17g",
+    ).encode("utf-8")
+    return f"data-{hashlib.sha256(payload).hexdigest()[:20]}"
+
+
+def config_snapshot_hash(config: Mapping[str, object] | None) -> str:
+    """Return a stable digest of the parsed configuration used by a run."""
+    if config is None:
+        return "config-unavailable"
+    payload = json.dumps(
+        config,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return f"config-{hashlib.sha256(payload).hexdigest()[:20]}"
 
 
 def write_run_manifest(

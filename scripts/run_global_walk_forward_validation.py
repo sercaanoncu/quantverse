@@ -52,6 +52,21 @@ def main() -> int:
         minimum_standard_observations=int(
             config.get("minimum_standard_history_observations", 252)
         ),
+        risk_free_rate_annual=float(config.get("risk_free_rate_annual", 0.0)),
+        risk_free_policy=str(
+            config.get(
+                "risk_free_policy",
+                "zero_rate_labeled_research_assumption",
+            )
+        ),
+        random_benchmark_portfolios=int(config.get("random_portfolio_samples", 1000)),
+        uncertainty_bootstrap_samples=int(
+            config.get("uncertainty_bootstrap_samples", 1000)
+        ),
+        uncertainty_block_length=int(config.get("uncertainty_block_length", 21)),
+        uncertainty_confidence_level=float(
+            config.get("uncertainty_confidence_level", 0.95)
+        ),
     )
     run_metadata = read_run_manifest(output)
     for key in [
@@ -62,6 +77,8 @@ def main() -> int:
         "leakage_audit",
         "window_summary",
         "model_comparison",
+        "random_distribution",
+        "uncertainty",
     ]:
         result[key] = attach_run_metadata(result[key], run_metadata)
     result["summary"].update(run_metadata)
@@ -76,6 +93,8 @@ def main() -> int:
             output / "global_walk_forward_leakage_audit.csv",
             output / "global_walk_forward_window_summary.csv",
             output / "global_walk_forward_model_comparison.csv",
+            output / "global_walk_forward_random_distribution.csv",
+            output / "global_walk_forward_uncertainty.csv",
             output / "global_walk_forward_summary.json",
         ],
         run_metadata,

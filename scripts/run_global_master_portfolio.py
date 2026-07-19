@@ -150,7 +150,11 @@ def main() -> int:
             "Excluded from global master portfolio inputs by history gate: "
             + ", ".join(excluded)
         )
-    print(result["decision_summary"]["promotion_decision"])
+    decision = result["decision_summary"]
+    print(
+        "Global master portfolio "
+        f"{decision['promotion_decision']}: {decision['reason']}"
+    )
     return 0
 
 

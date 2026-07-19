@@ -41,6 +41,13 @@ def main() -> int:
         print("Missing weights or universe; exposure report not built.")
         return 0
     final_model = _final_model()
+    available_models = set(weights.get("model_name", pd.Series(dtype=str)).astype(str))
+    if final_model == "not_available" or final_model not in available_models:
+        print(
+            "No explicit final-model decision with matching weights; "
+            "exposure report not built."
+        )
+        return 0
     metadata_cache_dir = config.get(
         "exposure_metadata_cache_dir",
         "data/cache/exposure_metadata/yfinance_profiles",
@@ -90,12 +97,12 @@ def _final_model() -> str:
     decision_path = PROCESSED / "global_final_model_decision.json"
     if decision_path.exists():
         decision = json.loads(decision_path.read_text(encoding="utf-8"))
-        return str(decision.get("final_selected_model", "Equal Weight"))
+        return str(decision.get("final_selected_model", "not_available"))
     summary_path = PROCESSED / "quantverse_v2_demo_summary.json"
     if summary_path.exists():
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        return str(summary.get("final_selected_model", "Equal Weight"))
-    return "Equal Weight"
+        return str(summary.get("final_selected_model", "not_available"))
+    return "not_available"
 
 
 def _read_csv(path: Path) -> pd.DataFrame:

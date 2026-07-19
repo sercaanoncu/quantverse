@@ -76,9 +76,9 @@ def main() -> int:
 
 def _load_data(processed: Path) -> dict[str, pd.DataFrame | dict]:
     files = {
-        "universe": "real_global_universe_population_summary.csv",
-        "source": "real_global_universe_source_coverage.csv",
-        "market_cap": "real_global_universe_market_cap_coverage.csv",
+        "universe": "current_global_universe_summary.csv",
+        "source": "global_exact_proxy_classification_report.csv",
+        "market_cap": "global_exact_proxy_classification_report.csv",
         "coverage": "global_returns_coverage_report.csv",
         "fx": "global_fx_normalization_report.csv",
         "normality": "global_normality_tests.csv",
@@ -134,10 +134,17 @@ def _current_v2_decision(processed: Path) -> dict[str, object]:
     )
     return {
         "final_model": final_model,
+        "research_decision": summary.get(
+            "final_model_selection_decision",
+            model.get("final_decision", "not promoted"),
+        ),
         "promotion_decision": summary.get(
             "institutional_global_master_promotion",
             master.get("promotion_decision", "not_promoted"),
         ),
+        "legacy_final_model": master.get("final_model", "missing"),
+        "legacy_constraints_pass": bool(master.get("constraints_pass", False)),
+        "legacy_reason": master.get("reason", "missing"),
         "reason": (
             f"Final public-data research model: {final_model}. "
             "Institutional/global master promotion: not_promoted. "
@@ -152,12 +159,62 @@ def _build_charts(
     processed: Path,
     figure_dir: Path,
 ) -> list[ChartSpec]:
+    decision = data.get("decision", {})
+    final_model = (
+        str(decision.get("final_model", "missing"))
+        if isinstance(decision, dict)
+        else "missing"
+    )
+    legacy_model = (
+        str(decision.get("legacy_final_model", "missing"))
+        if isinstance(decision, dict)
+        else "missing"
+    )
+    constraint_decision = _legacy_constraint_decision(decision)
+    coverage = data["coverage"]
+    included_count = (
+        int(_as_boolean_mask(coverage["included_in_returns"]).sum())
+        if isinstance(coverage, pd.DataFrame)
+        and not coverage.empty
+        and "included_in_returns" in coverage
+        else 0
+    )
+    excluded_count = (
+        len(coverage) - included_count if isinstance(coverage, pd.DataFrame) else 0
+    )
+    fx = data["fx"]
+    fx_native_count = (
+        int(fx["fx_normalization_status"].astype(str).eq("native_base").sum())
+        if isinstance(fx, pd.DataFrame)
+        and not fx.empty
+        and "fx_normalization_status" in fx
+        else 0
+    )
+    fx_incomplete_count = (
+        len(fx) - fx_native_count if isinstance(fx, pd.DataFrame) else 0
+    )
+    normality = data["normality"]
+    normality_rejections = (
+        int(
+            normality["normality_result"]
+            .astype(str)
+            .str.contains("reject_normality", na=False)
+            .sum()
+        )
+        if isinstance(normality, pd.DataFrame)
+        and not normality.empty
+        and "normality_result" in normality
+        else 0
+    )
+    model_sharpe_decision = _highest_model_metric_decision(
+        data["model_comparison"], "Sharpe"
+    )
     chart_builders: list[tuple[ChartSpec, Callable[[Path], None]]] = [
         (
             _spec(
                 "universe_rows_by_sleeve",
                 "Evren satırları: hangi varlık sınıfından kaç satır var?",
-                "data/processed/real_global_universe_population_summary.csv",
+                "data/processed/current_global_universe_summary.csv",
                 "Her sütun bir sleeve içindeki kaynak satır sayısını gösterir.",
                 "Gerçek hisselerin ve proxy varlıkların analize girip girmediğini gösterir.",
                 "Sıfır satırlı ana sleeve veri eksikliği kırmızı bayraktır.",
@@ -181,7 +238,10 @@ def _build_charts(
                 "Fiyat geçmişi yeterli olan varlıklar dahil, yetersiz olanlar hariçtir.",
                 "Eksik fiyat kapsamı performans yanlılığı yaratabilir.",
                 "Çok fazla excluded varlık veri sağlayıcı/ticker mapping problemidir.",
-                "685 varlık analize girmiş, 20 varlık coverage nedeniyle düşmüş.",
+                (
+                    f"{included_count} satır getiri matrisine dahil edilmiş; "
+                    f"{excluded_count} satır fiyat kapsamı kapısından geçememiştir."
+                ),
             ),
             lambda p: _coverage_chart(data["coverage"], p),
         ),
@@ -189,11 +249,11 @@ def _build_charts(
             _spec(
                 "source_method_coverage",
                 "Kaynak yöntemi: exact mi, proxy mi?",
-                "data/processed/real_global_universe_source_coverage.csv",
-                "source_method alanı veri iddiasının gücünü gösterir.",
+                "data/processed/global_exact_proxy_classification_report.csv",
+                "classification alanı veri iddiasının gücünü gösterir.",
                 "Index proxy ile exact top-100 aynı şey değildir.",
                 "Proxy kaynak exact market-cap top-100 gibi anlatılırsa bilimsel hata olur.",
-                "Equity sleeve'ler index_proxy; crypto market-cap API enriched.",
+                "Hiçbir sleeve için exact top-100 desteği yoktur; sınıflandırma bloklarını görünür tutar.",
             ),
             lambda p: _source_method_chart(data["source"], p),
         ),
@@ -201,7 +261,7 @@ def _build_charts(
             _spec(
                 "market_cap_coverage",
                 "Market-cap kanıtı: hangi sleeve destekli?",
-                "data/processed/real_global_universe_market_cap_coverage.csv",
+                "data/processed/global_exact_proxy_classification_report.csv",
                 "Market-cap satırları exact top-100 ve Black-Litterman için temel kanıttır.",
                 "Market-cap yoksa exact rank iddiası yoktur.",
                 "Equity market-cap coverage yoksa global top-100 promotion blokludur.",
@@ -217,7 +277,12 @@ def _build_charts(
                 "Her varlığın baz para birimine çevrilip çevrilmediğini gösterir.",
                 "Global USD portföy için non-USD getiriler USD'ye çevrilmelidir.",
                 "not_implemented satırları terfi bloklayıcıdır.",
-                "475 satırda FX normalizasyonu yok; not promoted doğru karar.",
+                (
+                    f"Mevcut analizde {fx_native_count} satır USD native_base, "
+                    f"{fx_incomplete_count} satır başka durumdadır. Bu sonuç, "
+                    "analiz dışındaki non-USD global sleeve'lerin USD'ye "
+                    "çevrildiğini kanıtlamaz; kurumsal global USD terfisi blokludur."
+                ),
             ),
             lambda p: _count_chart(
                 data["fx"],
@@ -248,7 +313,10 @@ def _build_charts(
                 "Jarque-Bera sonucu kaç varlıkta normalite reddedildiğini gösterir.",
                 "Normal olmayan getiriler tail-risk yöntemleri gerektirir.",
                 "Normal kabul edip sadece normal varsayımıyla karar vermek hatadır.",
-                "684 varlıkta normalite reddedildi; CVaR/stress yorumları önemlidir.",
+                (
+                    f"{normality_rejections} analiz varlığında normalite reddedildi; "
+                    "CVaR ve stres sonuçları bu nedenle kararın zorunlu parçasıdır."
+                ),
             ),
             lambda p: _count_chart(
                 data["normality"],
@@ -334,7 +402,10 @@ def _build_charts(
                 "Her nokta bir modelin getiri-risk konumudur.",
                 "Yüksek getiri tek başına başarı değildir.",
                 "Aşırı volatilite veya şüpheli CAGR terfi engelidir.",
-                "Policy Constrained daha makul ama EW CAGR'ı geçmiyor.",
+                (
+                    f"Current v2 public-data model is {final_model}; this legacy "
+                    "global-proxy chart is diagnostic and does not promote it."
+                ),
             ),
             lambda p: _scatter_model(data["model_comparison"], p),
         ),
@@ -346,7 +417,7 @@ def _build_charts(
                 "Sharpe değerlerini model bazında gösterir.",
                 "Risk-adjusted performans return-only metrikten ayrıdır.",
                 "Sharpe çok yüksekse veri/ölçek kontrolü gerekir.",
-                "Inverse Volatility Sharpe yüksek ama kısıtları ihlal ediyor.",
+                model_sharpe_decision,
             ),
             lambda p: _model_metric_bar(
                 data["model_comparison"], "Sharpe", p, "Sharpe"
@@ -360,7 +431,10 @@ def _build_charts(
                 "Aşağı yönlü risk metriklerini birlikte gösterir.",
                 "CAGR yüksek olsa bile tail risk karar değiştirir.",
                 "Max drawdown/CVaR kötüleşirse promotion zayıflar.",
-                "Policy Constrained risk tarafında izlenebilir ama promoted değil.",
+                (
+                    f"{legacy_model} legacy-proxy risk metrics remain historical diagnostics; "
+                    "the institutional/global master decision is not promoted."
+                ),
             ),
             lambda p: _risk_pair_chart(data["model_comparison"], p),
         ),
@@ -372,7 +446,12 @@ def _build_charts(
                 "Her model ailesinin actually run, not available, blocked by data, not appropriate veya diagnostic only statüsünü gösterir.",
                 "Model adı görmek modelin geçerli allocation kanıtı ürettiği anlamına gelmez.",
                 "Blocked/unavailable modeller valid allocation sonucu gibi sunulursa bilimsel hata olur.",
-                "Black-Litterman market-cap eksikliğiyle bloklu; HRP/Risk Parity bu global run'da available değildir; ML diagnostiktir.",
+                (
+                    "Black-Litterman market-cap önkoşulu nedeniyle blokludur. "
+                    "HRP ve Risk Parity v2 araştırma liginde gerçekten koşmuştur; "
+                    "eski global-master tabloda bulunmamaları farklı bir kanıt "
+                    "kapsamıdır. ML çıktıları diagnostiktir."
+                ),
             ),
             lambda p: _model_status_chart(data, p),
         ),
@@ -384,7 +463,7 @@ def _build_charts(
                 "Her modelin hard constraints sonucunu gösterir.",
                 "User-facing final aday hard constraints geçmelidir.",
                 "Final model constraint fail ise kritik hatadır.",
-                "Policy Constrained tüm kısıtları geçiyor.",
+                constraint_decision,
             ),
             lambda p: _constraint_chart(data["constraint"], p),
         ),
@@ -396,7 +475,10 @@ def _build_charts(
                 "Full weight sum, negative weight, dust weight ve max-cap weight sayılarını gösterir.",
                 "Portföy matematiksel olarak normalize olsa bile operasyonel gürültü veya cap baskısı görülebilir.",
                 "Ağırlık toplamı 1 değilse, negatif weight varsa veya exposure toplamları tutmuyorsa final aday geçersizdir.",
-                "Policy Constrained aday weight sum ve hard constraints geçirir; dust ve max-cap uyarıları ayrıca açıklanır.",
+                (
+                    f"Full {legacy_model} proxy-candidate weights are shown, but "
+                    "weight normalization cannot override a failed hard-constraint gate."
+                ),
             ),
             lambda p: _weight_audit_chart(data, p),
         ),
@@ -483,7 +565,10 @@ def _build_charts(
                 "10.000 random portföyün Sharpe dağılımını gösterir.",
                 "Adayın rastgele portföylere göre nerede durduğunu gösterir.",
                 "Random benchmark geleceği kanıtlamaz.",
-                "Policy Constrained random Sharpe 95. yüzdelik eşiğini geçiyor ama EW CAGR'ı geçmiyor.",
+                (
+                    f"The {legacy_model} proxy candidate is interpreted only under "
+                    "the recorded random-benchmark gate; no future superiority follows."
+                ),
             ),
             lambda p: _random_sharpe_chart(data, p),
         ),
@@ -627,47 +712,107 @@ def _count_chart(
     _finish(fig, path)
 
 
+def _as_boolean_mask(values: pd.Series) -> pd.Series:
+    if pd.api.types.is_bool_dtype(values):
+        return values.fillna(False).astype(bool)
+    normalized = values.astype(str).str.strip().str.lower()
+    return normalized.isin({"true", "1", "yes", "y"})
+
+
+def _highest_model_metric_decision(frame: pd.DataFrame | dict, metric: str) -> str:
+    if (
+        not isinstance(frame, pd.DataFrame)
+        or frame.empty
+        or "Model" not in frame
+        or metric not in frame
+    ):
+        return "Model metriği mevcut değildir; terfi kararı üretilemez."
+    values = pd.to_numeric(frame[metric], errors="coerce")
+    if not values.notna().any():
+        return "Model metriği hesaplanmamıştır; terfi kararı üretilemez."
+    winner = frame.loc[values.idxmax()]
+    return (
+        f"Eski full-sample tabloda en yüksek {metric} "
+        f"{winner['Model']} ({values.max():.3f}) modelindedir. Bu legacy/in-sample "
+        "değer; OOS, maliyet, ekstrem metrik ve kısıt kapıları geçilmeden terfi "
+        "kanıtı değildir."
+    )
+
+
 def _coverage_chart(frame: pd.DataFrame, path: Path) -> None:
     if frame.empty or "included_in_returns" not in frame:
         _empty_chart(path, "Fiyat kapsamı")
         return
-    counts = frame["included_in_returns"].astype(str).value_counts()
+    counts = (
+        _as_boolean_mask(frame["included_in_returns"])
+        .map({True: "included", False: "excluded"})
+        .value_counts()
+    )
     fig, ax = _prepare_ax("Included vs excluded assets", "Durum", "Varlık")
     ax.bar(counts.index, counts.values, color=["#4C956C", "#D95D39"][: len(counts)])
     _finish(fig, path)
 
 
 def _source_method_chart(frame: pd.DataFrame, path: Path) -> None:
-    if frame.empty or "source_methods" not in frame:
+    if frame.empty:
         _empty_chart(path, "Source methods")
         return
-    exploded = frame.assign(
-        source_methods=frame["source_methods"].astype(str).str.split(", ")
-    ).explode("source_methods")
-    counts = exploded.groupby("source_methods")["rows"].sum().sort_values()
-    fig, ax = _prepare_ax("Source method coverage", "Source method", "Satır")
+    if {"classification", "rows"}.issubset(frame.columns):
+        counts = (
+            frame.assign(rows=pd.to_numeric(frame["rows"], errors="coerce").fillna(0.0))
+            .groupby("classification")["rows"]
+            .sum()
+            .sort_values()
+        )
+        axis_label = "Kanıt sınıfı"
+    elif {"source_methods", "rows"}.issubset(frame.columns):
+        exploded = frame.assign(
+            source_methods=frame["source_methods"].astype(str).str.split(", ")
+        ).explode("source_methods")
+        counts = exploded.groupby("source_methods")["rows"].sum().sort_values()
+        axis_label = "Kaynak yöntemi"
+    else:
+        _empty_chart(path, "Source methods")
+        return
+    fig, ax = _prepare_ax("Source evidence coverage", axis_label, "Satır")
     ax.barh(counts.index, counts.values, color="#2F6F8F")
     _finish(fig, path)
 
 
 def _market_cap_chart(frame: pd.DataFrame, path: Path) -> None:
-    if frame.empty:
+    if frame.empty or not {"sleeve", "rows"}.issubset(frame.columns):
         _empty_chart(path, "Market-cap coverage")
         return
     data = frame.copy()
-    data["missing_cap_rows"] = pd.to_numeric(
-        data["rows"], errors="coerce"
-    ) - pd.to_numeric(data["market_cap_rows"], errors="coerce")
+    data["rows"] = pd.to_numeric(data["rows"], errors="coerce").fillna(0.0)
+    if "exact_supported_rows" in data:
+        supported_column = "exact_supported_rows"
+        supported_label = "Exact destekli"
+        missing_label = "Exact desteklenmiyor"
+    elif "market_cap_rows" in data:
+        supported_column = "market_cap_rows"
+        supported_label = "Market-cap var"
+        missing_label = "Eksik"
+    else:
+        _empty_chart(path, "Market-cap coverage")
+        return
+    data[supported_column] = pd.to_numeric(
+        data[supported_column], errors="coerce"
+    ).fillna(0.0)
+    data["missing_cap_rows"] = (data["rows"] - data[supported_column]).clip(lower=0.0)
     data = data.sort_values("rows", ascending=True)
-    fig, ax = _prepare_ax("Market-cap coverage by sleeve", "Satır", "Sleeve")
+    fig, ax = _prepare_ax("Exact top-100 evidence by sleeve", "Satır", "Sleeve")
     ax.barh(
-        data["sleeve"], data["market_cap_rows"], label="Market-cap var", color="#4C956C"
+        data["sleeve"],
+        data[supported_column],
+        label=supported_label,
+        color="#4C956C",
     )
     ax.barh(
         data["sleeve"],
         data["missing_cap_rows"],
-        left=data["market_cap_rows"],
-        label="Eksik",
+        left=data[supported_column],
+        label=missing_label,
         color="#D95D39",
     )
     ax.legend()
@@ -1016,7 +1161,7 @@ def _write_markdown(
         f"- Terfi kararı: `{decision.get('promotion_decision', 'missing')}`.",
         f"- Ana gerekçe: {_decision_reason(decision)}",
         "- Global USD master portfolio promoted değildir; FX ve market-cap blokları devam etmektedir.",
-        "- Karar evreni: current global proxy research candidate. Bu karar ETF/multi-asset pipeline kararı veya promoted global USD master portfolio kararı değildir.",
+        "- Karar evrenleri ayrıdır: v2 public-data equity research model, legacy current global proxy candidate ve institutional global USD master promotion aynı karar değildir.",
         "- Exact top-100 market-cap claim is not supported for these sleeves.",
         "- Global USD master portfolio promotion is blocked until non-USD local returns are converted into USD with appropriate FX series, calendars and compounding logic.",
         "",
@@ -1042,6 +1187,7 @@ def _write_presentation_markdown(
 ) -> None:
     PRESENTATION_MD.parent.mkdir(parents=True, exist_ok=True)
     decision = data.get("decision", {})
+    constraint_decision = _legacy_constraint_decision(decision)
     slides = [
         (
             "Current verdict",
@@ -1066,7 +1212,7 @@ def _write_presentation_markdown(
         ),
         (
             "Weight and constraints",
-            "Policy Constrained aday weight sum ve hard constraints geçiyor.",
+            constraint_decision,
         ),
         (
             "Final candidate weight map",
@@ -1249,6 +1395,21 @@ def _decision_reason(decision: dict | object) -> str:
     return reason.replace(
         "net CAGR greater than Equal Weight",
         "net CAGR is not greater than Equal Weight",
+    )
+
+
+def _legacy_constraint_decision(decision: dict | object) -> str:
+    if not isinstance(decision, dict):
+        return "Legacy global proxy constraint decision is unavailable."
+    final_model = str(decision.get("legacy_final_model", "missing"))
+    if bool(decision.get("legacy_constraints_pass", False)):
+        return (
+            f"Legacy global proxy candidate {final_model} passes the recorded hard "
+            "constraints, but remains not promoted."
+        )
+    return (
+        f"Legacy global proxy candidate {final_model} fails at least one recorded "
+        "hard constraint and is not a valid promoted master portfolio."
     )
 
 

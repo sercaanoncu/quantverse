@@ -12,6 +12,8 @@ from sklearn.linear_model import LinearRegression
 import logging
 from typing import Dict, Optional, List
 
+from project.portfolio_contract import align_portfolio_weights
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +35,11 @@ class FactorRiskDecomposer:
     ):
         self.returns = returns.dropna()
         self.tickers = list(returns.columns)
-        self.weights = weights.reindex(self.tickers).fillna(0)
+        self.weights = align_portfolio_weights(
+            weights,
+            self.tickers,
+            context="Factor-risk portfolio",
+        )
         self.asset_class_map = asset_class_map or {}
 
         self.portfolio_returns = pd.Series(
@@ -53,6 +59,11 @@ class FactorRiskDecomposer:
         Sigma = self.returns.cov().values * 252
         w = self.weights.values
         port_vol = np.sqrt(w @ Sigma @ w)
+        if not np.isfinite(port_vol) or port_vol <= 1e-12:
+            raise ValueError(
+                "Marginal risk contribution is undefined for zero or invalid "
+                "portfolio volatility"
+            )
 
         marginal = Sigma @ w / port_vol  # ∂σ/∂w
         risk_contrib = w * marginal

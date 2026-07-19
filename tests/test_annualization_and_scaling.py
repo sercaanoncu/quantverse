@@ -19,6 +19,17 @@ def test_daily_return_annualization_known_case():
     assert np.isclose(metrics["annualized_volatility"], 0.0)
 
 
+def test_sortino_uses_target_semideviation_over_all_observations():
+    daily = pd.Series([0.02, -0.01, 0.02, -0.01])
+    metrics = evaluate_return_series(daily)
+    expected_downside = np.sqrt(np.mean([0.0, 0.01**2, 0.0, 0.01**2])) * np.sqrt(
+        TRADING_DAYS_PER_YEAR
+    )
+    expected_sortino = daily.mean() * TRADING_DAYS_PER_YEAR / expected_downside
+
+    assert np.isclose(metrics["sortino"], expected_sortino)
+
+
 def test_12m_forecast_is_horizon_return_not_double_annualized():
     returns = pd.DataFrame(
         {"AAA": [0.001] * 300},

@@ -104,7 +104,7 @@ def _sections() -> list[dict[str, object]]:
     count_reconciliation = _read_csv(
         PROCESSED / "global_cross_artifact_count_reconciliation.csv"
     )
-    final_model = str(summary.get("final_selected_model", "Policy Constrained"))
+    final_model = str(summary.get("final_selected_model", "not_available"))
     final_weights = (
         weights.loc[weights["model_name"].astype(str).eq(final_model)]
         if not weights.empty and "model_name" in weights
@@ -233,7 +233,10 @@ def _sections() -> list[dict[str, object]]:
                 f"Selection method: {summary.get('final_model_selection_method', 'not available')}.",
                 f"Selection score: {summary.get('final_model_selection_score', 'not available')}.",
                 f"Selection decision: {summary.get('final_model_selection_decision', 'not promoted')}.",
-                f"Selection reason: {summary.get('final_model_selection_reason', 'not available')}.",
+                (
+                    "Selection reason: "
+                    f"{str(summary.get('final_model_selection_reason', 'not available')).rstrip().rstrip('.')}."
+                ),
                 "Diagnostic, blocked and future-candidate models are excluded from final selection.",
             ],
             "table": (

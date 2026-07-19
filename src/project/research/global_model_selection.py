@@ -49,6 +49,7 @@ MODEL_SELECTION_COLUMNS = [
     "league_sharpe",
     "league_max_drawdown",
     "league_cvar_95",
+    "random_benchmark_scope",
     "random_return_percentile",
     "random_volatility_percentile",
     "random_sharpe_percentile",
@@ -59,6 +60,13 @@ MODEL_SELECTION_COLUMNS = [
     "drawdown_not_materially_worse_than_equal_weight",
     "cvar_not_materially_worse_than_equal_weight",
     "sharpe_improvement_vs_equal_weight",
+    "uncertainty_status",
+    "uncertainty_method",
+    "paired_oos_observations",
+    "sharpe_diff_ci_lower",
+    "sharpe_diff_ci_upper",
+    "probability_sharpe_improvement",
+    "uncertainty_gate_pass",
     "turnover_within_limit",
     "random_sharpe_gate_pass",
     "robustness_gate_pass",
@@ -91,12 +99,18 @@ MODEL_SELECTION_DIAGNOSTIC_COLUMNS = [
     "walk_forward_cvar_95",
     "transaction_cost_adjusted_return",
     "turnover",
+    "random_benchmark_scope",
     "random_sharpe_percentile",
     "random_cvar_percentile",
     "equal_weight_return_delta",
     "equal_weight_sharpe_delta",
     "equal_weight_drawdown_delta",
     "equal_weight_cvar_delta",
+    "uncertainty_status",
+    "sharpe_diff_ci_lower",
+    "sharpe_diff_ci_upper",
+    "probability_sharpe_improvement",
+    "uncertainty_gate_pass",
     "constraint_pass",
     "robustness_status",
     "promotion_gate_failed_reasons",
@@ -106,6 +120,8 @@ MODEL_SELECTION_DIAGNOSTIC_COLUMNS = [
 
 RANDOM_DISTRIBUTION_COLUMNS = [
     "portfolio_id",
+    "sampling_method",
+    "benchmark_scope",
     "weight_sum",
     "max_weight_observed",
     "cagr",
@@ -157,6 +173,10 @@ def simulate_constrained_random_distribution(
         rows.append(
             {
                 "portfolio_id": portfolio_id,
+                "sampling_method": (
+                    "iid_uniform_raw_scores_projected_to_capped_simplex"
+                ),
+                "benchmark_scope": "full_sample_static_weights_diagnostic",
                 "weight_sum": float(weights.sum()),
                 "max_weight_observed": float(weights.max()),
                 "cagr": float(metrics["cagr"]),
@@ -227,11 +247,12 @@ def build_model_selection_report(
     *,
     drawdown_tolerance: float = 0.05,
     cvar_tolerance: float = 0.005,
-    min_sharpe_improvement_vs_equal_weight: float = 0.10,
+    min_sharpe_improvement_vs_equal_weight: float = 0.0,
     min_random_sharpe_percentile: float = 0.60,
     max_turnover: float = 2.0,
     forecast_validation_status: str = "diagnostic_only",
     robustness_status: str = "stable",
+    random_benchmark_scope: str = "walk_forward_oos_net",
 ) -> pd.DataFrame:
     """Score final model candidates using risk, cost and validation evidence."""
     if league.empty:
@@ -255,6 +276,7 @@ def build_model_selection_report(
         max_turnover=max_turnover,
         forecast_validation_status=forecast_validation_status,
         robustness_status=robustness_status,
+        random_benchmark_scope=random_benchmark_scope,
     )
     rows = []
     for _, _row in league.iterrows():
@@ -275,6 +297,7 @@ def build_model_selection_report(
                 max_turnover=max_turnover,
                 forecast_validation_status=forecast_validation_status,
                 robustness_status=robustness_status,
+                random_benchmark_scope=random_benchmark_scope,
             )
         )
     frame = pd.DataFrame(rows, columns=MODEL_SELECTION_COLUMNS)
@@ -291,24 +314,22 @@ def build_model_selection_report(
 def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, object]:
     """Build a conservative final-model decision from a selection report."""
     if selection_report.empty:
-        return {
-            "final_selected_model": "Equal Weight",
-            "final_model_selection_method": "robust_public_data_evidence_gate",
-            "final_model_selection_score": 0.0,
-            "final_decision": "not promoted",
-            "final_decision_reason": "No model-selection evidence was available.",
-            "equal_weight_comparison": {},
-            "random_portfolio_percentile": None,
-            "publish_readiness_status": "not ready",
-        }
+        return _not_available_decision("No model-selection evidence was available.")
 
     candidates = selection_report.loc[
         selection_report["eligible_final_model"].astype(bool)
     ].copy()
+    equal_weight = candidates.loc[candidates["model_name"].eq("Equal Weight")]
+    if equal_weight.empty:
+        return _not_available_decision(
+            "No eligible Equal Weight benchmark evidence was available; active "
+            "models cannot be selected without a valid common benchmark."
+        )
+
     if candidates.empty:
-        final = _equal_weight_or_first(selection_report)
-        reason = "No eligible actually-run or benchmark model passed constraints."
-        promoted = False
+        return _not_available_decision(
+            "No eligible actually-run or benchmark model passed constraints."
+        )
     else:
         active = candidates.loc[~candidates["model_name"].eq("Equal Weight")].copy()
         active["active_gate_pass"] = (
@@ -318,56 +339,59 @@ def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, obje
             & active["cvar_not_materially_worse_than_equal_weight"].astype(bool)
             & active["turnover_within_limit"].astype(bool)
             & active["random_sharpe_gate_pass"].astype(bool)
+            & active["uncertainty_gate_pass"].astype(bool)
             & active["robustness_gate_pass"].astype(bool)
             & active["forecast_validation_gate_pass"].astype(bool)
-            & ~active["extreme_metric_warning"]
+            & active["extreme_metric_warning"]
             .astype(str)
-            .str.contains("severe", case=False, na=False)
+            .str.strip()
+            .str.lower()
+            .eq("none")
         )
         if active["active_gate_pass"].any():
             final = (
                 active.loc[active["active_gate_pass"]]
-                .sort_values("selection_score", ascending=False)
+                .sort_values(
+                    [
+                        "walk_forward_sharpe",
+                        "walk_forward_annualized_return",
+                        "walk_forward_max_drawdown",
+                        "walk_forward_cvar_95",
+                        "turnover",
+                        "model_name",
+                    ],
+                    ascending=[False, False, False, False, True, True],
+                )
                 .iloc[0]
             )
             reason = (
                 f"{final['model_name']} is selected as the book-grounded public-data "
-                "research final model because walk-forward return per unit risk, "
-                "drawdown, CVaR, turnover, robustness and random-benchmark gates "
-                "clear the configured thresholds. This is still not investment "
-                "advice or institutional PIT evidence."
+                "research final model because paired block-bootstrap uncertainty, "
+                "walk-forward return per unit risk, drawdown, CVaR, turnover, "
+                "robustness, random-benchmark and metric-review gates clear the "
+                "policy limits. This is still not investment advice or "
+                "institutional PIT evidence."
             )
             promoted = False
         else:
-            final = _equal_weight_or_first(candidates)
+            final = equal_weight.iloc[0]
             reason = (
                 "Equal Weight remains the defensible benchmark; no active model is "
                 "selected because active candidates did not clear the book-grounded "
-                "walk-forward Sharpe, drawdown, CVaR, turnover, robustness and "
-                "random-benchmark gates."
+                "walk-forward Sharpe, paired uncertainty, drawdown, CVaR, turnover, "
+                "robustness, random-benchmark and metric-review gates."
             )
             promoted = False
 
+    final_model = str(final["model_name"])
+    comparison = _final_equal_weight_comparison(final, final_model)
     return {
-        "final_selected_model": str(final["model_name"]),
-        "final_model_selection_method": "robust_public_data_evidence_gate",
+        "final_selected_model": final_model,
+        "final_model_selection_method": ("paired_block_bootstrap_gate_then_oos_sharpe"),
         "final_model_selection_score": float(final["selection_score"]),
         "final_decision": "not promoted" if not promoted else "promoted",
         "final_decision_reason": reason,
-        "equal_weight_comparison": {
-            "beats_equal_weight_return_after_costs": bool(
-                final.get("beats_equal_weight_return_after_costs", False)
-            ),
-            "beats_equal_weight_sharpe": bool(
-                final.get("beats_equal_weight_sharpe", False)
-            ),
-            "drawdown_not_materially_worse_than_equal_weight": bool(
-                final.get("drawdown_not_materially_worse_than_equal_weight", False)
-            ),
-            "cvar_not_materially_worse_than_equal_weight": bool(
-                final.get("cvar_not_materially_worse_than_equal_weight", False)
-            ),
-        },
+        "equal_weight_comparison": comparison,
         "random_portfolio_percentile": _none_if_nan(
             final.get("random_sharpe_percentile")
         ),
@@ -388,6 +412,59 @@ def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, obje
             "Delisting and corporate-action institutional evidence remains unavailable.",
             "Public-data walk-forward is not an institutional PIT backtest.",
         ],
+    }
+
+
+def _not_available_decision(reason: str) -> dict[str, object]:
+    return {
+        "final_selected_model": "not_available",
+        "final_model_selection_method": "paired_block_bootstrap_gate_then_oos_sharpe",
+        "final_model_selection_score": None,
+        "final_decision": "not promoted",
+        "final_decision_reason": str(reason),
+        "equal_weight_comparison": {
+            "comparison_status": "not_available",
+            "beats_equal_weight_return_after_costs": None,
+            "beats_equal_weight_sharpe": None,
+            "drawdown_not_materially_worse_than_equal_weight": None,
+            "cvar_not_materially_worse_than_equal_weight": None,
+        },
+        "random_portfolio_percentile": None,
+        "final_model_book_grounded_rank": 0,
+        "final_model_gate_reasons": str(reason),
+        "publish_readiness_status": "not ready",
+        "hard_limitations": [
+            "A valid Equal Weight benchmark and comparable model evidence are required."
+        ],
+    }
+
+
+def _final_equal_weight_comparison(
+    final: pd.Series, final_model: str
+) -> dict[str, object]:
+    """Describe a genuine challenger comparison without treating EW as its own win."""
+    if final_model == "Equal Weight":
+        return {
+            "comparison_status": "benchmark_self_comparison_not_applicable",
+            "beats_equal_weight_return_after_costs": None,
+            "beats_equal_weight_sharpe": None,
+            "drawdown_not_materially_worse_than_equal_weight": None,
+            "cvar_not_materially_worse_than_equal_weight": None,
+        }
+    return {
+        "comparison_status": "active_model_vs_equal_weight",
+        "beats_equal_weight_return_after_costs": bool(
+            final.get("beats_equal_weight_return_after_costs", False)
+        ),
+        "beats_equal_weight_sharpe": bool(
+            final.get("beats_equal_weight_sharpe", False)
+        ),
+        "drawdown_not_materially_worse_than_equal_weight": bool(
+            final.get("drawdown_not_materially_worse_than_equal_weight", False)
+        ),
+        "cvar_not_materially_worse_than_equal_weight": bool(
+            final.get("cvar_not_materially_worse_than_equal_weight", False)
+        ),
     }
 
 
@@ -442,6 +519,7 @@ def build_model_selection_diagnostics(selection_report: pd.DataFrame) -> pd.Data
                 "transaction_cost_adjusted_return"
             ],
             "turnover": frame["turnover"],
+            "random_benchmark_scope": frame["random_benchmark_scope"],
             "random_sharpe_percentile": frame["random_sharpe_percentile"],
             "random_cvar_percentile": frame["random_cvar_percentile"],
             "equal_weight_return_delta": frame["walk_forward_annualized_return"]
@@ -452,6 +530,11 @@ def build_model_selection_diagnostics(selection_report: pd.DataFrame) -> pd.Data
             - float(ew["walk_forward_max_drawdown"]),
             "equal_weight_cvar_delta": frame["walk_forward_cvar_95"]
             - float(ew["walk_forward_cvar_95"]),
+            "uncertainty_status": frame["uncertainty_status"],
+            "sharpe_diff_ci_lower": frame["sharpe_diff_ci_lower"],
+            "sharpe_diff_ci_upper": frame["sharpe_diff_ci_upper"],
+            "probability_sharpe_improvement": frame["probability_sharpe_improvement"],
+            "uncertainty_gate_pass": frame["uncertainty_gate_pass"],
             "constraint_pass": frame["constraint_pass"],
             "robustness_status": frame["robustness_status"],
             "promotion_gate_failed_reasons": frame["promotion_gate_failed_reasons"],
@@ -478,6 +561,7 @@ def _evidence_row(
     max_turnover: float,
     forecast_validation_status: str,
     robustness_status: str,
+    random_benchmark_scope: str,
 ) -> dict[str, object]:
     league_row = league.loc[league["model_name"].astype(str).eq(model)]
     league_row = league_row.iloc[0] if not league_row.empty else pd.Series(dtype=object)
@@ -494,16 +578,35 @@ def _evidence_row(
     )
     wf_supported = not walk.empty
     wf_return = _coalesce_float(
+        walk.get("oos_annualized_return"),
         walk.get("avg_annualized_return"),
         league_row.get("annualized_return"),
     )
-    wf_vol = _coalesce_float(walk.get("avg_volatility"), league_row.get("volatility"))
-    wf_sharpe = _coalesce_float(walk.get("avg_sharpe"), league_row.get("sharpe"))
-    wf_sortino = _coalesce_float(walk.get("avg_sortino"), league_row.get("sortino"))
-    wf_drawdown = _coalesce_float(
-        walk.get("avg_max_drawdown"), league_row.get("max_drawdown")
+    wf_vol = _coalesce_float(
+        walk.get("oos_volatility"),
+        walk.get("avg_volatility"),
+        league_row.get("volatility"),
     )
-    wf_cvar = _coalesce_float(walk.get("avg_cvar_95"), league_row.get("cvar_95"))
+    wf_sharpe = _coalesce_float(
+        walk.get("oos_sharpe"),
+        walk.get("avg_sharpe"),
+        league_row.get("sharpe"),
+    )
+    wf_sortino = _coalesce_float(
+        walk.get("oos_sortino"),
+        walk.get("avg_sortino"),
+        league_row.get("sortino"),
+    )
+    wf_drawdown = _coalesce_float(
+        walk.get("oos_max_drawdown"),
+        walk.get("avg_max_drawdown"),
+        league_row.get("max_drawdown"),
+    )
+    wf_cvar = _coalesce_float(
+        walk.get("oos_cvar_95"),
+        walk.get("avg_cvar_95"),
+        league_row.get("cvar_95"),
+    )
     model_turnover = _coalesce_float(
         walk.get("avg_turnover"),
         turnover_map.get(model),
@@ -526,15 +629,14 @@ def _evidence_row(
         ew_cvar = _float(equal_weight["walk_forward_cvar_95"])
 
     sharpe_improvement = wf_sharpe - ew_sharpe
-    beats_return = (
-        bool(wf_return > ew_return + 1e-12) if model != "Equal Weight" else True
-    )
+    is_equal_weight = model == "Equal Weight"
+    beats_return = bool(wf_return > ew_return + 1e-12) if not is_equal_weight else False
     beats_sharpe = (
         bool(
             sharpe_improvement >= float(min_sharpe_improvement_vs_equal_weight) - 1e-12
         )
-        if model != "Equal Weight"
-        else True
+        if not is_equal_weight
+        else False
     )
     drawdown_ok = (
         bool(wf_drawdown >= ew_drawdown - float(drawdown_tolerance))
@@ -547,8 +649,26 @@ def _evidence_row(
         else True
     )
     turnover_ok = bool(model_turnover <= float(max_turnover) + 1e-12)
-    random_ok = bool(random_sharpe >= float(min_random_sharpe_percentile) - 1e-12)
+    random_scope_valid = str(random_benchmark_scope) == "walk_forward_oos_net"
+    random_ok = bool(
+        random_scope_valid
+        and random_sharpe >= float(min_random_sharpe_percentile) - 1e-12
+    )
     robust_ok = not _fragile_robustness(robustness_status)
+    uncertainty_status = str(walk.get("uncertainty_status", "missing"))
+    uncertainty_method = str(walk.get("uncertainty_method", "not_available"))
+    paired_observations = _float(walk.get("paired_observations"))
+    sharpe_ci_lower = _float(walk.get("sharpe_diff_ci_lower"))
+    sharpe_ci_upper = _float(walk.get("sharpe_diff_ci_upper"))
+    probability_sharpe_improvement = _float(walk.get("probability_sharpe_improvement"))
+    uncertainty_ok = bool(
+        is_equal_weight
+        or (
+            uncertainty_status == "completed"
+            and np.isfinite(sharpe_ci_lower)
+            and sharpe_ci_lower > 0.0
+        )
+    )
     uses_forecast = _uses_forecast_model(model)
     forecast_ok = not (
         uses_forecast
@@ -562,20 +682,7 @@ def _evidence_row(
     )
     score = _selection_score(
         eligible=eligible,
-        walk_forward_supported=wf_supported,
-        wf_return=wf_return,
-        wf_vol=wf_vol,
         wf_sharpe=wf_sharpe,
-        wf_drawdown=wf_drawdown,
-        wf_cvar=wf_cvar,
-        turnover=model_turnover,
-        random_sharpe_percentile=random_sharpe,
-        concentration_warning=str(league_row.get("concentration_warning", "none")),
-        warning=warning,
-        turnover_ok=turnover_ok,
-        random_ok=random_ok,
-        robust_ok=robust_ok,
-        forecast_ok=forecast_ok,
     )
     rejection = _rejection_reason(
         model=model,
@@ -591,10 +698,15 @@ def _evidence_row(
         turnover_ok=turnover_ok,
         max_turnover=max_turnover,
         robust_ok=robust_ok,
+        uncertainty_ok=uncertainty_ok,
+        uncertainty_status=uncertainty_status,
+        sharpe_ci_lower=sharpe_ci_lower,
+        sharpe_ci_upper=sharpe_ci_upper,
         forecast_ok=forecast_ok,
         min_sharpe_improvement_vs_equal_weight=min_sharpe_improvement_vs_equal_weight,
         sharpe_improvement=sharpe_improvement,
         warning=warning,
+        random_benchmark_scope=random_benchmark_scope,
     )
     return {
         "model_name": model,
@@ -618,6 +730,7 @@ def _evidence_row(
         "league_sharpe": _float(league_row.get("sharpe")),
         "league_max_drawdown": _float(league_row.get("max_drawdown")),
         "league_cvar_95": _float(league_row.get("cvar_95")),
+        "random_benchmark_scope": str(random_benchmark_scope),
         "random_return_percentile": _float(random_row.get("return_percentile")),
         "random_volatility_percentile": _float(random_row.get("volatility_percentile")),
         "random_sharpe_percentile": random_sharpe,
@@ -630,6 +743,13 @@ def _evidence_row(
         "drawdown_not_materially_worse_than_equal_weight": drawdown_ok,
         "cvar_not_materially_worse_than_equal_weight": cvar_ok,
         "sharpe_improvement_vs_equal_weight": sharpe_improvement,
+        "uncertainty_status": uncertainty_status,
+        "uncertainty_method": uncertainty_method,
+        "paired_oos_observations": paired_observations,
+        "sharpe_diff_ci_lower": sharpe_ci_lower,
+        "sharpe_diff_ci_upper": sharpe_ci_upper,
+        "probability_sharpe_improvement": probability_sharpe_improvement,
+        "uncertainty_gate_pass": uncertainty_ok,
         "turnover_within_limit": turnover_ok,
         "random_sharpe_gate_pass": random_ok,
         "robustness_gate_pass": robust_ok,
@@ -651,46 +771,12 @@ def _evidence_row(
 def _selection_score(
     *,
     eligible: bool,
-    walk_forward_supported: bool,
-    wf_return: float,
-    wf_vol: float,
     wf_sharpe: float,
-    wf_drawdown: float,
-    wf_cvar: float,
-    turnover: float,
-    random_sharpe_percentile: float,
-    concentration_warning: str,
-    warning: str,
-    turnover_ok: bool,
-    random_ok: bool,
-    robust_ok: bool,
-    forecast_ok: bool,
 ) -> float:
+    """Use OOS Sharpe as a transparent rank after all separate evidence gates."""
     if not eligible:
         return -1_000_000.0
-    score = 0.0
-    score += 3.0 * np.nan_to_num(wf_sharpe, nan=0.0)
-    score += 1.0 * np.nan_to_num(wf_return, nan=0.0)
-    score -= 0.75 * np.nan_to_num(wf_vol, nan=0.0)
-    score += 2.0 * np.nan_to_num(wf_drawdown, nan=0.0)
-    score += 1.5 * np.nan_to_num(wf_cvar, nan=0.0)
-    score -= 0.50 * np.nan_to_num(turnover, nan=0.0)
-    score += 1.0 * np.nan_to_num(random_sharpe_percentile, nan=0.0)
-    if turnover_ok:
-        score += 0.25
-    if random_ok:
-        score += 0.50
-    if robust_ok:
-        score += 0.25
-    if forecast_ok:
-        score += 0.25
-    if walk_forward_supported:
-        score += 0.50
-    if "high_concentration" in concentration_warning:
-        score -= 0.75
-    if warning and warning != "none":
-        score -= 1.00
-    return float(score)
+    return float(wf_sharpe) if np.isfinite(wf_sharpe) else -1_000_000.0
 
 
 def _rejection_reason(
@@ -708,11 +794,21 @@ def _rejection_reason(
     turnover_ok: bool,
     max_turnover: float,
     robust_ok: bool,
+    uncertainty_ok: bool,
+    uncertainty_status: str,
+    sharpe_ci_lower: float,
+    sharpe_ci_upper: float,
     forecast_ok: bool,
     min_sharpe_improvement_vs_equal_weight: float,
     sharpe_improvement: float,
     warning: str,
+    random_benchmark_scope: str,
 ) -> str:
+    if model == "Equal Weight":
+        return (
+            "benchmark self-comparison is not applicable; Equal Weight remains "
+            "eligible when active challengers fail the promotion gates"
+        )
     reasons: list[str] = []
     if not eligible:
         if model == "Random Portfolios":
@@ -724,6 +820,10 @@ def _rejection_reason(
         if not constraint_pass:
             reasons.append("constraints did not pass")
     if model != "Equal Weight":
+        if str(random_benchmark_scope) != "walk_forward_oos_net":
+            reasons.append(
+                "random benchmark is not same-protocol walk-forward OOS net evidence"
+            )
         if not beats_sharpe:
             reasons.append(
                 "walk-forward Sharpe improvement "
@@ -742,7 +842,13 @@ def _rejection_reason(
                 f"{float(min_random_sharpe_percentile):.2f}"
             )
         if not robust_ok:
-            reasons.append("robustness status is fragile")
+            reasons.append("robustness evidence is missing, diagnostic, or fragile")
+        if not uncertainty_ok:
+            reasons.append(
+                "paired block-bootstrap Sharpe-difference uncertainty gate failed "
+                f"(status={uncertainty_status}; "
+                f"ci=[{sharpe_ci_lower}, {sharpe_ci_upper}])"
+            )
         if not forecast_ok:
             reasons.append("forecast validation blocks forecast-driven model promotion")
     if warning and warning != "none":
@@ -779,6 +885,7 @@ def risk_per_unit_return(risk_value: float, return_value: float) -> float:
 
 
 def _equal_weight_or_first(frame: pd.DataFrame) -> pd.Series:
+    """Return the benchmark for diagnostics, or the top row when it is absent."""
     ew = frame.loc[frame["model_name"].eq("Equal Weight")]
     if not ew.empty:
         return ew.iloc[0]
@@ -794,7 +901,19 @@ def _uses_forecast_model(model: str) -> bool:
 
 def _fragile_robustness(status: str) -> bool:
     text = str(status).lower()
-    return any(token in text for token in ["fragile", "unstable", "failed"])
+    return any(
+        token in text
+        for token in [
+            "fragile",
+            "unstable",
+            "failed",
+            "missing",
+            "not_run",
+            "diagnostic",
+            "configuration_stability_only",
+            "insufficient",
+        ]
+    )
 
 
 def _warning_from_risk(risk: pd.Series) -> str:

@@ -150,7 +150,7 @@ def test_missing_fx_blocks_global_master_promotion_for_selected_non_usd_asset():
             "EUR_A": np.repeat(0.0012, len(dates)),
             "USD_B": np.repeat(0.0008, len(dates)),
             "USD_C": np.repeat(0.0007, len(dates)),
-            "USD_D": np.repeat(0.0006, len(dates)),
+            "BTC_A": np.repeat(0.0006, len(dates)),
         },
         index=dates,
     )
@@ -160,7 +160,7 @@ def test_missing_fx_blocks_global_master_promotion_for_selected_non_usd_asset():
             {"ticker": "EUR_A", "currency": "EUR", "sleeve": "global_equity_europe"},
             {"ticker": "USD_B", "currency": "USD", "sleeve": "defensive_bonds_cash"},
             {"ticker": "USD_C", "currency": "USD", "sleeve": "commodity_real_assets"},
-            {"ticker": "USD_D", "currency": "USD", "sleeve": "crypto_top100"},
+            {"ticker": "BTC_A", "currency": "USD", "sleeve": "crypto_top100"},
         ]
     )
     fx_report = pd.DataFrame(
@@ -169,7 +169,7 @@ def test_missing_fx_blocks_global_master_promotion_for_selected_non_usd_asset():
             {"ticker": "EUR_A", "fx_normalization_status": "fx_missing"},
             {"ticker": "USD_B", "fx_normalization_status": "native_base"},
             {"ticker": "USD_C", "fx_normalization_status": "native_base"},
-            {"ticker": "USD_D", "fx_normalization_status": "native_base"},
+            {"ticker": "BTC_A", "fx_normalization_status": "native_base"},
         ]
     )
 

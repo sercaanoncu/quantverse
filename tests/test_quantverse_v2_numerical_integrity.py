@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from project.research.global_numerical_integrity import (
     portfolio_return_series,
@@ -132,6 +133,31 @@ def test_portfolio_return_series_handles_staggered_listing_history():
     assert not series.empty
     assert series.iloc[0] == 0.01
     assert series.std() > 0
+
+
+def test_portfolio_return_series_default_does_not_silently_renormalize_missing_asset():
+    dates = pd.date_range("2024-01-01", periods=3, freq="B")
+    returns = pd.DataFrame(
+        {"A": [0.01, 0.02, 0.03], "B": [np.nan, 0.01, 0.02]},
+        index=dates,
+    )
+
+    series = portfolio_return_series(
+        returns,
+        pd.Series({"A": 0.5, "B": 0.5}),
+    )
+
+    assert list(series.index) == list(dates[1:])
+
+
+def test_portfolio_return_series_rejects_nonzero_weight_without_return_column():
+    returns = pd.DataFrame(
+        {"A": [0.01, 0.02]},
+        index=pd.date_range("2024-01-01", periods=2, freq="B"),
+    )
+
+    with pytest.raises(ValueError, match="missing from the returns matrix: B"):
+        portfolio_return_series(returns, pd.Series({"A": 0.5, "B": 0.5}))
 
 
 def test_numerical_integrity_passes_on_valid_synthetic_fixture(tmp_path):

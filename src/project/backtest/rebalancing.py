@@ -10,6 +10,8 @@ import logging
 from typing import Dict, Optional, List, Tuple
 from dataclasses import dataclass
 
+from project.portfolio_contract import align_portfolio_weights
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +47,11 @@ class RebalancingEngine:
         costs: Optional[TransactionCosts] = None,
     ):
         self.returns = returns.dropna()
-        self.target = target_weights.reindex(returns.columns).fillna(0)
+        self.target = align_portfolio_weights(
+            target_weights,
+            returns.columns,
+            context="Rebalancing target",
+        )
         self.tickers = list(returns.columns)
         self.costs = costs or TransactionCosts()
 

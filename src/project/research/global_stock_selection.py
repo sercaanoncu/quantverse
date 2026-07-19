@@ -11,7 +11,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import fcluster, linkage
-from scipy.optimize import minimize
+from scipy.optimize import linprog, minimize
 from scipy.spatial.distance import squareform
 from sklearn.covariance import LedoitWolf
 
@@ -52,7 +52,7 @@ def cluster_assets_by_correlation(
     is deterministic for a fixed returns matrix.
     """
     del random_state
-    clean = _clean_returns(returns)
+    clean = _complete_case_returns(returns)
     tickers = list(clean.columns)
     n_assets = len(tickers)
     if n_assets == 0:
@@ -64,13 +64,39 @@ def cluster_assets_by_correlation(
         max_clusters = max(2, min(n_assets, int(np.sqrt(n_assets)) + 1))
     max_clusters = max(1, min(int(max_clusters), n_assets))
 
-    corr = clean.corr().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    zero_variance = clean.std(ddof=1).le(1e-15)
+    variable = clean.loc[:, ~zero_variance]
+    labels = pd.Series(index=tickers, dtype=int, name="Cluster")
+    if variable.shape[1] <= 1:
+        next_label = 1
+        if variable.shape[1] == 1:
+            labels.loc[variable.columns[0]] = next_label
+            next_label += 1
+        for ticker in clean.columns[zero_variance]:
+            labels.loc[ticker] = next_label
+            next_label += 1
+        return labels.astype(int)
+
+    max_clusters = min(max_clusters, variable.shape[1])
+    corr = variable.corr().replace([np.inf, -np.inf], np.nan)
+    if corr.isna().any().any():
+        raise ValueError(
+            "Correlation clustering requires a finite common-sample "
+            "correlation matrix; missing correlations are not imputed as zero."
+        )
     corr_array = corr.to_numpy(dtype=float, copy=True)
     np.fill_diagonal(corr_array, 1.0)
-    distance_array = np.clip(1.0 - corr_array, 0.0, 2.0)
+    distance_array = np.sqrt(0.5 * np.clip(1.0 - corr_array, 0.0, 2.0))
     condensed = squareform(distance_array, checks=False)
-    labels = fcluster(linkage(condensed, method="average"), max_clusters, "maxclust")
-    return pd.Series(labels.astype(int), index=tickers, name="Cluster")
+    variable_labels = fcluster(
+        linkage(condensed, method="average"), max_clusters, "maxclust"
+    )
+    labels.loc[variable.columns] = variable_labels.astype(int)
+    next_label = int(variable_labels.max()) + 1
+    for ticker in clean.columns[zero_variance]:
+        labels.loc[ticker] = next_label
+        next_label += 1
+    return labels.astype(int)
 
 
 def score_assets_for_selection(
@@ -147,7 +173,8 @@ def build_inverse_volatility_portfolio(
 ) -> pd.Series:
     """Build a capped inverse-volatility portfolio."""
     selected = _validate_tickers(returns, tickers)
-    vol = returns[selected].std(ddof=1).replace(0.0, np.nan)
+    matrix = _complete_case_returns(returns[selected])
+    vol = matrix.std(ddof=1).replace(0.0, np.nan)
     raw = (1.0 / vol).replace([np.inf, -np.inf], np.nan).fillna(0.0)
     if raw.sum() <= 0:
         raw = pd.Series(1.0, index=selected)
@@ -163,7 +190,7 @@ def build_shrinkage_max_sharpe_portfolio(
 ) -> pd.Series:
     """Build a capped long-only Max Sharpe candidate using shrinkage covariance."""
     selected = _validate_tickers(returns, tickers)
-    matrix = _clean_returns(returns[selected])
+    matrix = _complete_case_returns(returns[selected])
     _check_cap_feasible(len(selected), max_weight)
     mu = matrix.mean().values * TRADING_DAYS_PER_YEAR
     cov = LedoitWolf().fit(matrix.values).covariance_ * TRADING_DAYS_PER_YEAR
@@ -185,7 +212,7 @@ def build_shrinkage_max_sharpe_portfolio(
         options={"maxiter": 500, "ftol": 1e-10},
     )
     if not result.success:
-        return build_inverse_volatility_portfolio(matrix, selected, max_weight)
+        raise ValueError("Max Sharpe optimization failed: " + str(result.message))
     weights = pd.Series(result.x, index=selected)
     return _apply_max_weight_cap(weights, max_weight)
 
@@ -194,28 +221,51 @@ def build_min_cvar_portfolio(
     returns: pd.DataFrame,
     tickers: Iterable[str],
     max_weight: float = 0.10,
+    confidence_level: float = 0.95,
 ) -> pd.Series:
-    """Build a capped long-only minimum empirical CVaR candidate."""
+    """Build a capped long-only empirical CVaR portfolio by linear programming."""
     selected = _validate_tickers(returns, tickers)
-    matrix = _clean_returns(returns[selected])
+    matrix = _complete_case_returns(returns[selected])
     _check_cap_feasible(len(selected), max_weight)
-    x0 = build_inverse_volatility_portfolio(matrix, selected, max_weight).values
+    if not 0.0 < float(confidence_level) < 1.0:
+        raise ValueError("confidence_level must be strictly between zero and one.")
+    observations, assets = matrix.shape
+    tail_probability = 1.0 - float(confidence_level)
 
-    def objective(weights: np.ndarray) -> float:
-        portfolio_returns = matrix.values @ weights
-        return -_cvar_95(pd.Series(portfolio_returns))
-
-    result = minimize(
+    # Variables are [weights, VaR loss threshold, tail-loss auxiliaries].
+    objective = np.concatenate(
+        [
+            np.zeros(assets),
+            np.ones(1),
+            np.full(observations, 1.0 / (tail_probability * observations)),
+        ]
+    )
+    losses = -matrix.to_numpy(dtype=float)
+    inequality = np.hstack(
+        [
+            losses,
+            -np.ones((observations, 1)),
+            -np.eye(observations),
+        ]
+    )
+    result = linprog(
         objective,
-        x0=x0,
-        bounds=[(0.0, float(max_weight)) for _ in selected],
-        constraints={"type": "eq", "fun": lambda weights: np.sum(weights) - 1.0},
-        method="SLSQP",
-        options={"maxiter": 500, "ftol": 1e-10},
+        A_ub=inequality,
+        b_ub=np.zeros(observations),
+        A_eq=np.concatenate([np.ones(assets), np.zeros(1 + observations)]).reshape(
+            1, -1
+        ),
+        b_eq=np.ones(1),
+        bounds=(
+            [(0.0, float(max_weight)) for _ in selected]
+            + [(None, None)]
+            + [(0.0, None) for _ in range(observations)]
+        ),
+        method="highs",
     )
     if not result.success:
-        return build_inverse_volatility_portfolio(matrix, selected, max_weight)
-    weights = pd.Series(result.x, index=selected)
+        raise ValueError("Min CVaR optimization failed: " + str(result.message))
+    weights = pd.Series(result.x[:assets], index=selected)
     return _apply_max_weight_cap(weights, max_weight)
 
 
@@ -226,7 +276,7 @@ def simulate_random_portfolios(
     random_state: int = 42,
 ) -> pd.DataFrame:
     """Simulate reproducible capped random long-only portfolios."""
-    clean = _clean_returns(returns)
+    clean = _complete_case_returns(returns)
     tickers = list(clean.columns)
     _check_cap_feasible(len(tickers), max_weight)
     rng = np.random.default_rng(random_state)
@@ -235,7 +285,11 @@ def simulate_random_portfolios(
         raw = pd.Series(rng.random(len(tickers)), index=tickers)
         weights = _apply_max_weight_cap(raw, max_weight)
         metrics = evaluate_portfolio_return_series(clean @ weights)
-        row = {"portfolio_id": portfolio_id}
+        row = {
+            "portfolio_id": portfolio_id,
+            "Sampling_Method": "iid_uniform_raw_scores_projected_to_capped_simplex",
+            "Benchmark_Scope": "full_sample_diagnostic_only",
+        }
         row.update({f"weight_{ticker}": float(weights[ticker]) for ticker in tickers})
         row.update(metrics)
         rows.append(row)
@@ -256,12 +310,15 @@ def evaluate_portfolio_return_series(portfolio_returns: pd.Series) -> dict[str, 
             "CVaR_95": 0.0,
             "Total_Return": 0.0,
         }
+    if (series < -1.0 - 1e-12).any():
+        raise ValueError("Simple returns below -100% are mathematically invalid.")
     total_return = float((1.0 + series).prod() - 1.0)
     years = len(series) / TRADING_DAYS_PER_YEAR
     cagr = (1.0 + total_return) ** (1.0 / years) - 1.0 if years > 0 else total_return
     annual_return = float(series.mean() * TRADING_DAYS_PER_YEAR)
     volatility = float(series.std(ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR))
-    downside = series[series < 0].std(ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR)
+    shortfall = np.minimum(series.to_numpy(dtype=float), 0.0)
+    downside = float(np.sqrt(np.mean(shortfall**2)) * np.sqrt(TRADING_DAYS_PER_YEAR))
     sharpe = annual_return / volatility if volatility > 0 else 0.0
     sortino = annual_return / downside if downside and downside > 0 else 0.0
     return {
@@ -392,7 +449,17 @@ def build_stock_selection_promotion_gate(
 def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
     clean = returns.copy()
     clean = clean.apply(pd.to_numeric, errors="coerce").dropna(how="all")
-    clean = clean.dropna(axis=1, how="all").fillna(0.0)
+    clean = clean.dropna(axis=1, how="all")
+    return clean
+
+
+def _complete_case_returns(returns: pd.DataFrame) -> pd.DataFrame:
+    clean = _clean_returns(returns).dropna(how="any")
+    if len(clean) < 2:
+        raise ValueError(
+            "At least two common return observations are required; missing returns "
+            "are not imputed as zero."
+        )
     return clean
 
 
@@ -432,6 +499,11 @@ def _apply_max_weight_cap(weights: pd.Series, max_weight: float) -> pd.Series:
     return capped
 
 
+def apply_max_weight_cap(weights: pd.Series, max_weight: float) -> pd.Series:
+    """Project non-negative raw weights onto the long-only capped simplex."""
+    return _apply_max_weight_cap(weights, max_weight)
+
+
 def _check_cap_feasible(n_assets: int, max_weight: float) -> None:
     if n_assets <= 0:
         raise ValueError("At least one asset is required.")
@@ -442,7 +514,10 @@ def _check_cap_feasible(n_assets: int, max_weight: float) -> None:
 
 
 def _max_drawdown(series: pd.Series) -> float:
-    wealth = (1.0 + series.fillna(0.0)).cumprod()
+    clean = pd.Series(series, dtype=float).dropna()
+    if clean.empty:
+        return 0.0
+    wealth = (1.0 + clean).cumprod()
     drawdown = wealth / wealth.cummax() - 1.0
     return float(drawdown.min())
 

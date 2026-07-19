@@ -10,6 +10,8 @@ import numpy as np
 import logging
 from typing import Dict, Optional, List
 
+from project.portfolio_contract import align_portfolio_weights
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,7 +23,11 @@ class DrawdownAnalyzer:
         self.tickers = list(returns.columns)
 
         if weights is not None:
-            w = weights.reindex(self.tickers).fillna(0).values
+            w = align_portfolio_weights(
+                weights,
+                self.tickers,
+                context="Drawdown portfolio",
+            ).to_numpy(dtype=float)
             self.portfolio_returns = pd.Series(
                 self.asset_returns.values @ w,
                 index=self.asset_returns.index,

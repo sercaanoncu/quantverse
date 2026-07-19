@@ -44,7 +44,7 @@ def run_global_forecasts(
 
 
 def _regression_metrics(returns: pd.DataFrame) -> pd.DataFrame:
-    portfolio = returns.apply(pd.to_numeric, errors="coerce").fillna(0.0).mean(axis=1)
+    portfolio = _portfolio_return_series(returns)
     target = portfolio.shift(-1).dropna()
     prediction = (
         portfolio.rolling(21, min_periods=5).mean().shift(1).reindex(target.index)
@@ -59,21 +59,22 @@ def _regression_metrics(returns: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "Model": "rolling_mean_random_walk_baseline",
+                "Model": "rolling_mean_past_only_baseline",
                 "RMSE": float(np.sqrt(mean_squared_error(y, yhat))),
                 "MAE": float(mean_absolute_error(y, yhat)),
                 "R2": float(r2_score(y, yhat)),
-                "Status": "computed",
+                "Status": "historical_past_only_diagnostic",
             }
         ]
     )
 
 
 def _classification_metrics(returns: pd.DataFrame) -> pd.DataFrame:
-    labels, scores = _downside_labels_scores(returns)
-    if labels.nunique() < 2:
+    train_labels, train_scores, labels, scores = _downside_holdout(returns)
+    if labels.nunique() < 2 or train_scores.empty:
         return pd.DataFrame(columns=["Model", "ROC_AUC", "F1", "Accuracy", "Status"])
-    predicted = (scores >= scores.median()).astype(int)
+    threshold = float(train_scores.median())
+    predicted = (scores >= threshold).astype(int)
     return pd.DataFrame(
         [
             {
@@ -81,7 +82,7 @@ def _classification_metrics(returns: pd.DataFrame) -> pd.DataFrame:
                 "ROC_AUC": float(roc_auc_score(labels, scores)),
                 "F1": float(f1_score(labels, predicted)),
                 "Accuracy": float(accuracy_score(labels, predicted)),
-                "Status": "computed",
+                "Status": "chronological_holdout_diagnostic_only",
             }
         ]
     )
@@ -109,10 +110,10 @@ def _time_series_metrics(returns: pd.DataFrame) -> pd.DataFrame:
 
 
 def _confusion_matrix(returns: pd.DataFrame) -> pd.DataFrame:
-    labels, scores = _downside_labels_scores(returns)
-    if labels.nunique() < 2:
+    _train_labels, train_scores, labels, scores = _downside_holdout(returns)
+    if labels.nunique() < 2 or train_scores.empty:
         return pd.DataFrame(columns=["Actual", "Predicted", "Count"])
-    predicted = (scores >= scores.median()).astype(int)
+    predicted = (scores >= float(train_scores.median())).astype(int)
     matrix = confusion_matrix(labels, predicted, labels=[0, 1])
     rows = []
     for actual in [0, 1]:
@@ -128,23 +129,44 @@ def _confusion_matrix(returns: pd.DataFrame) -> pd.DataFrame:
 
 
 def _roc_auc(returns: pd.DataFrame) -> pd.DataFrame:
-    labels, scores = _downside_labels_scores(returns)
+    _train_labels, _train_scores, labels, scores = _downside_holdout(returns)
     if labels.nunique() < 2:
         auc = np.nan
         status = "insufficient_class_balance"
     else:
         auc = float(roc_auc_score(labels, scores))
-        status = "computed"
+        status = "chronological_holdout_diagnostic_only"
     return pd.DataFrame(
         [{"Model": "rolling_downside_score", "ROC_AUC": auc, "Status": status}]
     )
 
 
 def _downside_labels_scores(returns: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
-    portfolio = returns.apply(pd.to_numeric, errors="coerce").fillna(0.0).mean(axis=1)
-    future = portfolio.shift(-21).rolling(21).sum().shift(-20)
-    score = -portfolio.rolling(21).sum()
+    portfolio = _portfolio_return_series(returns)
+    future = (1.0 + portfolio).rolling(21).apply(np.prod, raw=True).shift(-21) - 1.0
+    trailing = (1.0 + portfolio).rolling(21).apply(np.prod, raw=True) - 1.0
+    score = -trailing
     dataset = pd.concat(
         [future.rename("future"), score.rename("score")], axis=1
     ).dropna()
     return dataset["future"].lt(0).astype(int), dataset["score"].astype(float)
+
+
+def _downside_holdout(
+    returns: pd.DataFrame,
+) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+    labels, scores = _downside_labels_scores(returns)
+    split = int(len(labels) * 0.70)
+    return (
+        labels.iloc[:split],
+        scores.iloc[:split],
+        labels.iloc[split:],
+        scores.iloc[split:],
+    )
+
+
+def _portfolio_return_series(returns: pd.DataFrame) -> pd.Series:
+    clean = returns.apply(pd.to_numeric, errors="coerce").dropna(how="any")
+    if clean.empty:
+        return pd.Series(dtype=float)
+    return clean.mean(axis=1)

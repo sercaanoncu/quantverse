@@ -19,20 +19,12 @@ from project.data_pipeline.security_identity import (
     build_feature_history_eligibility,
     resolve_security_master_rows,
 )
+from project.data_pipeline.security_universe import (
+    stablecoin_like_mask,
+    unverified_crypto_price_mapping_mask,
+)
 
 SCORE_FORMULA_VERSION = "quantverse_v2_score_v1_coverage_momentum_risk_diversification"
-STABLECOIN_TOKENS = {
-    "USDT",
-    "USDC",
-    "DAI",
-    "BUSD",
-    "TUSD",
-    "FDUSD",
-    "USDE",
-    "USDP",
-    "PYUSD",
-    "GUSD",
-}
 
 SCORE_COLUMNS = [
     "ticker",
@@ -77,9 +69,13 @@ SCORE_COLUMNS = [
     "leakage_check_pass",
     "score_component_summary",
     "run_id",
+    "execution_id",
     "data_as_of_date",
     "generated_at",
     "universe_snapshot_id",
+    "data_snapshot_id",
+    "config_hash",
+    "input_fingerprint",
 ]
 
 
@@ -392,19 +388,14 @@ def _filter_metadata_scope(
         sleeve = frame.get("sleeve", pd.Series("", index=frame.index)).astype(str)
         frame = frame.loc[~sleeve.str.contains("crypto", case=False, na=False)].copy()
     else:
-        frame = frame.loc[~_stablecoin_like_mask(frame)].copy()
+        eligible_crypto = ~_stablecoin_like_mask(frame)
+        eligible_crypto &= ~unverified_crypto_price_mapping_mask(frame)
+        frame = frame.loc[eligible_crypto].copy()
     return frame
 
 
 def _stablecoin_like_mask(frame: pd.DataFrame) -> pd.Series:
-    ticker = (
-        frame.get("ticker", pd.Series("", index=frame.index)).astype(str).str.upper()
-    )
-    name = frame.get("name", pd.Series("", index=frame.index)).astype(str).str.upper()
-    text = ticker + " " + name
-    token_match = ticker.str.replace("-USD", "", regex=False).isin(STABLECOIN_TOKENS)
-    stable_word = text.str.contains("STABLECOIN|STABLE COIN", regex=True, na=False)
-    return token_match.astype(bool) | stable_word.astype(bool)
+    return stablecoin_like_mask(frame)
 
 
 def _truthy(value: object) -> bool:
@@ -465,11 +456,11 @@ def _annualized_vol(series: pd.Series) -> float:
 
 
 def _downside_volatility(series: pd.Series) -> float:
-    downside = series.dropna()
-    downside = downside[downside < 0]
-    if downside.shape[0] < 2:
+    clean = series.dropna().astype(float)
+    if clean.empty:
         return 0.0
-    return float(downside.std(ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR))
+    shortfall = np.minimum(clean.to_numpy(dtype=float), 0.0)
+    return float(np.sqrt(np.mean(shortfall**2)) * np.sqrt(TRADING_DAYS_PER_YEAR))
 
 
 def _max_drawdown(series: pd.Series) -> float:

@@ -7,6 +7,7 @@ top-100 rankings.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -39,8 +40,6 @@ ALLOWED_SLEEVES = {
     "global_equity_nasdaq",
     "global_equity_nyse",
     "global_equity_us",
-    "global_equity_nasdaq",
-    "global_equity_nyse",
     "global_equity_europe",
     "global_equity_germany",
     "global_equity_uk",
@@ -50,7 +49,6 @@ ALLOWED_SLEEVES = {
     "global_equity_japan",
     "crypto_top100",
     "crypto",
-    "crypto_top100",
     "commodity_real_assets",
     "defensive_bonds_cash",
     "etf_benchmark",
@@ -61,8 +59,6 @@ EQUITY_SLEEVES = {
     "global_equity_nasdaq",
     "global_equity_nyse",
     "global_equity_us",
-    "global_equity_nasdaq",
-    "global_equity_nyse",
     "global_equity_europe",
     "global_equity_germany",
     "global_equity_uk",
@@ -72,7 +68,12 @@ EQUITY_SLEEVES = {
     "global_equity_japan",
 }
 
-STABLECOIN_TOKENS = {
+CRYPTO_SLEEVES = {"crypto", "crypto_top100"}
+
+# Conservative stable-value taxonomy used as a portfolio eligibility gate. The
+# list is intentionally broader than fiat-backed stablecoins because tokenized
+# cash/fund products must not enter a risk-seeking crypto sleeve by accident.
+STABLE_VALUE_CRYPTO_TOKENS = {
     "USDT",
     "USDC",
     "DAI",
@@ -82,6 +83,22 @@ STABLECOIN_TOKENS = {
     "FDUSD",
     "PYUSD",
     "GUSD",
+    "USDE",
+    "USDS",
+    "USD1",
+    "USYC",
+    "USDG",
+    "USDY",
+    "RLUSD",
+    "USDF",
+    "USDD",
+    "BFUSD",
+    "USDGO",
+    "USDTB",
+    "USD0",
+    "U",
+    "STABLE",
+    "BUIDL",
 }
 
 
@@ -120,7 +137,7 @@ def validate_security_universe_schema(df: pd.DataFrame) -> None:
 
 
 def filter_included_investable_assets(df: pd.DataFrame) -> pd.DataFrame:
-    """Return rows that are included, investable and not benchmark/signal only."""
+    """Return rows that pass all portfolio-input eligibility gates."""
     validate_security_universe_schema(df)
     normalized = _with_boolean_flags(df)
     mask = (
@@ -129,6 +146,8 @@ def filter_included_investable_assets(df: pd.DataFrame) -> pd.DataFrame:
         & ~normalized["benchmark_only_bool"]
         & ~normalized["signal_only_bool"]
     )
+    mask &= ~stablecoin_like_mask(normalized)
+    mask &= ~unverified_crypto_price_mapping_mask(normalized)
     return df.loc[mask].copy()
 
 
@@ -147,6 +166,7 @@ def summarize_security_universe(df: pd.DataFrame) -> pd.DataFrame:
     normalized = _with_boolean_flags(df)
     missing_caps = detect_missing_market_caps(df)
     stablecoins = detect_stablecoin_like_assets(df)
+    unverified_crypto = detect_unverified_crypto_price_mappings(df)
     missing_by_sleeve = (
         missing_caps.groupby("sleeve").size().to_dict()
         if not missing_caps.empty
@@ -154,6 +174,11 @@ def summarize_security_universe(df: pd.DataFrame) -> pd.DataFrame:
     )
     stable_by_sleeve = (
         stablecoins.groupby("sleeve").size().to_dict() if not stablecoins.empty else {}
+    )
+    unverified_by_sleeve = (
+        unverified_crypto.groupby("sleeve").size().to_dict()
+        if not unverified_crypto.empty
+        else {}
     )
     rows = []
     for sleeve, sleeve_df in normalized.groupby("sleeve", dropna=False, sort=True):
@@ -167,6 +192,9 @@ def summarize_security_universe(df: pd.DataFrame) -> pd.DataFrame:
                 "signal_only": int(sleeve_df["signal_only_bool"].sum()),
                 "missing_market_cap_rows": int(missing_by_sleeve.get(sleeve, 0)),
                 "stablecoin_like_rows": int(stable_by_sleeve.get(sleeve, 0)),
+                "unverified_crypto_price_mapping_rows": int(
+                    unverified_by_sleeve.get(sleeve, 0)
+                ),
             }
         )
     return pd.DataFrame(rows)
@@ -216,30 +244,71 @@ def detect_survivorship_bias_risk(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def detect_stablecoin_like_assets(df: pd.DataFrame) -> pd.DataFrame:
-    """Flag crypto rows that look like stablecoins by ticker, name or notes."""
+    """Flag stablecoin or stable-value crypto rows conservatively."""
     validate_security_universe_schema(df)
-    text = (
-        df["ticker"].fillna("").astype(str)
-        + " "
-        + df["name"].fillna("").astype(str)
-        + " "
-        + df["notes"].fillna("").astype(str)
-    ).str.upper()
-    token_match = text.apply(
-        lambda value: any(token in value for token in STABLECOIN_TOKENS)
-    ).astype(bool)
-    stable_word = text.str.contains(
-        "STABLECOIN|STABLE COIN", regex=True, na=False
-    ).astype(bool)
-    crypto_mask = df["sleeve"].astype(str).isin({"crypto", "crypto_top100"})
-    mask = crypto_mask & (token_match | stable_word)
+    mask = stablecoin_like_mask(df)
     return df.loc[mask].copy()
+
+
+def detect_unverified_crypto_price_mappings(df: pd.DataFrame) -> pd.DataFrame:
+    """Return crypto rows without an explicit, reviewed price-provider mapping."""
+    validate_security_universe_schema(df)
+    return df.loc[unverified_crypto_price_mapping_mask(df)].copy()
+
+
+def is_stablecoin_like(ticker: object, name: object = "", notes: object = "") -> bool:
+    """Classify stable-value crypto without treating the ``-USD`` quote as a signal."""
+    base_symbol = re.sub(r"-USD$", "", str(ticker).strip().upper())
+    name_text = str(name).strip().upper()
+    notes_text = str(notes).strip().upper()
+    if "STABLE_LIKE=TRUE" in notes_text:
+        return True
+    if base_symbol in STABLE_VALUE_CRYPTO_TOKENS:
+        return True
+    if base_symbol.startswith("USD") or base_symbol.endswith("USD"):
+        return True
+    return bool(
+        re.search(
+            r"\b(?:STABLECOIN|STABLE COIN|STABLES|USD|US DOLLAR|U\.S\. DOLLAR)\b",
+            name_text,
+        )
+    )
+
+
+def stablecoin_like_mask(df: pd.DataFrame) -> pd.Series:
+    """Build a boolean stable-value mask aligned to ``df``."""
+    sleeve = df.get("sleeve", pd.Series("", index=df.index)).astype(str)
+    ticker = df.get("ticker", pd.Series("", index=df.index))
+    name = df.get("name", pd.Series("", index=df.index))
+    notes = df.get("notes", pd.Series("", index=df.index))
+    classified = pd.Series(
+        [
+            is_stablecoin_like(ticker_value, name_value, notes_value)
+            for ticker_value, name_value, notes_value in zip(ticker, name, notes)
+        ],
+        index=df.index,
+        dtype=bool,
+    )
+    return sleeve.isin(CRYPTO_SLEEVES).astype(bool) & classified
+
+
+def unverified_crypto_price_mapping_mask(df: pd.DataFrame) -> pd.Series:
+    """Build a mask for crypto rows lacking explicit provider-symbol evidence."""
+    sleeve = df.get("sleeve", pd.Series("", index=df.index)).astype(str)
+    crypto = sleeve.isin(CRYPTO_SLEEVES).astype(bool)
+    if "price_ticker_verified" not in df:
+        verified = pd.Series(False, index=df.index, dtype=bool)
+    else:
+        verified = df["price_ticker_verified"].map(_to_bool).astype(bool)
+    return crypto & ~verified
 
 
 def validate_investable_vs_signal_flags(df: pd.DataFrame) -> pd.DataFrame:
     """Return flag-combination issues without mutating the source frame."""
     validate_security_universe_schema(df)
     normalized = _with_boolean_flags(df)
+    stablecoin_mask = stablecoin_like_mask(normalized)
+    unverified_mapping_mask = unverified_crypto_price_mapping_mask(normalized)
     rows = []
     for idx, row in normalized.iterrows():
         issues = []
@@ -253,6 +322,14 @@ def validate_investable_vs_signal_flags(df: pd.DataFrame) -> pd.DataFrame:
             and row["investable_bool"]
         ):
             issues.append("benchmark_only rows should not be selected as investable")
+        if stablecoin_mask.loc[idx] and (row["investable_bool"] or row["include_bool"]):
+            issues.append(
+                "stablecoin/stable-value crypto rows cannot be investable portfolio inputs"
+            )
+        if unverified_mapping_mask.loc[idx] and row["investable_bool"]:
+            issues.append(
+                "crypto price-provider mapping must be explicitly verified before investment"
+            )
         for issue in issues:
             rows.append(
                 {

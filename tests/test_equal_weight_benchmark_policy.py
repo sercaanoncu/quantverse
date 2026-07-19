@@ -74,6 +74,17 @@ def test_forecast_failed_validation_blocks_forecast_enhanced_selection():
     decision = build_final_model_decision(report)
 
     assert decision["final_selected_model"] == "Equal Weight"
+    comparison = decision["equal_weight_comparison"]
+    assert comparison["comparison_status"] == "benchmark_self_comparison_not_applicable"
+    assert comparison["beats_equal_weight_return_after_costs"] is None
+    assert comparison["beats_equal_weight_sharpe"] is None
+    benchmark = report.loc[report["model_name"].eq("Equal Weight")].iloc[0]
+    assert not bool(benchmark["beats_equal_weight_return_after_costs"])
+    assert not bool(benchmark["beats_equal_weight_sharpe"])
+    assert (
+        "self-comparison is not applicable"
+        in benchmark["promotion_gate_failed_reasons"]
+    )
     forecast = report.loc[
         report["model_name"].eq("Forecast-Enhanced Constrained Portfolio")
     ].iloc[0]

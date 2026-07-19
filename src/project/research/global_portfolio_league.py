@@ -7,7 +7,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+from sklearn.covariance import LedoitWolf
 
+from project.constants import TRADING_DAYS_PER_YEAR
 from project.optimization.black_litterman import black_litterman_weights
 from project.optimization.constraints import PortfolioConstraints
 from project.optimization.hierarchical import HRPOptimizer
@@ -62,6 +64,8 @@ LEAGUE_COLUMNS = [
     "max_drawdown",
     "var_95",
     "cvar_95",
+    "risk_free_rate_annual",
+    "risk_free_policy",
     "metric_status",
     "metric_observations",
     "turnover",
@@ -82,6 +86,8 @@ def build_portfolio_league(
     max_assets: int = 40,
     max_weight: float = 0.10,
     random_state: int = 42,
+    risk_free_rate_annual: float = 0.0,
+    risk_free_policy: str = "zero_rate_labeled_research_assumption",
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Build the v2 model league and long-form model weights."""
     clean = _clean_returns(returns)
@@ -107,7 +113,11 @@ def build_portfolio_league(
         "Transparent 1/N benchmark.",
     )
     random_metrics = _random_portfolio_row(
-        selected_returns, max_weight=max_weight, random_state=random_state
+        selected_returns,
+        max_weight=max_weight,
+        random_state=random_state,
+        risk_free_rate_annual=risk_free_rate_annual,
+        risk_free_policy=risk_free_policy,
     )
     _try_add(
         weights,
@@ -151,17 +161,20 @@ def build_portfolio_league(
         weights,
         statuses,
         "HRP",
-        lambda: HRPOptimizer(selected_returns).optimize(
+        lambda: HRPOptimizer(_complete_case_returns(selected_returns)).optimize(
             constraints=PortfolioConstraints.default_long_only(max_weight=max_weight)
         )["weights"],
         "actually_run",
-        "Hierarchical risk allocation.",
+        (
+            "Constrained HRP: single-linkage natural HRP weights projected onto "
+            "the configured long-only capped simplex."
+        ),
     )
     _try_add(
         weights,
         statuses,
         "Risk Parity",
-        lambda: RiskParityOptimizer(selected_returns.cov() * 252).optimize(
+        lambda: RiskParityOptimizer(_ledoit_wolf_covariance(selected_returns)).optimize(
             constraints=PortfolioConstraints.default_long_only(max_weight=max_weight)
         )["weights"],
         "actually_run",
@@ -173,7 +186,9 @@ def build_portfolio_league(
             statuses,
             "Black-Litterman",
             lambda: black_litterman_weights(
-                selected_returns.cov() * 252, caps, max_weight=max_weight
+                _ledoit_wolf_covariance(selected_returns),
+                caps,
+                max_weight=max_weight,
             ),
             "diagnostic_only",
             "Uses public-provider current market caps; not promotion-grade PIT priors.",
@@ -216,8 +231,11 @@ def build_portfolio_league(
         statuses,
         "Policy Constrained",
         lambda: _policy_constrained(scores, selected, max_weight=max_weight),
-        "actually_run",
-        "Composite-score allocation projected onto long-only capped simplex.",
+        "diagnostic_only",
+        (
+            "Fixed heuristic composite-score allocation; diagnostic until score "
+            "weights and selection policy survive nested sensitivity evidence."
+        ),
     )
 
     league_rows = [random_metrics]
@@ -228,7 +246,15 @@ def build_portfolio_league(
         status = statuses.get(model, _status("blocked_by_implementation", "Not run."))
         model_weights = weights.get(model)
         league_rows.append(
-            _league_row(model, selected_returns, model_weights, status, max_weight)
+            _league_row(
+                model,
+                selected_returns,
+                model_weights,
+                status,
+                max_weight,
+                risk_free_rate_annual=risk_free_rate_annual,
+                risk_free_policy=risk_free_policy,
+            )
         )
         if model_weights is not None:
             weight_rows.extend(
@@ -300,6 +326,9 @@ def _league_row(
     weights: pd.Series | None,
     status: dict[str, object],
     max_weight: float,
+    *,
+    risk_free_rate_annual: float,
+    risk_free_policy: str,
 ) -> dict[str, object]:
     if weights is None:
         return {
@@ -310,7 +339,7 @@ def _league_row(
             "prerequisites": _prerequisites(model),
             "prerequisites_satisfied": False,
             "expected_return_source": _expected_return_source(model),
-            "covariance_source": "daily USD returns covariance",
+            "covariance_source": _covariance_source(model),
             "uses_forecast": model
             in {
                 "ML Forecast",
@@ -320,13 +349,18 @@ def _league_row(
             "uses_market_cap_prior": model == "Black-Litterman",
             "metric_status": "not_executable",
             "metric_observations": 0,
+            "risk_free_rate_annual": float(risk_free_rate_annual),
+            "risk_free_policy": str(risk_free_policy),
             "promotion_eligible": False,
             "rejection_reason": status["reason"],
             "interpretation": "Model is listed for governance but not executable under current inputs.",
         }
+    portfolio_returns = portfolio_return_series(returns, weights)
     aligned = weights.reindex(returns.columns).fillna(0.0)
-    portfolio_returns = portfolio_return_series(returns, aligned)
-    metrics = evaluate_return_series(portfolio_returns)
+    metrics = evaluate_return_series(
+        portfolio_returns,
+        risk_free_rate_annual=risk_free_rate_annual,
+    )
     weight_sum = float(aligned.sum())
     negative = int((aligned < -1e-10).sum())
     max_observed = float(aligned.max()) if len(aligned) else 0.0
@@ -348,7 +382,7 @@ def _league_row(
         "prerequisites_satisfied": status_name
         not in {"blocked_by_data", "blocked_by_implementation", "future_candidate"},
         "expected_return_source": _expected_return_source(model),
-        "covariance_source": "daily USD returns covariance",
+        "covariance_source": _covariance_source(model),
         "uses_forecast": model
         in {
             "ML Forecast",
@@ -371,10 +405,15 @@ def _league_row(
         "max_drawdown": metrics["max_drawdown"],
         "var_95": metrics["var_95"],
         "cvar_95": metrics["cvar_95"],
+        "risk_free_rate_annual": float(risk_free_rate_annual),
+        "risk_free_policy": str(risk_free_policy),
         "metric_status": metrics["metric_status"],
         "metric_observations": metrics["observations"],
         "turnover": np.nan,
-        "transaction_cost_assumption": "10 bps placeholder in v2 demo",
+        "transaction_cost_assumption": (
+            "not applied to full-sample diagnostic metrics; configured costs "
+            "are applied in walk-forward net returns"
+        ),
         "constraints_pass": constraints_pass,
         "promotion_eligible": promotion_eligible,
         "rejection_reason": "not promotion grade" if not promotion_eligible else "",
@@ -388,13 +427,20 @@ def _random_portfolio_row(
     max_weight: float,
     random_state: int,
     n_portfolios: int = 500,
+    risk_free_rate_annual: float = 0.0,
+    risk_free_policy: str = "zero_rate_labeled_research_assumption",
 ) -> dict[str, object]:
     rng = np.random.default_rng(random_state)
     rows = []
     for _ in range(n_portfolios):
         raw = pd.Series(rng.random(returns.shape[1]), index=returns.columns)
         weights = _cap_and_normalize(raw, max_weight)
-        rows.append(evaluate_return_series(portfolio_return_series(returns, weights)))
+        rows.append(
+            evaluate_return_series(
+                portfolio_return_series(returns, weights),
+                risk_free_rate_annual=risk_free_rate_annual,
+            )
+        )
     frame = pd.DataFrame(rows)
     return {
         "model_name": "Random Portfolios",
@@ -421,6 +467,8 @@ def _random_portfolio_row(
         "max_drawdown": float(frame["max_drawdown"].median()),
         "var_95": float(frame["var_95"].median()),
         "cvar_95": float(frame["cvar_95"].median()),
+        "risk_free_rate_annual": float(risk_free_rate_annual),
+        "risk_free_policy": str(risk_free_policy),
         "metric_status": (
             "valid"
             if (frame["nonzero_observations"] > 0).any()
@@ -428,7 +476,9 @@ def _random_portfolio_row(
         ),
         "metric_observations": float(frame["observations"].median()),
         "turnover": np.nan,
-        "transaction_cost_assumption": "not applied",
+        "transaction_cost_assumption": (
+            "not applied to full-sample diagnostic benchmark distribution"
+        ),
         "constraints_pass": True,
         "promotion_eligible": False,
         "rejection_reason": "Benchmark distribution, not a candidate.",
@@ -493,8 +543,9 @@ def _truthy(value: object) -> bool:
 
 
 def _gmv_weights(returns: pd.DataFrame, max_weight: float) -> pd.Series:
-    cov = _finite_covariance(returns)
-    n_assets = cov.shape[0]
+    covariance = _ledoit_wolf_covariance(_complete_case_returns(returns))
+    cov = covariance.to_numpy(dtype=float)
+    n_assets = covariance.shape[0]
     if max_weight * n_assets < 1.0 - 1e-12:
         raise ValueError("max_weight is infeasible for selected assets.")
     inv_diag = 1.0 / np.clip(np.diag(cov), 1e-12, None)
@@ -512,7 +563,7 @@ def _gmv_weights(returns: pd.DataFrame, max_weight: float) -> pd.Series:
         options={"maxiter": 500, "ftol": 1e-12},
     )
     if not result.success:
-        return x0.rename("weight")
+        raise ValueError("GMV optimization failed: " + str(result.message))
     return _cap_and_normalize(pd.Series(result.x, index=returns.columns), max_weight)
 
 
@@ -579,14 +630,29 @@ def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
     return clean.dropna(axis=1, how="all").dropna(how="all")
 
 
-def _finite_covariance(returns: pd.DataFrame) -> np.ndarray:
-    cov = returns.cov().to_numpy(dtype=float)
-    cov = np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
-    cov = 0.5 * (cov + cov.T)
-    min_eigenvalue = float(np.linalg.eigvalsh(cov).min()) if cov.size else 0.0
-    if min_eigenvalue < 1e-12:
-        cov = cov + np.eye(cov.shape[0]) * (abs(min_eigenvalue) + 1e-8)
-    return cov
+def _complete_case_returns(returns: pd.DataFrame) -> pd.DataFrame:
+    clean = _clean_returns(returns).dropna(how="any")
+    if clean.shape[0] < 2:
+        raise ValueError(
+            "At least two common return observations are required; missing returns "
+            "are not imputed as zero for covariance-driven portfolio models."
+        )
+    return clean
+
+
+def _ledoit_wolf_covariance(returns: pd.DataFrame) -> pd.DataFrame:
+    clean = _complete_case_returns(returns)
+    values = LedoitWolf().fit(clean.to_numpy(dtype=float)).covariance_
+    values = np.asarray(values, dtype=float) * TRADING_DAYS_PER_YEAR
+    values = 0.5 * (values + values.T)
+    if not np.isfinite(values).all():
+        raise ValueError("Ledoit-Wolf covariance contains non-finite values.")
+    min_eigenvalue = float(np.linalg.eigvalsh(values).min())
+    if min_eigenvalue < -1e-10:
+        raise ValueError(
+            "Ledoit-Wolf covariance is not positive semi-definite within tolerance."
+        )
+    return pd.DataFrame(values, index=clean.columns, columns=clean.columns)
 
 
 def _status(actual_status: str, reason: str) -> dict[str, object]:
@@ -646,3 +712,13 @@ def _expected_return_source(model: str) -> str:
     if "Forecast" in model or model == "ML Forecast":
         return "forecast engine ensemble"
     return "none or historical risk model"
+
+
+def _covariance_source(model: str) -> str:
+    if model in {"GMV", "Max Sharpe", "Risk Parity", "Black-Litterman"}:
+        return "Ledoit-Wolf shrinkage on complete-case daily USD simple returns"
+    if model == "HRP":
+        return "sample covariance/correlation on complete-case daily USD simple returns"
+    if model == "Min CVaR":
+        return "empirical complete-case daily USD simple-return scenarios"
+    return "not used directly"

@@ -9,9 +9,14 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.data_pipeline.security_universe import (
+    CRYPTO_SLEEVES,
     REQUIRED_UNIVERSE_COLUMNS,
     detect_survivorship_bias_risk,
+    is_stablecoin_like,
     summarize_security_universe,
     validate_security_universe_schema,
 )
@@ -35,8 +40,25 @@ REGION_BY_SLEEVE = {
     "global_equity_uk": "Europe",
     "global_equity_turkey": "Europe / Middle East",
     "global_equity_china": "Asia",
+    "global_equity_china_hk": "Asia",
     "global_equity_japan": "Asia",
+    "crypto": "Global",
+    "crypto_top100": "Global",
+    "commodity_real_assets": "Global",
+    "defensive_bonds_cash": "North America",
 }
+
+OPTIONAL_LINEAGE_COLUMNS = [
+    "source_url",
+    "source_method",
+    "rank_universe",
+    "rank_method",
+    "source_asset_id",
+    "price_provider",
+    "price_ticker",
+    "price_ticker_verified",
+    "price_mapping_method",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -169,16 +191,51 @@ def _normalize_source_frame(df: pd.DataFrame, sleeve: str) -> pd.DataFrame:
     rows = []
     for _, row in df.iterrows():
         market_cap = pd.to_numeric(row.get("market_cap_usd", pd.NA), errors="coerce")
+        ticker = str(row["ticker"])
+        name = str(row["name"])
+        is_crypto = sleeve in CRYPTO_SLEEVES
+        stable_value = bool(
+            is_crypto and is_stablecoin_like(ticker, name, row.get("notes", ""))
+        )
+        mapping_verified = bool(
+            not is_crypto or _source_bool(row, "price_ticker_verified", default=False)
+        )
+        benchmark_only = _source_bool(row, "benchmark_only", default=False)
+        source_signal_only = _source_bool(row, "signal_only", default=False)
+        source_include = _source_bool(row, "include", default=True)
+        source_investable = _source_bool(row, "investable", default=True)
+        signal_only = bool(
+            source_signal_only or stable_value or (is_crypto and not mapping_verified)
+        )
+        include = bool(source_include and not stable_value)
+        investable = bool(
+            source_investable
+            and include
+            and not benchmark_only
+            and not signal_only
+            and mapping_verified
+        )
+        notes = str(row.get("notes", "")).strip()
+        if stable_value and "stable-value eligibility gate" not in notes:
+            notes = _append_note(
+                notes,
+                "Excluded by the conservative stablecoin/stable-value eligibility gate.",
+            )
+        if is_crypto and not mapping_verified and "price-provider mapping" not in notes:
+            notes = _append_note(
+                notes,
+                "Crypto price-provider mapping is unverified; research metadata only.",
+            )
         rows.append(
             {
-                "ticker": row["ticker"],
-                "name": row["name"],
+                "ticker": ticker,
+                "name": name,
                 "sleeve": sleeve,
                 "region": REGION_BY_SLEEVE.get(sleeve, ""),
                 "country": row["country"],
                 "exchange": row["exchange"],
                 "currency": row["currency"],
-                "asset_type": "equity",
+                "asset_type": _asset_type(row, sleeve),
                 "sector": row.get("sector", ""),
                 "industry": row.get("industry", ""),
                 "market_cap_usd": float(market_cap) if pd.notna(market_cap) else "",
@@ -186,16 +243,28 @@ def _normalize_source_frame(df: pd.DataFrame, sleeve: str) -> pd.DataFrame:
                 "as_of_date": row["as_of_date"],
                 "source": row["source"],
                 "data_provider": row.get("data_provider", "source_csv"),
-                "investable": True,
-                "benchmark_only": False,
-                "signal_only": False,
-                "include": True,
-                "proxy_type": "direct_listing",
-                "notes": row["notes"],
+                "investable": investable,
+                "benchmark_only": benchmark_only,
+                "signal_only": signal_only,
+                "include": include,
+                "proxy_type": row.get("proxy_type", "direct_listing"),
+                "notes": notes,
                 "source_url": row.get("source_url", ""),
                 "source_method": row.get("source_method", ""),
                 "rank_universe": row.get("rank_universe", sleeve),
                 "rank_method": row.get("rank_method", ""),
+                "source_asset_id": row.get("source_asset_id", ""),
+                "price_provider": row.get("price_provider", ""),
+                "price_ticker": row.get("price_ticker", ticker),
+                "price_ticker_verified": (
+                    mapping_verified
+                    if is_crypto
+                    else row.get("price_ticker_verified", "")
+                ),
+                "price_mapping_method": row.get(
+                    "price_mapping_method",
+                    "unverified_missing_crosswalk" if is_crypto else "",
+                ),
             }
         )
     return pd.DataFrame(rows)
@@ -226,6 +295,8 @@ def _rank_and_select_by_market_cap(
             ranked = ranked.drop(columns=["_market_cap_numeric"])
         if not missing.empty:
             missing["include"] = False
+            missing["investable"] = False
+            missing["signal_only"] = True
             missing["notes"] = (
                 missing["notes"].fillna("").astype(str)
                 + " | Missing market cap; retained for coverage audit, not selected."
@@ -233,17 +304,34 @@ def _rank_and_select_by_market_cap(
         selected.append(pd.concat([ranked, missing], ignore_index=True))
     if not selected:
         return _empty_universe()
-    ordered = REQUIRED_UNIVERSE_COLUMNS + [
-        "source_url",
-        "source_method",
-        "rank_universe",
-        "rank_method",
-    ]
+    ordered = REQUIRED_UNIVERSE_COLUMNS + OPTIONAL_LINEAGE_COLUMNS
     result = pd.concat(selected, ignore_index=True)
     for column in ordered:
         if column not in result:
             result[column] = ""
     return result[ordered]
+
+
+def _source_bool(row: pd.Series, column: str, *, default: bool) -> bool:
+    value = row.get(column, default)
+    if pd.isna(value):
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _asset_type(row: pd.Series, sleeve: str) -> str:
+    if sleeve in CRYPTO_SLEEVES:
+        return "crypto"
+    if sleeve.startswith("global_equity"):
+        return "equity"
+    value = str(row.get("asset_type", "")).strip()
+    return value or "proxy"
+
+
+def _append_note(notes: str, addition: str) -> str:
+    return f"{notes} | {addition}".strip(" |")
 
 
 def _missing_market_cap_report(universe: pd.DataFrame) -> pd.DataFrame:
