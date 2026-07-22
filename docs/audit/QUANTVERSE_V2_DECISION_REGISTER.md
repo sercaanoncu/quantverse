@@ -593,3 +593,34 @@ occur.
 | Invalidation conditions | Any aggregate check proves only one valid element, a config value is not forwarded or an unregistered fill is accepted. |
 | Residual limitation | Complete current-sample checks do not solve structural PIT/survivorship limitations. |
 | Status | Implemented, rebuilt and independently verified. |
+
+## QV2-DEC-020 - Exposure Metadata Dates Are Bound To Research-Run Evidence
+
+| Field | Record |
+|---|---|
+| Problem | Exposure metadata rows could inherit the machine's current calendar date when no explicit metadata date was supplied. |
+| Evidence | `date.today()` was reachable in two enrichment branches while downstream rows retained the active run identity and data fingerprint. |
+| Why it matters | Re-running unchanged evidence on another day could produce byte-different, chronologically misleading report inputs without a new research run. |
+| Affected system | Exposure metadata, top-holdings explanation, visual analytics, PDF/HTML reports, Excel workbook, artifact registry and reproducibility claims. |
+| Previous method | Accept an optional date and otherwise use the local wall clock. |
+| Candidate methods | Keep wall-clock fallback; require a caller-supplied date; bind the caller to the active run manifest and reject conflicts. |
+| Alternative 1 | Retain `date.today()` and label it report-generation date. |
+| Why rejected | The field is metadata evidence date, not publication timestamp; conflating them changes semantic provenance. |
+| Alternative 2 | Require any explicit caller date without reconciling it to the run. |
+| Why rejected | A stale or future configured date could still disagree with the data snapshot while appearing deliberate. |
+| Chosen method | Require an ISO date in the exposure engine and make the production caller use the active run manifest's `data_as_of_date`; any configured override must match exactly. |
+| Why chosen | The evidence date becomes deterministic, replayable and inseparable from the run whose portfolio it describes. |
+| Mathematical basis | Equality is an exact invariant between the metadata as-of date and the run's data as-of date; no statistical estimation is involved. |
+| Statistical basis | Reproducible samples require stable observation cutoffs and prohibit wall-clock-dependent transformations of unchanged inputs. |
+| Financial/economic basis | Holdings and exposures must be interpreted relative to the market-data snapshot used to construct the portfolio, not the later report-build date. |
+| Book support | The statistical-learning, financial-ML and portfolio sources require chronological data discipline, reproducible preprocessing and explicit information sets. |
+| Academic support | Reproducible research, temporal data lineage and model-risk evidence governance. |
+| Assumptions | The active run manifest is present and its `data_as_of_date` is the authoritative market-data cutoff. |
+| Parameters | ISO `YYYY-MM-DD`; exact equality when a configured date is present. |
+| Sensitivity | A new data cutoff requires a new run; a report rebuild for the same run retains the same metadata date. |
+| Expected impact | Exposure and publication hashes no longer drift solely because a calendar day elapsed. |
+| Observed impact | The current caller resolves the date from run evidence, blank dates and mismatches raise, and no portfolio calculation changes. |
+| Validation | Explicit-date engine fixture plus caller fixtures for run fallback, matching config, conflicting config and missing run date. |
+| Invalidation conditions | Any wall-clock fallback returns, a configured mismatch is accepted, or exposure rows carry a date different from the active run. |
+| Residual limitation | The run date proves local snapshot alignment, not the legal authority or immutable versioning of upstream provider metadata. |
+| Status | Implemented, rebuilt and independently verified. |

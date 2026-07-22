@@ -345,7 +345,7 @@ Material controls added or strengthened:
 - expanded adversarial tests;
 - independent numerical reference implementation.
 
-The current suite has 392 passing tests. Black, Ruff, compileall, artifact
+The current suite has 394 passing tests. Black, Ruff, compileall, artifact
 validation, and `git diff --check` are final release gates. A scoped Pyright
 gate covers twelve financial-critical modules and currently reports zero errors
 and zero warnings.
@@ -410,7 +410,7 @@ The table counts internal correctness findings from the baseline commit
 |---|---:|---:|---:|
 | P0 - core result invalidation | 12 | 12 | 0 |
 | P1 - material interpretation | 49 | 49 | 0 |
-| P2 - robustness/quality | 33 | 26 | 7 |
+| P2 - robustness/quality | 34 | 27 | 7 |
 | P3 - engineering/presentation | 12 | 12 | 0 |
 
 P0 repairs covered missing-return arithmetic, FX/stablecoin master inputs,
@@ -532,6 +532,17 @@ helper now uses a platform-independent Windows-path parser for basename
 extraction. The previously failing Python 3.10 regression and the full
 392-test suite pass locally; the missing-data source hash and 157-check
 artifact validation were regenerated after the source change.
+
+PR review then found one further P2 evidence-provenance defect: exposure
+metadata could use the local wall-clock date when `metadata_as_of_date` was not
+supplied. Re-running an unchanged evidence package on another day could
+therefore change a report-critical as-of field while retaining the original run
+identity. The exposure engine now requires an explicit ISO date, and the
+production caller binds that date to the active run manifest's
+`data_as_of_date`; a conflicting configured date fails closed. Missing,
+explicit, matching and mismatched-date regressions cover the contract. This
+repair does not change portfolio weights, returns, risk metrics or model
+selection.
 
 Generated audit severity also reports 43 open evidence issues: 12 critical, 11
 high, and 20 medium. These are scoped blockers or warnings, not 43 unresolved

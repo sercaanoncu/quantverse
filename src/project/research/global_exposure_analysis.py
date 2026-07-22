@@ -98,14 +98,15 @@ def build_exposure_analysis(
     universe: pd.DataFrame,
     *,
     final_model: str,
+    metadata_as_of_date: str,
     risk_contributions: pd.DataFrame | None = None,
     forecasts: pd.DataFrame | None = None,
     concentration_threshold: float = 0.50,
     metadata_cache_dir: str | Path | None = None,
     allow_yfinance_metadata: bool = False,
-    metadata_as_of_date: str | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Build region, country, currency, sleeve, sector and holding explanations."""
+    metadata_as_of_date = _validated_metadata_as_of_date(metadata_as_of_date)
     final_weights = _final_weights(weights, final_model)
     metadata = _metadata(universe)
     enriched = final_weights.merge(metadata, on="ticker", how="left")
@@ -295,7 +296,7 @@ def _enrich_exposure_metadata(
     *,
     metadata_cache_dir: str | Path | None,
     allow_yfinance_metadata: bool,
-    metadata_as_of_date: str | None,
+    metadata_as_of_date: str,
 ) -> pd.DataFrame:
     frame = enriched.copy()
     for column in [
@@ -315,7 +316,7 @@ def _enrich_exposure_metadata(
         frame[column] = _clean_text_series(frame[column])
     frame["metadata_as_of_date"] = frame["metadata_as_of_date"].where(
         frame["metadata_as_of_date"].ne(MISSING_VALUE),
-        metadata_as_of_date or date.today().isoformat(),
+        metadata_as_of_date,
     )
 
     cache_dir = Path(metadata_cache_dir) if metadata_cache_dir is not None else None
@@ -366,9 +367,7 @@ def _enrich_exposure_metadata(
                 and not _is_missing(updated.get("sector"))
                 else "low"
             )
-            updated["metadata_as_of_date"] = (
-                metadata_as_of_date or date.today().isoformat()
-            )
+            updated["metadata_as_of_date"] = metadata_as_of_date
         elif _is_missing(updated.get("metadata_confidence")):
             updated["metadata_confidence"] = (
                 "low" if missing else "medium_from_universe_source"
@@ -434,6 +433,16 @@ def _clean_text(value: object) -> str:
     if not text or text.lower() in {"nan", "none", "null"}:
         return MISSING_VALUE
     return text
+
+
+def _validated_metadata_as_of_date(value: str) -> str:
+    clean = _clean_text(value)
+    if clean == MISSING_VALUE:
+        raise ValueError("metadata_as_of_date must be supplied explicitly.")
+    try:
+        return date.fromisoformat(clean).isoformat()
+    except ValueError as exc:
+        raise ValueError("metadata_as_of_date must use ISO YYYY-MM-DD format.") from exc
 
 
 def _is_missing(value: object) -> bool:

@@ -15,7 +15,12 @@ def test_exposure_fails_closed_when_requested_final_model_is_missing():
     universe = pd.DataFrame({"ticker": ["A"], "name": ["Asset A"]})
 
     with pytest.raises(ValueError, match="missing from the weight artifact"):
-        build_exposure_analysis(weights, universe, final_model="HRP")
+        build_exposure_analysis(
+            weights,
+            universe,
+            final_model="HRP",
+            metadata_as_of_date="2026-07-09",
+        )
 
 
 def test_exposure_rejects_non_numeric_or_non_unit_weights():
@@ -30,9 +35,19 @@ def test_exposure_rejects_non_numeric_or_non_unit_weights():
     non_unit = malformed.assign(weight=[0.4, 0.4])
 
     with pytest.raises(ValueError, match="finite numeric"):
-        build_exposure_analysis(malformed, universe, final_model="Equal Weight")
+        build_exposure_analysis(
+            malformed,
+            universe,
+            final_model="Equal Weight",
+            metadata_as_of_date="2026-07-09",
+        )
     with pytest.raises(ValueError, match="sum to 1.0"):
-        build_exposure_analysis(non_unit, universe, final_model="Equal Weight")
+        build_exposure_analysis(
+            non_unit,
+            universe,
+            final_model="Equal Weight",
+            metadata_as_of_date="2026-07-09",
+        )
 
 
 def test_exposure_sums_to_one_and_top_holdings_explanation_exists():
@@ -54,7 +69,12 @@ def test_exposure_sums_to_one_and_top_holdings_explanation_exists():
         }
     )
 
-    exposure = build_exposure_analysis(weights, universe, final_model="Equal Weight")
+    exposure = build_exposure_analysis(
+        weights,
+        universe,
+        final_model="Equal Weight",
+        metadata_as_of_date="2026-07-09",
+    )
 
     assert exposure["region"]["weight"].sum() == 1.0
     assert exposure["sleeve"]["weight"].sum() == 1.0
@@ -84,7 +104,12 @@ def test_exposure_warning_triggers_for_concentration_and_missing_sector_graceful
         }
     )
 
-    exposure = build_exposure_analysis(weights, universe, final_model="GMV")
+    exposure = build_exposure_analysis(
+        weights,
+        universe,
+        final_model="GMV",
+        metadata_as_of_date="2026-07-09",
+    )
 
     assert "sector" in exposure
     assert exposure["warnings"]["warning_type"].str.contains("concentration").any()
@@ -110,7 +135,13 @@ def test_exposure_metadata_incomplete_when_sector_and_issuer_country_missing():
         }
     )
 
-    exposure = build_exposure_analysis(weights, universe, final_model="HRP")
+    exposure = build_exposure_analysis(
+        weights,
+        universe,
+        final_model="HRP",
+        metadata_as_of_date="2026-07-09",
+    )
+
     quality = exposure["metadata_quality"].iloc[0]
 
     assert quality["exposure_metadata_status"] == "diagnostic_metadata_incomplete"
@@ -144,7 +175,12 @@ def test_listing_country_and_issuer_country_are_separate_exposures():
         }
     )
 
-    exposure = build_exposure_analysis(weights, universe, final_model="HRP")
+    exposure = build_exposure_analysis(
+        weights,
+        universe,
+        final_model="HRP",
+        metadata_as_of_date="2026-07-09",
+    )
     listing = exposure["listing_country"].set_index("bucket")["weight"]
     issuer = exposure["issuer_country"].set_index("bucket")["weight"]
     top = exposure["top_holdings"].iloc[0]
@@ -179,7 +215,12 @@ def test_partial_metadata_warns_instead_of_plain_pass():
         }
     )
 
-    exposure = build_exposure_analysis(weights, universe, final_model="HRP")
+    exposure = build_exposure_analysis(
+        weights,
+        universe,
+        final_model="HRP",
+        metadata_as_of_date="2026-07-09",
+    )
     quality = exposure["metadata_quality"].iloc[0]
 
     assert quality["exposure_metadata_status"] == "passed_with_metadata_warning"
@@ -207,7 +248,12 @@ def test_adr_like_ticker_does_not_become_us_issuer_by_default():
         }
     )
 
-    exposure = build_exposure_analysis(weights, universe, final_model="HRP")
+    exposure = build_exposure_analysis(
+        weights,
+        universe,
+        final_model="HRP",
+        metadata_as_of_date="2026-07-09",
+    )
     issuer = exposure["issuer_country"].set_index("bucket")["weight"]
     top = exposure["top_holdings"].iloc[0]
 
@@ -241,7 +287,12 @@ def test_all_exposure_types_sum_to_one_when_metadata_is_available():
         }
     )
 
-    exposure = build_exposure_analysis(weights, universe, final_model="HRP")
+    exposure = build_exposure_analysis(
+        weights,
+        universe,
+        final_model="HRP",
+        metadata_as_of_date="2026-07-09",
+    )
 
     for key in [
         "listing_country",
@@ -254,3 +305,35 @@ def test_all_exposure_types_sum_to_one_when_metadata_is_available():
         "sleeve",
     ]:
         assert round(float(exposure[key]["weight"].sum()), 12) == 1.0
+
+
+def test_exposure_metadata_date_is_explicit_and_deterministic():
+    weights = pd.DataFrame(
+        {"model_name": ["Equal Weight"], "ticker": ["A"], "weight": [1.0]}
+    )
+    universe = pd.DataFrame(
+        {
+            "ticker": ["A"],
+            "name": ["Asset A"],
+            "sleeve": ["global_equity_us"],
+            "region": ["North America"],
+            "country": ["United States"],
+            "currency": ["USD"],
+        }
+    )
+
+    exposure = build_exposure_analysis(
+        weights,
+        universe,
+        final_model="Equal Weight",
+        metadata_as_of_date="2026-07-09",
+    )
+
+    assert exposure["top_holdings"].iloc[0]["metadata_as_of_date"] == "2026-07-09"
+    with pytest.raises(ValueError, match="supplied explicitly"):
+        build_exposure_analysis(
+            weights,
+            universe,
+            final_model="Equal Weight",
+            metadata_as_of_date="",
+        )

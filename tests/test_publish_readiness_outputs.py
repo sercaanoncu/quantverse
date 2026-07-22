@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 import scripts.build_global_exposure_report as exposure_report
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +73,26 @@ def test_exposure_report_does_not_fabricate_equal_weight(tmp_path, monkeypatch):
     monkeypatch.setattr(exposure_report, "PROCESSED", tmp_path)
 
     assert exposure_report._final_model() == "not_available"
+
+
+def test_exposure_metadata_date_is_bound_to_active_run():
+    run_metadata = {"data_as_of_date": "2026-07-21"}
+
+    assert (
+        exposure_report._resolve_metadata_as_of_date({}, run_metadata) == "2026-07-21"
+    )
+    assert (
+        exposure_report._resolve_metadata_as_of_date(
+            {"metadata_as_of_date": "2026-07-21"}, run_metadata
+        )
+        == "2026-07-21"
+    )
+    with pytest.raises(ValueError, match="must match the active run"):
+        exposure_report._resolve_metadata_as_of_date(
+            {"metadata_as_of_date": "2026-07-22"}, run_metadata
+        )
+    with pytest.raises(ValueError, match="active run data_as_of_date"):
+        exposure_report._resolve_metadata_as_of_date({}, {})
 
 
 def test_current_release_docs_do_not_preserve_stale_model_decisions():

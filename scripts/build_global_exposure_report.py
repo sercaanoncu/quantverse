@@ -48,6 +48,8 @@ def main() -> int:
             "exposure report not built."
         )
         return 0
+    run_metadata = read_run_manifest(PROCESSED)
+    metadata_as_of_date = _resolve_metadata_as_of_date(config, run_metadata)
     metadata_cache_dir = config.get(
         "exposure_metadata_cache_dir",
         "data/cache/exposure_metadata/yfinance_profiles",
@@ -63,9 +65,8 @@ def main() -> int:
         forecasts=forecasts,
         metadata_cache_dir=metadata_cache_path,
         allow_yfinance_metadata=bool(config.get("allow_yfinance_metadata", True)),
-        metadata_as_of_date=config.get("metadata_as_of_date"),
+        metadata_as_of_date=str(metadata_as_of_date),
     )
-    run_metadata = read_run_manifest(PROCESSED)
     exposure = {
         key: attach_run_metadata(frame, run_metadata) for key, frame in exposure.items()
     }
@@ -114,6 +115,23 @@ def _read_config(path: Path) -> dict[str, object]:
         return {}
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return data if isinstance(data, dict) else {}
+
+
+def _resolve_metadata_as_of_date(
+    config: dict[str, object], run_metadata: dict[str, str]
+) -> str:
+    """Bind exposure metadata provenance to the active research run date."""
+    run_date = str(run_metadata.get("data_as_of_date", "")).strip()
+    if not run_date or run_date.lower() == "unavailable":
+        raise ValueError("Exposure metadata requires the active run data_as_of_date.")
+
+    configured = config.get("metadata_as_of_date")
+    if configured is not None and str(configured).strip() != run_date:
+        raise ValueError(
+            "Configured metadata_as_of_date must match the active run "
+            "data_as_of_date."
+        )
+    return run_date
 
 
 if __name__ == "__main__":
