@@ -641,7 +641,9 @@ def _source_tree_hash(files: list[Path], root: Path) -> str:
     for path in files:
         digest.update(path.relative_to(root).as_posix().encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        source = path.read_text(encoding="utf-8")
+        canonical_source = source.replace("\r\n", "\n").replace("\r", "\n")
+        digest.update(canonical_source.encode("utf-8"))
         digest.update(b"\0")
     return f"source-{digest.hexdigest()[:24]}"
 

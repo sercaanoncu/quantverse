@@ -58,6 +58,25 @@ def test_unreviewed_zero_fill_is_rejected_even_in_a_formerly_safe_module(tmp_pat
     assert str(row["source_tree_hash"]).startswith("source-")
 
 
+def test_source_tree_hash_is_independent_of_line_endings(tmp_path):
+    lf_root = tmp_path / "lf"
+    crlf_root = tmp_path / "crlf"
+    relative = Path("src") / "line_endings.py"
+    source = "def clean(frame):\n    return frame.fillna('unavailable')\n"
+
+    for root, newline in [(lf_root, "\n"), (crlf_root, "\r\n")]:
+        path = root / relative
+        path.parent.mkdir(parents=True)
+        path.write_bytes(source.replace("\n", newline).encode("utf-8"))
+
+    lf_audit = scan_repository(lf_root)
+    crlf_audit = scan_repository(crlf_root)
+
+    assert (
+        lf_audit["source_tree_hash"].iloc[0] == crlf_audit["source_tree_hash"].iloc[0]
+    )
+
+
 def test_future_or_fallback_imputation_apis_fail_closed(tmp_path):
     source = tmp_path / "src" / "adversarial_imputation.py"
     source.parent.mkdir(parents=True)

@@ -162,8 +162,8 @@ def test_change_and_selection_ledgers_link_material_decisions():
 def test_adversarial_validator_audit_covers_all_required_attack_classes():
     text = ADVERSARIAL_AUDIT.read_text(encoding="utf-8")
 
-    assert all(f"ADV-{index:03d}" in text for index in range(1, 26))
-    assert text.count("| rejected |") == 25
+    assert all(f"ADV-{index:03d}" in text for index in range(1, 27))
+    assert text.count("| rejected |") == 26
     for phrase in [
         "Wrong non-native FX direction",
         "Static full-sample random",

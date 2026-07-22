@@ -345,7 +345,7 @@ Material controls added or strengthened:
 - expanded adversarial tests;
 - independent numerical reference implementation.
 
-The current suite has 394 passing tests. Black, Ruff, compileall, artifact
+The current suite has 395 passing tests. Black, Ruff, compileall, artifact
 validation, and `git diff --check` are final release gates. A scoped Pyright
 gate covers twelve financial-critical modules and currently reports zero errors
 and zero warnings.
@@ -411,7 +411,7 @@ The table counts internal correctness findings from the baseline commit
 | P0 - core result invalidation | 12 | 12 | 0 |
 | P1 - material interpretation | 49 | 49 | 0 |
 | P2 - robustness/quality | 34 | 27 | 7 |
-| P3 - engineering/presentation | 12 | 12 | 0 |
+| P3 - engineering/presentation | 13 | 13 | 0 |
 
 P0 repairs covered missing-return arithmetic, FX/stablecoin master inputs,
 security/price identity, feature eligibility/ranking, forecast timing,
@@ -543,6 +543,16 @@ production caller binds that date to the active run manifest's
 explicit, matching and mismatched-date regressions cover the contract. This
 repair does not change portfolio weights, returns, risk metrics or model
 selection.
+
+The first post-merge artifact check then found one further P3 reproducibility
+defect: the missing-data source-tree identity hashed raw Python bytes, while Git
+may check out the same text as LF or CRLF. The merge itself did not alter source
+semantics, but the checkout conversion made the stored evidence appear stale.
+Source text is now normalized to LF before hashing, and an LF/CRLF paired
+fixture proves platform-independent identity. The 408-operation inventory
+remains unchanged with zero unapproved operations, and all 157 artifact checks
+pass after regeneration. No portfolio, return, risk or model-selection value
+changed.
 
 Generated audit severity also reports 43 open evidence issues: 12 critical, 11
 high, and 20 medium. These are scoped blockers or warnings, not 43 unresolved
