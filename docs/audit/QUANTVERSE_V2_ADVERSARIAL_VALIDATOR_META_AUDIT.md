@@ -36,6 +36,7 @@ contract and must be rejected deterministically.
 | ADV-023 | Publication manifest has the wrong package type, omits a required member, duplicates a member or lies about byte size | Exact type, identity, membership, uniqueness, size and SHA-256 validation fails | `tests/test_quantverse_v2_governance_and_publication.py::test_publication_validator_rejects_inexact_or_mutated_package` | rejected |
 | ADV-024 | Global-master cost or promotion threshold configuration is ignored or contains an invalid percentile | Executable gate uses the configured values and rejects invalid thresholds | `tests/test_global_master_portfolio.py::test_master_promotion_gate_uses_configured_cost_and_threshold_contract`; `tests/test_global_master_portfolio.py::test_master_promotion_gate_rejects_invalid_configured_threshold` | rejected |
 | ADV-025 | Exposure metadata is rebuilt on a later wall-clock day without changing the research run identity | Exposure construction requires an explicit ISO date, and the production caller requires it to equal the active run `data_as_of_date` | `tests/test_global_exposure_analysis.py::test_exposure_metadata_date_is_explicit_and_deterministic`; `tests/test_publish_readiness_outputs.py::test_exposure_metadata_date_is_bound_to_active_run` | rejected |
+| ADV-026 | Identical Python source is checked out with LF on one platform and CRLF on another | The source-tree audit canonicalizes line endings before hashing, so both checkouts produce the same provenance identity | `tests/test_missing_data_operation_audit.py::test_source_tree_hash_is_independent_of_line_endings` | rejected |
 
 ## Defect Found By The Meta-Audit
 
@@ -50,7 +51,8 @@ The closing independent re-reviews found further partial-contract bypasses in
 publication source binding, decision reconstruction, run identity,
 missing-data syntax, visual domains, dynamic forward-fill controls, OOS path
 completeness, publication package completeness, legacy master-gate config
-plumbing and wall-clock-dependent exposure provenance. ADV-013 through ADV-025
+plumbing, wall-clock-dependent exposure provenance and line-ending-sensitive
+source identity. ADV-013 through ADV-026
 encode those failures directly. Final
 validator counts are recorded in the execution ledger after the source-only
 rebuild rather than hard-coded here.

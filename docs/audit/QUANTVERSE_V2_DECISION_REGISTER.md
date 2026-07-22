@@ -624,3 +624,34 @@ occur.
 | Invalidation conditions | Any wall-clock fallback returns, a configured mismatch is accepted, or exposure rows carry a date different from the active run. |
 | Residual limitation | The run date proves local snapshot alignment, not the legal authority or immutable versioning of upstream provider metadata. |
 | Status | Implemented, rebuilt and independently verified. |
+
+## QV2-DEC-021 - Source-Tree Identity Is Canonical Across Line Endings
+
+| Field | Record |
+|---|---|
+| Problem | The missing-data audit hashed raw Python bytes, so an LF checkout and a CRLF checkout of identical Git source produced different source-tree identities. |
+| Evidence | The stored pre-merge hash and a fresh post-merge scan differed while Git showed no source diff; `core.autocrlf=true` and raw-byte hashing explained the change. |
+| Why it matters | A harmless checkout transformation could make valid scientific evidence appear stale, undermining cross-platform reproducibility and CI/local reconciliation. |
+| Affected system | Missing-data source audit, artifact validator and release evidence provenance. |
+| Previous method | Hash portable relative paths plus each source file's raw working-tree bytes. |
+| Candidate methods | Require one checkout EOL policy; hash Git blobs; canonicalize decoded source text before hashing. |
+| Alternative 1 | Add a repository-wide forced-EOL rule only. |
+| Why rejected | Existing clones and tools can still present different working-tree bytes; the validator should encode the semantic source contract directly. |
+| Alternative 2 | Remove source-tree identity from the validator. |
+| Why rejected | That would allow a stale missing-data inventory to pass after source changes. |
+| Chosen method | Decode UTF-8 Python source, normalize CRLF and CR to LF, and hash canonical text with portable relative paths. |
+| Why chosen | Python parsing already operates on text; line-ending style is not a meaningful change to the audited operation set. |
+| Mathematical basis | SHA-256 is applied to a deterministic canonical representation; equivalent newline encodings map to one identity. |
+| Statistical basis | No estimator changes; the control protects reproducible evidence lineage. |
+| Financial/economic basis | Portfolio evidence must not be invalidated or accepted because of an operating-system checkout convention. |
+| Book support | Reproducible data-science and financial-ML workflows require deterministic preprocessing and stable evidence definitions. |
+| Academic support | Canonical serialization, reproducible computation and cross-platform provenance. |
+| Assumptions | Active Python source is UTF-8 and newline style has no token-level semantic role. |
+| Parameters | UTF-8 decoding; CRLF and CR normalized to LF; portable POSIX relative paths retained. |
+| Sensitivity | Any token, path or meaningful whitespace change still changes the hash; newline encoding alone does not. |
+| Expected impact | Windows and Linux checkouts of the same commit produce the same source-tree identity. |
+| Observed impact | Paired LF/CRLF fixtures match; the inventory remains 408 reviewed operations with zero unapproved; artifact validation returns 157 of 157. |
+| Validation | Dedicated line-ending regression, focused audit/validator tests and fresh artifact validation. |
+| Invalidation conditions | LF/CRLF fixtures diverge, non-newline source changes fail to change identity, or fresh inventory rows differ from stored evidence. |
+| Residual limitation | The identity is a source-text control, not a substitute for Git commit signatures or immutable build attestation. |
+| Status | Implemented, regenerated and independently verified. |
