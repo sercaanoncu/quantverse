@@ -18,10 +18,10 @@ random-benchmark, and metric-review gates. The selected model is still labelled
 
 The current result is unusually strong and short:
 
-- 356 realized observations in the final-sample risk table;
+- 358 realized observations in the final-sample risk table;
 - 252 observations across 12 walk-forward test folds;
-- OOS Equal Weight CAGR 107.49%;
-- OOS Equal Weight Sharpe 2.6307.
+- OOS Equal Weight CAGR 107.44%;
+- OOS Equal Weight Sharpe 2.5919.
 
 These are warning conditions, not marketing claims. Current-universe bias,
 missing point-in-time membership, no complete delisting history, only
@@ -86,10 +86,10 @@ Clean-run identity:
 
 | Field | Value |
 |---|---|
-| Run ID | `qv2-2026-07-17-91ae2fedeee477c0` |
-| Data as of | `2026-07-17` |
+| Run ID | `qv2-2026-07-21-4453b1fd66455d43` |
+| Data as of | `2026-07-21` |
 | Universe snapshot | `universe-3b4a371b4b139640` |
-| Data snapshot | `data-cf9d19274e3ef8ccf1b7` |
+| Data snapshot | `data-9ade4fbcdad81a2dc87c` |
 | Config hash | `config-927e366e46f809f645ca` |
 | Config scope | `composite:analysis,current_universe,master_portfolio,returns_matrix,source_universe` |
 | Analysis config hash | `config-e778648d7f8155ba1884` |
@@ -97,18 +97,18 @@ Clean-run identity:
 | Master-portfolio config hash | `config-773ed7d07c1328aab394` |
 | Returns config hash | `config-15c8c9e152aa1e734b86` |
 | Source-universe config hash | `config-9e56cc1fe2fe5d14d1b6` |
-| Input fingerprint | `input-fb2208f8f1e1439cc145` |
+| Input fingerprint | `input-8f10cc00eacafcf5c2eb` |
 
-The current universe contains 890 rows. Ninety-eight assets passed the current
-return/history pipeline, 98 were scored, 97 met standard 12-month feature
+The current universe contains 890 rows. One hundred assets passed the current
+return/history pipeline, 100 were scored, 99 met standard 12-month feature
 history, 40 were selected, and the final Equal Weight model contains 40
 holdings. Cross-artifact reconciliation passed.
 
-The provider returned no usable observations for UNH and BHP during the clean
-rebuild. Both are recorded as `insufficient_price_coverage`, excluded rather
-than zero-filled, and change the data snapshot/run identity. All coverage
-exclusions and large-return outlier records remain visible diagnostics; they
-were not converted to zeros or silently winsorized using future information.
+All 100 scoped return assets were usable in this clean rebuild. A preceding run
+had transient provider failures for UNH and BHP; that historical event remains
+recorded in the execution ledger but is not attributed to this run. Coverage
+exclusions and large-return outlier records remain visible diagnostics; they are
+not converted to zeros or silently winsorized using future information.
 
 ## 6. Security Identity
 
@@ -116,7 +116,7 @@ Ticker text is not treated as a permanent security identifier. The identity
 layer now separates provider-only confidence, known continuity, ticker reuse,
 listing-date evidence, and manual-review states.
 
-SPCX has only 23 valid returns in the clean run and is
+SPCX has only 25 valid returns in the clean run and is
 `diagnostic_short_history`; it cannot enter standard scoring, forecasting,
 covariance, or final portfolio inputs. Crypto identity and stable-value assets
 are separated from the equity master input path.
@@ -189,10 +189,10 @@ Current mean MAE:
 
 | Horizon | Model MAE | Random-walk MAE |
 |---|---:|---:|
-| 1M | 0.1462 | 0.1618 |
-| 3M | 0.3534 | 0.4238 |
-| 6M | 0.5648 | 0.6242 |
-| 12M | 1.4000 | 1.5518 |
+| 1M | 0.1418 | 0.1555 |
+| 3M | 0.3438 | 0.4157 |
+| 6M | 0.5644 | 0.6265 |
+| 12M | 1.4099 | 1.5656 |
 
 The diagnostic beats the comparator on these point estimates, but this does
 not establish an allocation signal. Confidence labels are explicitly
@@ -236,17 +236,17 @@ Final full-sample Equal Weight metrics:
 
 | Metric | Value | Interpretation |
 |---|---:|---|
-| Observations | 356 | short sample |
-| Arithmetic annual return | 70.61% | realized annualized estimate |
-| CAGR | 96.58% | realized compounded estimate |
-| Volatility | 24.27% | annualized |
-| Sharpe | 2.9089 | 0% labelled research RF assumption |
-| Sortino | 4.6072 | LPM2 convention |
-| Calmar | 4.5626 | CAGR / drawdown magnitude |
-| Max drawdown | -21.17% | realized peak-to-trough |
-| Daily VaR 95 | -2.0004% | historical 5% quantile |
-| Daily CVaR 95 | -3.2552% | historical tail mean |
-| Total return | 159.82% | over the observed sample |
+| Observations | 358 | short sample |
+| Arithmetic annual return | 71.62% | realized annualized estimate |
+| CAGR | 98.60% | realized compounded estimate |
+| Volatility | 24.22% | annualized |
+| Sharpe | 2.9566 | 0% labelled research RF assumption |
+| Sortino | 4.6969 | LPM2 convention |
+| Calmar | 4.8308 | CAGR / drawdown magnitude |
+| Max drawdown | -20.41% | realized peak-to-trough |
+| Daily VaR 95 | -1.9833% | historical 5% quantile |
+| Daily CVaR 95 | -3.2516% | historical tail mean |
+| Total return | 165.04% | over the observed sample |
 
 The annual return and CAGR are flagged
 `high_*_short_sample_review_required`. They are not forecast targets and do not
@@ -276,12 +276,12 @@ review warnings. Only then does it rank eligible models by OOS Sharpe.
 All active paired circular-block-bootstrap Sharpe-difference confidence
 intervals cross zero. Examples:
 
-- Inverse Volatility: `[-0.2832, 0.4442]`;
-- Risk Parity: `[-0.4067, 0.5600]`;
-- HRP: `[-0.6753, 0.5007]`.
+- Inverse Volatility: `[-0.2930, 0.3936]`;
+- Risk Parity: `[-0.4118, 0.4908]`;
+- HRP: `[-0.7097, 0.3982]`.
 
-Inverse Volatility has the highest active OOS Sharpe, 2.7419, versus Equal
-Weight 2.6307, but its improvement is not statistically established and it has
+Inverse Volatility has the highest active OOS Sharpe, 2.6704, versus Equal
+Weight 2.5919, but its improvement is not statistically established and it has
 an extreme-metric review warning. Equal Weight therefore remains the
 defensible benchmark/final research model.
 
@@ -291,8 +291,8 @@ the result is now `not_available`; no model is fabricated.
 ## 15. Robustness
 
 The bounded sensitivity grid evaluated 48 of 216 feasible configurations. Its
-current-sample diagnostic winner changed materially: GMV led 27 scenarios, Min
-CVaR 13, Risk Parity 7 and HRP 1. This is
+current-sample diagnostic winner changed materially: GMV led 26 scenarios, HRP
+7, Min CVaR 6, Equal Weight 5 and Risk Parity 4. This is
 `diagnostic_configuration_stability_only` and explicitly indicates model/weight
 fragility rather than stable out-of-sample superiority.
 
@@ -499,11 +499,12 @@ operations with zero unapproved calls. The same results are recorded in the
 append-only execution ledger.
 
 The final local closure review found one further P1 documentation-provenance
-defect: this audit's risk table still carried metrics from the preceding
-100-asset run after the source-only rebuild produced 98 usable return assets.
-The table and reference-check count were reconciled to run
-`qv2-2026-07-17-91ae2fedeee477c0`; the generated PDF, HTML and Excel package was
-already bound to the correct current-run evidence.
+defect: this audit's risk table had carried metrics from a preceding run after a
+source-only rebuild changed provider coverage. That table was reconciled at the
+time. The subsequent security-identity verification rebuild again refreshed the
+entire evidence chain and this audit now matches run
+`qv2-2026-07-21-4453b1fd66455d43`; the generated PDF, HTML and Excel package is
+bound to the same current-run evidence.
 
 The seven unresolved P2 items are:
 

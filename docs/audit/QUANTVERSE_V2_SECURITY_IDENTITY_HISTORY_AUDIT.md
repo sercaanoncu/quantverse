@@ -11,8 +11,9 @@ walk-forward and portfolio construction.
 The documented SPCX conflict is resolved for the current run by a primary-source
 listing boundary. No pre-listing observations were observed in the downloaded
 current-security series. SPCX is nevertheless excluded from the standard 12-month
-ranking because only 17 valid daily returns were available in the pre-repair
-snapshot. This is an eligibility decision, not an investment opinion.
+ranking because only 25 valid daily returns are available as of 2026-07-21. This
+is an eligibility decision, not an investment opinion. The current evidence is
+identified by run `qv2-2026-07-21-4453b1fd66455d43`.
 
 ## SPCX Forensic Record
 
@@ -25,7 +26,7 @@ snapshot. This is an eligibility decision, not an investment opinion.
 | exchange | Nasdaq Global Select Market and Nasdaq Texas | Nasdaq Data Technical News 2026-8 | High | Listing venue is source-verified. |
 | stable_identifier | CUSIP 84615Q103 | Nasdaq Data Technical News 2026-8 | High | The current security is not identified by ticker alone. |
 | observed_price_history_start_date | 2026-06-12 | `data/processed/global_security_identity_audit.csv` | High for current generated data | The observed provider series begins on the verified listing date. |
-| observed_return_history_start_date | 2026-06-16 | `data/processed/global_security_identity_audit.csv` | High for current generated data | Return history starts after the first valid price pair and exchange-calendar alignment. |
+| observed_return_history_start_date | 2026-06-15 | `data/processed/global_security_identity_audit.csv` | High for current generated data | Return history starts after the first valid price pair and exchange-calendar alignment. |
 | observations_before_current_listing | 0 | `data/processed/global_security_identity_audit.csv` | High for current generated data | No pre-listing contamination was observed in this run. |
 | prior_symbol_reuse_status | Known prior unrelated security: The SPAC and New Issue ETF | Nasdaq notice; SEC ticker-change filing | High | Historical SPCX data must not be linked across the issuer boundary. |
 | identity_continuity_status | `verified_current_security_from_listing_date` | Manual override backed by Nasdaq and SEC | High | Continuity begins at 2026-06-12; no predecessor continuity is claimed. |
@@ -110,9 +111,9 @@ The history contract is enforced at both portfolio surfaces:
 The master allocator also requires the eligibility artifact's `run_id` to match
 the active run manifest. A missing, invalid or stale eligibility artifact causes
 a fail-safe `not promoted` result instead of a portfolio calculation. In the
-current rebuilt evidence, SPCX and eight other short-history assets are absent
-from master selected assets, candidate weights, the 10,000 random portfolios and
-the covariance/correlation universe.
+current rebuilt evidence, SPCX is the only returned equity labelled
+`diagnostic_short_history`; it is absent from master selected assets, candidate
+weights, the 10,000 random portfolios and the covariance/correlation universe.
 
 ## Cross-Artifact Contract
 
