@@ -41,9 +41,9 @@ def main() -> int:
     summary = build_demo_summary()
     _write_summary(summary)
     for report_step in [
-        ["scripts/build_quantverse_v2_visual_analytics.py", "--config", config],
-        ["scripts/build_quantverse_v2_research_report.py"],
-        ["scripts/build_quantverse_v2_excel_output.py"],
+        ["scripts/validate_portfolio_core.py", "--config", config],
+        ["scripts/build_quantverse_portfolio_analysis.py", "--config", config],
+        ["scripts/build_quantverse_portfolio_excel.py", "--config", config],
     ]:
         result = subprocess.run([sys.executable, *report_step], cwd=ROOT, check=False)
         if result.returncode != 0:
@@ -87,6 +87,7 @@ def _pipeline_steps(config: str) -> list[list[str]]:
             "configs/current_global_universe.yaml",
         ],
         ["scripts/run_global_statistical_diagnostics.py"],
+        ["scripts/build_global_risk_free_series.py", "--config", config],
         ["scripts/build_global_stock_scores.py", "--config", config],
         ["scripts/build_global_return_forecasts.py", "--config", config],
         ["scripts/build_global_portfolio_league.py", "--config", config],
@@ -102,11 +103,6 @@ def _pipeline_steps(config: str) -> list[list[str]]:
         ["scripts/build_global_exposure_report.py", "--config", config],
         ["scripts/build_security_history_reconciliation.py", "--config", config],
         ["scripts/validate_global_forecasts.py", "--config", config],
-        ["scripts/audit_global_scientific_sanity.py"],
-        ["scripts/audit_quantverse_v2_missing_data_operations.py"],
-        ["scripts/qa/verify_quantverse_reference_math.py"],
-        ["scripts/build_visual_scientific_audit_report.py"],
-        ["scripts/build_explainable_excel_output.py"],
     ]
 
 
@@ -138,6 +134,7 @@ def build_demo_summary() -> dict[str, object]:
     turnover = _read_csv(PROCESSED / "global_walk_forward_turnover.csv")
     decision = _read_json(PROCESSED / "global_master_decision_summary.json")
     model_decision = _read_json(PROCESSED / "global_final_model_decision.json")
+    portfolio_decision = _read_csv(PROCESSED / "global_portfolio_decision_summary.csv")
     model_selection = _read_csv(PROCESSED / "global_model_selection_report.csv")
     robustness = _read_json(PROCESSED / "global_parameter_sensitivity_summary.json")
     forecast_validation = _read_csv(
@@ -171,6 +168,7 @@ def build_demo_summary() -> dict[str, object]:
     )
     summary = {
         "run_status": "completed",
+        "declared_scope": "US-listed global-issuer equity research",
         "universe_rows": int(len(universe)),
         "assets_with_returns": (
             int(max(returns.shape[1] - 1, 0)) if not returns.empty else 0
@@ -195,6 +193,20 @@ def build_demo_summary() -> dict[str, object]:
         ),
         "final_selected_model": final_model,
         "final_public_data_research_model": final_model,
+        "balanced_research_portfolio": _first_value(
+            portfolio_decision, "balanced_research_portfolio", final_model
+        ),
+        "transparent_benchmark": _first_value(
+            portfolio_decision, "transparent_benchmark", "Equal Weight"
+        ),
+        "defensive_alternative": _first_value(
+            portfolio_decision, "defensive_alternative", "not_available"
+        ),
+        "evidence_status": _first_value(
+            portfolio_decision,
+            "evidence_status",
+            "research-grade with stated limitations",
+        ),
         "institutional_global_master_promotion": "not_promoted",
         "final_selected_holdings": (
             int((final_weights["weight"].abs() > 1e-8).sum())
@@ -303,9 +315,9 @@ def build_demo_summary() -> dict[str, object]:
             else "failed_or_missing"
         ),
         "report_paths": {
-            "pdf": "output/pdf/quantverse_v2_research_report.pdf",
-            "html": "output/html/quantverse_v2_research_report.html",
-            "excel": "output/excel/quantverse_v2_research_output.xlsx",
+            "pdf": "output/pdf/quantverse_portfolio_analysis.pdf",
+            "html": "output/html/quantverse_portfolio_analysis.html",
+            "excel": "output/excel/quantverse_portfolio_analysis.xlsx",
         },
         **run_metadata,
     }
@@ -482,6 +494,13 @@ def _float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _first_value(frame: pd.DataFrame, column: str, default: str) -> str:
+    if frame.empty or column not in frame:
+        return default
+    values = frame[column].dropna().astype(str)
+    return str(values.iloc[0]) if not values.empty else default
 
 
 def _security_identity_status(frame: pd.DataFrame) -> str:

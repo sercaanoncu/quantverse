@@ -1,6 +1,6 @@
 # QuantVerse Testing Strategy
 
-Date: 2026-06-25
+Date: 2026-07-22
 
 ## Purpose
 
@@ -18,6 +18,7 @@ not break.
 | Namespace | Public `quantverse.*` imports and legacy `project.*` compatibility. |
 | Data | Market signals must not enter investable portfolio weights; low realized return is not a deletion rule. |
 | Portfolio | Weight sums, long-only contracts and holdings CSV schema. |
+| Canonical portfolio core | Twenty holdings, issuer deduplication, group caps, common OOS dates, all-fold walk-forward, market risk-free alignment and three-part decision roles. |
 | Risk validation | VaR exception counts, expected exceptions and Kupiec/Christoffersen edge cases. |
 | Stress | Expected stylized scenario names, schema and non-historical-replay label. |
 | Benchmark | Equal Weight, HRP, Inverse Volatility and internal 60/40 proxy behavior. |
@@ -50,14 +51,16 @@ Run these commands from the project root:
 python -m black --check src scripts tests
 python -m ruff check src scripts tests
 python -m pytest -q
+python -m pyright
 python -m compileall src scripts
-python scripts/run_full_pipeline.py --config configs/base.yaml
+python scripts/qa/verify_quantverse_reference_math.py
+python scripts/validate_quantverse_v2_artifacts.py
 ```
 
 Latest validated pytest result:
 
 ```text
-306 passed
+404 passed
 ```
 
 If deterministic tests are added or removed later, update README and

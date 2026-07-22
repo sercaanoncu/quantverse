@@ -328,6 +328,8 @@ def main() -> int:
 def validate_artifacts(root: Path) -> dict[str, object]:
     """Validate generated v2 artifacts below ``root``."""
     processed = root / "data" / "processed"
+    if (processed / "global_portfolio_core_acceptance.json").exists():
+        return _validate_canonical_portfolio_artifacts(root)
     checks: list[dict[str, object]] = []
     summary = _read_json(processed / "quantverse_v2_demo_summary.json")
     decision = _read_json(processed / "global_final_model_decision.json")
@@ -384,6 +386,162 @@ def validate_artifacts(root: Path) -> dict[str, object]:
             "promotion_decision": summary.get("promotion_decision"),
             "publish_readiness_status": decision.get("publish_readiness_status"),
         },
+    }
+
+
+def _validate_canonical_portfolio_artifacts(root: Path) -> dict[str, object]:
+    """Validate the compact working-portfolio package and its evidence contract."""
+    processed = root / "data" / "processed"
+    checks: list[dict[str, object]] = []
+    acceptance = _read_json(processed / "global_portfolio_core_acceptance.json")
+    acceptance_checks = acceptance.get("checks", [])
+    acceptance_passed = bool(
+        acceptance.get("overall_status") == "passed"
+        and acceptance_checks
+        and all(bool(item.get("passed")) for item in acceptance_checks)
+    )
+    checks.append(
+        _check(
+            "canonical_core_acceptance",
+            acceptance_passed,
+            f"passed={sum(bool(item.get('passed')) for item in acceptance_checks)}/{len(acceptance_checks)}",
+        )
+    )
+
+    decision = _read_csv(processed / "global_portfolio_decision_summary.csv")
+    weights = _read_csv(processed / "global_current_portfolio_weights.csv")
+    comparison = _read_csv(processed / "global_walk_forward_model_comparison.csv")
+    required_roles = {
+        "balanced_research_portfolio",
+        "transparent_benchmark",
+        "defensive_alternative",
+    }
+    roles = set(weights.get("portfolio_role", pd.Series(dtype=str)).astype(str))
+    role_counts = (
+        weights.groupby("portfolio_role")["ticker"].nunique().to_dict()
+        if {"portfolio_role", "ticker"}.issubset(weights.columns)
+        else {}
+    )
+    checks.append(
+        _check(
+            "three_portfolio_roles_have_twenty_holdings",
+            required_roles.issubset(roles)
+            and all(int(role_counts.get(role, 0)) == 20 for role in required_roles),
+            f"role_counts={role_counts}",
+        )
+    )
+    balanced = weights.loc[
+        weights.get("portfolio_role", pd.Series(dtype=str)).eq(
+            "balanced_research_portfolio"
+        )
+    ]
+    checks.append(
+        _check(
+            "published_balanced_weights_valid",
+            not balanced.empty
+            and abs(pd.to_numeric(balanced["weight"], errors="coerce").sum() - 1.0)
+            <= 1e-8
+            and not balanced["issuer_key"].astype(str).duplicated().any(),
+            f"holdings={len(balanced)}; weight_sum={pd.to_numeric(balanced.get('weight'), errors='coerce').sum() if not balanced.empty else 0}",
+        )
+    )
+    counts = pd.to_numeric(
+        comparison.get("oos_observations", pd.Series(dtype=float)), errors="coerce"
+    )
+    checks.append(
+        _check(
+            "published_models_same_oos_observations",
+            not comparison.empty and counts.nunique(dropna=True) == 1,
+            f"observations={sorted(counts.dropna().unique().tolist())}",
+        )
+    )
+    checks.append(
+        _check(
+            "decision_language_has_three_roles",
+            not decision.empty
+            and {
+                "balanced_research_portfolio",
+                "transparent_benchmark",
+                "defensive_alternative",
+                "evidence_status",
+            }.issubset(decision.columns),
+            f"columns={list(decision.columns)}",
+        )
+    )
+
+    pdf_path = root / "output" / "pdf" / "quantverse_portfolio_analysis.pdf"
+    try:
+        pdf = PdfReader(str(pdf_path))
+        pages = len(pdf.pages)
+        text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        pdf_ok = 8 <= pages <= 12 and all(
+            token in text for token in ["20", "Equal Weight", "GMV", "Research-grade"]
+        )
+        details = f"pages={pages}; text_chars={len(text)}"
+    except Exception as exc:
+        pdf_ok = False
+        details = _portable_exception_details(exc, pdf_path)
+    checks.append(_check("canonical_pdf_usable", pdf_ok, details))
+
+    html_path = root / "output" / "html" / "quantverse_portfolio_analysis.html"
+    html_text = (
+        html_path.read_text(encoding="utf-8", errors="ignore")
+        if html_path.exists()
+        else ""
+    )
+    html_tokens = [
+        "balanced_research_portfolio",
+        "transparent_benchmark",
+        "defensive_alternative",
+        "US-listed global-issuer equity research",
+        "Limitations",
+    ]
+    checks.append(
+        _check(
+            "canonical_html_usable",
+            html_path.exists() and all(token in html_text for token in html_tokens),
+            f"missing={[token for token in html_tokens if token not in html_text]}",
+        )
+    )
+
+    xlsx_path = root / "output" / "excel" / "quantverse_portfolio_analysis.xlsx"
+    expected_sheets = [
+        "START_HERE",
+        "CURRENT_PORTFOLIO",
+        "HOLDING_RATIONALE",
+        "REJECTED_CANDIDATES",
+        "MODEL_COMPARISON",
+        "BALANCED_BENCHMARK_DEFENSIVE",
+        "OOS_PERFORMANCE",
+        "RISK",
+        "TURNOVER_COSTS",
+        "EXPOSURE",
+        "DATA_QUALITY",
+        "LIMITATIONS",
+        "FORMULA_DICTIONARY",
+        "RAW_WEIGHTS",
+        "RAW_OOS_RETURNS",
+    ]
+    try:
+        sheets = _excel_sheet_names(xlsx_path)
+        workbook_ok = sheets == expected_sheets
+        workbook_details = f"sheet_count={len(sheets)}; sheets={sheets}"
+    except Exception as exc:
+        workbook_ok = False
+        workbook_details = _portable_exception_details(exc, xlsx_path)
+    checks.append(
+        _check("canonical_excel_exact_sheet_contract", workbook_ok, workbook_details)
+    )
+    _check_excel_formula_errors(xlsx_path, checks)
+
+    failed = [check for check in checks if not check["passed"]]
+    decision_row = decision.iloc[0].to_dict() if not decision.empty else {}
+    return {
+        "overall_status": "passed" if not failed else "failed",
+        "check_count": len(checks),
+        "failed_check_count": len(failed),
+        "checks": checks,
+        "summary": decision_row,
     }
 
 

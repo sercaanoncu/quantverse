@@ -110,6 +110,7 @@ def main() -> int:
         random_percentiles,
         PROCESSED,
     )
+    role_outputs = _write_portfolio_role_outputs(decision, weights)
     register_artifacts(
         PROCESSED,
         [
@@ -119,6 +120,7 @@ def main() -> int:
             PROCESSED / "global_final_model_decision.json",
             PROCESSED / "global_random_portfolio_distribution.csv",
             PROCESSED / "global_random_portfolio_percentile_report.csv",
+            *role_outputs,
         ],
         run_metadata,
     )
@@ -137,6 +139,87 @@ def _selected_tickers_from_weights(
     tickers = weights["ticker"].dropna().astype(str).drop_duplicates().tolist()
     selected = [ticker for ticker in tickers if ticker in returns.columns]
     return selected or list(returns.columns)
+
+
+def _write_portfolio_role_outputs(
+    decision: dict[str, object],
+    weights: pd.DataFrame,
+) -> list[Path]:
+    roles = [
+        ("balanced_research_portfolio", decision.get("balanced_research_portfolio")),
+        ("transparent_benchmark", decision.get("transparent_benchmark")),
+        ("defensive_alternative", decision.get("defensive_alternative")),
+    ]
+    role_frame = pd.DataFrame(
+        [{"portfolio_role": role, "model_name": str(model)} for role, model in roles]
+    )
+    selected = _read_csv(PROCESSED / "global_current_selected_securities.csv")
+    rows = []
+    for role, model in roles:
+        model_name = str(model)
+        model_weights = weights.loc[
+            weights["model_name"].astype(str).eq(model_name),
+            ["model_name", "ticker", "weight"],
+        ].copy()
+        if model_weights.empty:
+            raise ValueError(f"Missing current weights for portfolio role {role}.")
+        model_weights.insert(0, "portfolio_role", role)
+        rows.append(model_weights)
+    role_weights = pd.concat(rows, ignore_index=True)
+    if not selected.empty:
+        keep = [
+            column
+            for column in [
+                "ticker",
+                "name",
+                "issuer_name",
+                "issuer_key",
+                "sector",
+                "industry",
+                "issuer_country",
+                "currency",
+                "composite_quant_score",
+                "momentum_6m",
+                "momentum_12m",
+                "volatility_12m",
+                "downside_volatility",
+                "max_drawdown",
+                "correlation_diversification_score",
+                "selection_reason",
+            ]
+            if column in selected
+        ]
+        role_weights = role_weights.merge(
+            selected[keep].drop_duplicates("ticker"),
+            on="ticker",
+            how="left",
+            validate="many_to_one",
+        )
+    role_path = PROCESSED / "global_portfolio_roles.csv"
+    weights_path = PROCESSED / "global_current_portfolio_weights.csv"
+    decision_path = PROCESSED / "global_portfolio_decision_summary.csv"
+    role_frame.to_csv(role_path, index=False)
+    role_weights.to_csv(weights_path, index=False)
+    pd.DataFrame(
+        [
+            {
+                "evidence_status": decision.get("evidence_status"),
+                "balanced_research_portfolio": decision.get(
+                    "balanced_research_portfolio"
+                ),
+                "transparent_benchmark": decision.get("transparent_benchmark"),
+                "defensive_alternative": decision.get("defensive_alternative"),
+                "balanced_selection_reason": decision.get("final_decision_reason"),
+                "defensive_selection_reason": decision.get(
+                    "defensive_selection_reason"
+                ),
+                "institutional_live_trading_status": decision.get(
+                    "institutional_live_trading_status"
+                ),
+            }
+        ]
+    ).to_csv(decision_path, index=False)
+    return [role_path, weights_path, decision_path]
 
 
 def _oos_model_metrics(

@@ -23,6 +23,10 @@ from project.research.global_stock_selection import (
     build_min_cvar_portfolio,
     build_shrinkage_max_sharpe_portfolio,
 )
+from project.research.global_portfolio_core import (
+    CanonicalPortfolioPolicy,
+    project_group_constrained_weights,
+)
 
 REQUIRED_MODELS = [
     "Equal Weight",
@@ -69,6 +73,8 @@ LEAGUE_COLUMNS = [
     "risk_free_policy",
     "metric_status",
     "metric_observations",
+    "metric_start_date",
+    "metric_end_date",
     "turnover",
     "transaction_cost_assumption",
     "constraints_pass",
@@ -89,6 +95,9 @@ def build_portfolio_league(
     random_state: int = 42,
     risk_free_rate_annual: float = 0.0,
     risk_free_policy: str = "zero_rate_labeled_research_assumption",
+    risk_free_daily: pd.Series | None = None,
+    constraint_policy: CanonicalPortfolioPolicy | None = None,
+    primary_only: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Build the v2 model league and long-form model weights."""
     clean = _clean_returns(returns)
@@ -99,7 +108,25 @@ def build_portfolio_league(
             pd.DataFrame(columns=["model_name", "ticker", "weight"]),
             pd.DataFrame(columns=["model_name", "actual_status", "reason"]),
         )
-    selected_returns = clean[selected]
+    selected_returns = clean[selected].dropna(how="any")
+    if selected_returns.shape[0] < 2:
+        raise ValueError("Canonical model comparison has fewer than two common dates.")
+    selected_metadata = (
+        metadata.loc[metadata["ticker"].astype(str).isin(selected)].copy()
+        if metadata is not None and not metadata.empty and "ticker" in metadata
+        else pd.DataFrame()
+    )
+
+    def constrained(builder) -> pd.Series:
+        built = pd.Series(builder(), dtype=float).reindex(selected).fillna(0.0)
+        if constraint_policy is None:
+            return built
+        return project_group_constrained_weights(
+            built,
+            selected_metadata,
+            constraint_policy,
+        )
+
     forecast_mu = _forecast_expected_returns(forecasts, selected)
     caps = _market_caps(metadata, selected)
     weights: dict[str, pd.Series] = {}
@@ -109,7 +136,9 @@ def build_portfolio_league(
         weights,
         statuses,
         "Equal Weight",
-        lambda: build_equal_weight_portfolio(selected_returns, selected),
+        lambda: constrained(
+            lambda: build_equal_weight_portfolio(selected_returns, selected)
+        ),
         "benchmark_only",
         "Transparent 1/N benchmark.",
     )
@@ -119,13 +148,16 @@ def build_portfolio_league(
         random_state=random_state,
         risk_free_rate_annual=risk_free_rate_annual,
         risk_free_policy=risk_free_policy,
+        risk_free_daily=risk_free_daily,
     )
     _try_add(
         weights,
         statuses,
         "Inverse Volatility",
-        lambda: build_inverse_volatility_portfolio(
-            selected_returns, selected, max_weight=max_weight
+        lambda: constrained(
+            lambda: build_inverse_volatility_portfolio(
+                selected_returns, selected, max_weight=max_weight
+            )
         ),
         "actually_run",
         "Risk-scaled long-only allocation.",
@@ -134,29 +166,41 @@ def build_portfolio_league(
         weights,
         statuses,
         "GMV",
-        lambda: _gmv_weights(selected_returns, max_weight=max_weight),
+        lambda: constrained(
+            lambda: _gmv_weights(selected_returns, max_weight=max_weight)
+        ),
         "actually_run",
         "Global minimum variance allocation.",
     )
-    _try_add(
-        weights,
-        statuses,
-        "Max Sharpe",
-        lambda: build_shrinkage_max_sharpe_portfolio(
-            selected_returns,
-            selected,
-            max_weight=max_weight,
-            risk_free_rate_annual=risk_free_rate_annual,
-        ),
-        "diagnostic_only",
-        "Expected-return optimizer; diagnostic until walk-forward evidence supports it.",
-    )
+    if primary_only:
+        statuses["Max Sharpe"] = _status(
+            "diagnostic_only",
+            "Excluded from the primary walk-forward decision surface.",
+        )
+    else:
+        _try_add(
+            weights,
+            statuses,
+            "Max Sharpe",
+            lambda: constrained(
+                lambda: build_shrinkage_max_sharpe_portfolio(
+                    selected_returns,
+                    selected,
+                    max_weight=max_weight,
+                    risk_free_rate_annual=risk_free_rate_annual,
+                )
+            ),
+            "diagnostic_only",
+            "Expected-return optimizer; diagnostic until walk-forward evidence supports it.",
+        )
     _try_add(
         weights,
         statuses,
         "Min CVaR",
-        lambda: build_min_cvar_portfolio(
-            selected_returns, selected, max_weight=max_weight
+        lambda: constrained(
+            lambda: build_min_cvar_portfolio(
+                selected_returns, selected, max_weight=max_weight
+            )
         ),
         "actually_run",
         "Tail-risk-aware long-only allocation.",
@@ -165,9 +209,13 @@ def build_portfolio_league(
         weights,
         statuses,
         "HRP",
-        lambda: HRPOptimizer(_complete_case_returns(selected_returns)).optimize(
-            constraints=PortfolioConstraints.default_long_only(max_weight=max_weight)
-        )["weights"],
+        lambda: constrained(
+            lambda: HRPOptimizer(_complete_case_returns(selected_returns)).optimize(
+                constraints=PortfolioConstraints.default_long_only(
+                    max_weight=max_weight
+                )
+            )["weights"]
+        ),
         "actually_run",
         (
             "Constrained HRP: single-linkage natural HRP weights projected onto "
@@ -178,21 +226,36 @@ def build_portfolio_league(
         weights,
         statuses,
         "Risk Parity",
-        lambda: RiskParityOptimizer(_ledoit_wolf_covariance(selected_returns)).optimize(
-            constraints=PortfolioConstraints.default_long_only(max_weight=max_weight)
-        )["weights"],
+        lambda: constrained(
+            lambda: RiskParityOptimizer(
+                _ledoit_wolf_covariance(selected_returns)
+            ).optimize(
+                constraints=PortfolioConstraints.default_long_only(
+                    max_weight=max_weight
+                )
+            )[
+                "weights"
+            ]
+        ),
         "actually_run",
         "Equal-risk-contribution allocation.",
     )
-    if caps.notna().all() and (caps > 0).all():
+    if primary_only:
+        statuses["Black-Litterman"] = _status(
+            "diagnostic_only",
+            "Excluded from primary walk-forward; market-cap prior is not promotion grade.",
+        )
+    elif caps.notna().all() and (caps > 0).all():
         _try_add(
             weights,
             statuses,
             "Black-Litterman",
-            lambda: black_litterman_weights(
-                _ledoit_wolf_covariance(selected_returns),
-                caps,
-                max_weight=max_weight,
+            lambda: constrained(
+                lambda: black_litterman_weights(
+                    _ledoit_wolf_covariance(selected_returns),
+                    caps,
+                    max_weight=max_weight,
+                )
             ),
             "diagnostic_only",
             "Uses public-provider current market caps; not promotion-grade PIT priors.",
@@ -214,13 +277,20 @@ def build_portfolio_league(
         "diagnostic_only" if forecast_mu.notna().any() else "blocked_by_data",
         "Ensemble expected returns require generated forecasts.",
     )
-    if forecast_mu.notna().all():
+    if primary_only:
+        statuses["Forecast-Enhanced Constrained Portfolio"] = _status(
+            "diagnostic_only",
+            "Excluded from the primary walk-forward decision surface.",
+        )
+    elif forecast_mu.notna().all():
         _try_add(
             weights,
             statuses,
             "Forecast-Enhanced Constrained Portfolio",
-            lambda: _forecast_enhanced_weights(
-                selected_returns, forecast_mu, max_weight=max_weight
+            lambda: constrained(
+                lambda: _forecast_enhanced_weights(
+                    selected_returns, forecast_mu, max_weight=max_weight
+                )
             ),
             "diagnostic_only",
             "Uses forecast ensemble under long-only cap constraints.",
@@ -230,17 +300,25 @@ def build_portfolio_league(
             "blocked_by_data",
             "Forecasts are missing for at least one selected asset.",
         )
-    _try_add(
-        weights,
-        statuses,
-        "Policy Constrained",
-        lambda: _policy_constrained(scores, selected, max_weight=max_weight),
-        "diagnostic_only",
-        (
-            "Fixed heuristic composite-score allocation; diagnostic until score "
-            "weights and selection policy survive nested sensitivity evidence."
-        ),
-    )
+    if primary_only:
+        statuses["Policy Constrained"] = _status(
+            "diagnostic_only",
+            "Excluded from the primary walk-forward decision surface.",
+        )
+    else:
+        _try_add(
+            weights,
+            statuses,
+            "Policy Constrained",
+            lambda: constrained(
+                lambda: _policy_constrained(scores, selected, max_weight=max_weight)
+            ),
+            "diagnostic_only",
+            (
+                "Fixed heuristic composite-score allocation; diagnostic until score "
+                "weights and selection policy survive nested sensitivity evidence."
+            ),
+        )
 
     league_rows = [random_metrics]
     weight_rows = []
@@ -258,6 +336,7 @@ def build_portfolio_league(
                 max_weight,
                 risk_free_rate_annual=risk_free_rate_annual,
                 risk_free_policy=risk_free_policy,
+                risk_free_daily=risk_free_daily,
             )
         )
         if model_weights is not None:
@@ -333,6 +412,7 @@ def _league_row(
     *,
     risk_free_rate_annual: float,
     risk_free_policy: str,
+    risk_free_daily: pd.Series | None,
 ) -> dict[str, object]:
     if weights is None:
         return {
@@ -353,6 +433,8 @@ def _league_row(
             "uses_market_cap_prior": model == "Black-Litterman",
             "metric_status": "not_executable",
             "metric_observations": 0,
+            "metric_start_date": "unavailable",
+            "metric_end_date": "unavailable",
             "risk_free_rate_annual": float(risk_free_rate_annual),
             "risk_free_policy": str(risk_free_policy),
             "configured_max_weight": float(max_weight),
@@ -365,6 +447,7 @@ def _league_row(
     metrics = evaluate_return_series(
         portfolio_returns,
         risk_free_rate_annual=risk_free_rate_annual,
+        risk_free_daily=risk_free_daily,
     )
     weight_sum = float(aligned.sum())
     negative = int((aligned < -1e-10).sum())
@@ -415,6 +498,8 @@ def _league_row(
         "risk_free_policy": str(risk_free_policy),
         "metric_status": metrics["metric_status"],
         "metric_observations": metrics["observations"],
+        "metric_start_date": portfolio_returns.index.min(),
+        "metric_end_date": portfolio_returns.index.max(),
         "turnover": np.nan,
         "transaction_cost_assumption": (
             "not applied to full-sample diagnostic metrics; configured costs "
@@ -435,6 +520,7 @@ def _random_portfolio_row(
     n_portfolios: int = 500,
     risk_free_rate_annual: float = 0.0,
     risk_free_policy: str = "zero_rate_labeled_research_assumption",
+    risk_free_daily: pd.Series | None = None,
 ) -> dict[str, object]:
     rng = np.random.default_rng(random_state)
     rows = []
@@ -445,6 +531,7 @@ def _random_portfolio_row(
             evaluate_return_series(
                 portfolio_return_series(returns, weights),
                 risk_free_rate_annual=risk_free_rate_annual,
+                risk_free_daily=risk_free_daily,
             )
         )
     frame = pd.DataFrame(rows)
@@ -482,6 +569,8 @@ def _random_portfolio_row(
             else "insufficient_data"
         ),
         "metric_observations": float(frame["observations"].median()),
+        "metric_start_date": returns.index.min(),
+        "metric_end_date": returns.index.max(),
         "turnover": np.nan,
         "transaction_cost_assumption": (
             "not applied to full-sample diagnostic benchmark distribution"

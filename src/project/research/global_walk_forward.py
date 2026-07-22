@@ -18,9 +18,13 @@ from project.data_pipeline.security_identity import (
 from project.research.global_numerical_integrity import portfolio_return_series
 from project.research.global_portfolio_league import build_portfolio_league
 from project.research.global_portfolio_risk import evaluate_return_series
-from project.research.global_return_forecasting import build_return_forecasts
 from project.research.global_stock_scoring import build_global_stock_scores
 from project.research.global_stock_selection import apply_max_weight_cap
+from project.research.global_portfolio_core import (
+    CanonicalPortfolioPolicy,
+    sample_constraint_feasible_weights,
+    select_canonical_securities,
+)
 
 
 class WalkForwardResult(TypedDict):
@@ -63,6 +67,9 @@ def run_public_data_walk_forward(
     uncertainty_bootstrap_samples: int = 500,
     uncertainty_block_length: int = 21,
     uncertainty_confidence_level: float = 0.95,
+    security_metadata: pd.DataFrame | None = None,
+    constraint_policy: CanonicalPortfolioPolicy | None = None,
+    risk_free_daily: pd.Series | None = None,
 ) -> WalkForwardResult:
     """Run current-universe public-data walk-forward research validation."""
     clean = _clean_returns(returns)
@@ -140,11 +147,22 @@ def run_public_data_walk_forward(
             feature_history_eligibility=feature_eligibility,
             minimum_standard_observations=minimum_standard_observations,
         )
-        selected_for_fold = (
-            scores.loc[scores["selection_flag"].map(_truthy), "ticker"]
-            .astype(str)
-            .tolist()
-        )
+        if security_metadata is not None and constraint_policy is not None:
+            fold_selected, _ = select_canonical_securities(
+                scores,
+                security_metadata,
+                constraint_policy,
+            )
+            selected_for_fold = fold_selected["ticker"].astype(str).tolist()
+            scores["selection_flag"] = (
+                scores["ticker"].astype(str).isin(selected_for_fold)
+            )
+        else:
+            selected_for_fold = (
+                scores.loc[scores["selection_flag"].map(_truthy), "ticker"]
+                .astype(str)
+                .tolist()
+            )
         selected_for_fold = [
             ticker for ticker in selected_for_fold if ticker in train.columns
         ][:max_assets]
@@ -182,25 +200,30 @@ def run_public_data_walk_forward(
             )
         )
         train_subset = train[selected_for_fold]
-        universe_subset = universe.loc[
-            universe["ticker"].astype(str).isin(selected_for_fold)
+        metadata_source = (
+            security_metadata if security_metadata is not None else universe
+        )
+        universe_subset = metadata_source.loc[
+            metadata_source["ticker"].astype(str).isin(selected_for_fold)
         ].copy()
         scores = scores.loc[scores["ticker"].astype(str).isin(selected_for_fold)].copy()
-        forecasts = build_return_forecasts(
-            train_subset,
-            as_of_date=as_of_date,
-            horizons={"12M": 252},
-        )
         league, weights, status = build_portfolio_league(
             train_subset,
             scores,
-            forecasts,
+            None,
             universe_subset,
             max_assets=max_assets,
             max_weight=max_weight,
             random_state=random_state + fold,
             risk_free_rate_annual=risk_free_rate_annual,
             risk_free_policy=risk_free_policy,
+            risk_free_daily=(
+                risk_free_daily.reindex(train_subset.index)
+                if risk_free_daily is not None
+                else None
+            ),
+            constraint_policy=constraint_policy,
+            primary_only=True,
         )
         _append_random_oos_fold(
             test,
@@ -215,11 +238,11 @@ def run_public_data_walk_forward(
             return_frames=random_return_frames,
             turnover_rows=random_turnover_rows,
             weight_rows=random_weight_rows,
+            security_metadata=universe_subset,
+            constraint_policy=constraint_policy,
         )
         run_models = status.loc[
-            status["actual_status"].isin(
-                ["actually_run", "benchmark_only", "diagnostic_only"]
-            ),
+            status["actual_status"].isin(["actually_run", "benchmark_only"]),
             "model_name",
         ].astype(str)
         for model in run_models:
@@ -265,6 +288,11 @@ def run_public_data_walk_forward(
                     **evaluate_return_series(
                         net_returns,
                         risk_free_rate_annual=risk_free_rate_annual,
+                        risk_free_daily=(
+                            risk_free_daily.reindex(net_returns.index)
+                            if risk_free_daily is not None
+                            else None
+                        ),
                     ),
                     "limitation": "current-universe public-data walk-forward, not institutional PIT backtest",
                 }
@@ -315,6 +343,7 @@ def run_public_data_walk_forward(
         validation,
         returns_long,
         expected_dates=clean.index,
+        risk_free_daily=risk_free_daily,
     )
     uncertainty = _paired_block_bootstrap_uncertainty(
         returns_long,
@@ -323,6 +352,7 @@ def run_public_data_walk_forward(
         block_length=uncertainty_block_length,
         confidence_level=uncertainty_confidence_level,
         random_state=random_state,
+        risk_free_daily=risk_free_daily,
     )
     if not comparison.empty and not uncertainty.empty:
         comparison = comparison.merge(
@@ -341,6 +371,7 @@ def run_public_data_walk_forward(
         random_returns_long,
         pd.DataFrame(random_turnover_rows),
         risk_free_rate_annual=risk_free_rate_annual,
+        risk_free_daily=risk_free_daily,
     )
     random_provenance = _build_random_benchmark_provenance(
         model_returns=returns_long,
@@ -436,6 +467,72 @@ def write_walk_forward_outputs(
         json.dumps(result["summary"], indent=2, default=str),
         encoding="utf-8",
     )
+
+
+def build_transaction_cost_sensitivity(
+    returns_long: pd.DataFrame,
+    turnover: pd.DataFrame,
+    *,
+    primary_cost_bps: float,
+    cost_scenarios_bps: list[float],
+    risk_free_daily: pd.Series,
+) -> pd.DataFrame:
+    """Reprice the stitched OOS path under alternative rebalance costs."""
+    if returns_long.empty or turnover.empty:
+        return pd.DataFrame()
+    frame = returns_long.copy()
+    frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
+    frame["return"] = pd.to_numeric(frame["return"], errors="coerce")
+    costs = turnover[["fold", "model_name", "turnover"]].copy()
+    costs["turnover"] = pd.to_numeric(costs["turnover"], errors="coerce")
+    if frame[["Date", "return"]].isna().any().any() or costs["turnover"].isna().any():
+        raise ValueError("Cost sensitivity requires complete OOS returns and turnover.")
+    first_dates = (
+        frame.groupby(["fold", "model_name"])["Date"]
+        .min()
+        .rename("first_test_date")
+        .reset_index()
+    )
+    frame = frame.merge(first_dates, on=["fold", "model_name"], validate="many_to_one")
+    frame = frame.merge(costs, on=["fold", "model_name"], validate="many_to_one")
+    first = frame["Date"].eq(frame["first_test_date"]).astype(float)
+    gross = (
+        frame["return"] + first * frame["turnover"] * float(primary_cost_bps) / 10000.0
+    )
+    rows: list[dict[str, object]] = []
+    for cost_bps in cost_scenarios_bps:
+        scenario = frame.copy()
+        scenario["scenario_return"] = (
+            gross - first * frame["turnover"] * float(cost_bps) / 10000.0
+        )
+        for model, group in scenario.groupby("model_name", sort=True):
+            series = group.sort_values("Date").set_index("Date")["scenario_return"]
+            metrics = evaluate_return_series(
+                series,
+                risk_free_daily=risk_free_daily.reindex(series.index),
+            )
+            rows.append(
+                {
+                    "model_name": str(model),
+                    "transaction_cost_bps": float(cost_bps),
+                    "oos_observations": _integer(metrics["observations"]),
+                    "cagr": _number(metrics["cagr"]),
+                    "annualized_return": _number(metrics["annualized_return"]),
+                    "volatility": _number(metrics["annualized_volatility"]),
+                    "sharpe": _number(metrics["sharpe"]),
+                    "sortino": _number(metrics["sortino"]),
+                    "max_drawdown": _number(metrics["max_drawdown"]),
+                    "var_95": _number(metrics["var_95"]),
+                    "cvar_95": _number(metrics["cvar_95"]),
+                    "average_turnover": float(
+                        costs.loc[
+                            costs["model_name"].astype(str).eq(str(model)), "turnover"
+                        ].mean()
+                    ),
+                    "metric_method": "stitched_non_overlapping_net_oos_daily_returns",
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 def _weights_for_model(weights: pd.DataFrame, model: str) -> pd.Series:
@@ -542,19 +639,35 @@ def _append_random_oos_fold(
     return_frames: list[pd.DataFrame],
     turnover_rows: list[dict[str, object]],
     weight_rows: list[dict[str, object]],
+    security_metadata: pd.DataFrame | None = None,
+    constraint_policy: CanonicalPortfolioPolicy | None = None,
 ) -> None:
     if portfolio_count <= 0 or not selected_tickers:
         return
     if float(max_weight) * len(selected_tickers) < 1.0 - 1e-12:
         return
     rng = np.random.default_rng(int(random_state) + 100_000 + int(fold))
+    metadata_for_sampling = (
+        security_metadata.loc[
+            security_metadata["ticker"].astype(str).isin(selected_tickers)
+        ].copy()
+        if security_metadata is not None
+        else pd.DataFrame()
+    )
     for portfolio_id in range(int(portfolio_count)):
-        raw = pd.Series(
-            rng.random(len(selected_tickers)),
-            index=selected_tickers,
-            dtype=float,
-        )
-        target = apply_max_weight_cap(raw, max_weight)
+        if constraint_policy is not None and security_metadata is not None:
+            target = sample_constraint_feasible_weights(
+                metadata_for_sampling,
+                constraint_policy,
+                rng,
+            )
+        else:
+            raw = pd.Series(
+                rng.random(len(selected_tickers)),
+                index=selected_tickers,
+                dtype=float,
+            )
+            target = apply_max_weight_cap(raw, max_weight)
         aligned = target.astype(float)
         gross_returns = portfolio_return_series(test, aligned)
         if gross_returns.empty:
@@ -611,6 +724,7 @@ def _random_oos_distribution(
     turnover: pd.DataFrame,
     *,
     risk_free_rate_annual: float,
+    risk_free_daily: pd.Series | None = None,
 ) -> pd.DataFrame:
     if returns_long.empty:
         return pd.DataFrame()
@@ -635,6 +749,11 @@ def _random_oos_distribution(
         metrics = evaluate_return_series(
             series,
             risk_free_rate_annual=risk_free_rate_annual,
+            risk_free_daily=(
+                risk_free_daily.reindex(series.index)
+                if risk_free_daily is not None
+                else None
+            ),
         )
         rows.append(
             {
@@ -849,6 +968,7 @@ def _paired_block_bootstrap_uncertainty(
     block_length: int,
     confidence_level: float,
     random_state: int,
+    risk_free_daily: pd.Series | None = None,
 ) -> pd.DataFrame:
     """Estimate paired OOS model-minus-EW uncertainty with circular blocks."""
     columns = [
@@ -889,9 +1009,15 @@ def _paired_block_bootstrap_uncertainty(
 
     rows: list[dict[str, object]] = []
     alpha = (1.0 - float(confidence_level)) / 2.0
-    daily_hurdle = (1.0 + float(risk_free_rate_annual)) ** (
-        1.0 / TRADING_DAYS_PER_YEAR
-    ) - 1.0
+    if risk_free_daily is None:
+        hurdle_series = pd.Series(
+            (1.0 + float(risk_free_rate_annual)) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0,
+            index=pivot.index,
+        )
+    else:
+        hurdle_series = pd.Series(risk_free_daily, dtype=float).reindex(pivot.index)
+        if hurdle_series.isna().any():
+            raise ValueError("Risk-free hurdle is incomplete for OOS bootstrap dates.")
     for model_number, model in enumerate(sorted(map(str, pivot.columns))):
         if model == "Equal Weight":
             rows.append(
@@ -925,6 +1051,7 @@ def _paired_block_bootstrap_uncertainty(
             continue
         model_returns = paired[model].to_numpy(dtype=float)
         benchmark_returns = paired["Equal Weight"].to_numpy(dtype=float)
+        paired_hurdle = hurdle_series.reindex(paired.index).to_numpy(dtype=float)
         rng = np.random.default_rng(int(random_state) + 200_000 + model_number * 1009)
         n_blocks = int(np.ceil(n_observations / int(block_length)))
         starts = rng.integers(
@@ -938,11 +1065,12 @@ def _paired_block_bootstrap_uncertainty(
         ).reshape(int(samples), -1)[:, :n_observations]
         model_samples = model_returns[indices]
         benchmark_samples = benchmark_returns[indices]
+        hurdle_samples = paired_hurdle[indices]
         annual_return_diff = (
             model_samples.mean(axis=1) - benchmark_samples.mean(axis=1)
         ) * TRADING_DAYS_PER_YEAR
-        model_sharpe = _bootstrap_sharpe(model_samples, daily_hurdle)
-        benchmark_sharpe = _bootstrap_sharpe(benchmark_samples, daily_hurdle)
+        model_sharpe = _bootstrap_sharpe(model_samples, hurdle_samples)
+        benchmark_sharpe = _bootstrap_sharpe(benchmark_samples, hurdle_samples)
         sharpe_diff = model_sharpe - benchmark_sharpe
         valid_sharpe = sharpe_diff[np.isfinite(sharpe_diff)]
         if valid_sharpe.size < max(30, int(samples) // 2):
@@ -984,10 +1112,8 @@ def _paired_block_bootstrap_uncertainty(
     return pd.DataFrame(rows).reindex(columns=columns)
 
 
-def _bootstrap_sharpe(samples: np.ndarray, daily_hurdle: float) -> np.ndarray:
-    annualized_excess = (samples - float(daily_hurdle)).mean(
-        axis=1
-    ) * TRADING_DAYS_PER_YEAR
+def _bootstrap_sharpe(samples: np.ndarray, daily_hurdle: np.ndarray) -> np.ndarray:
+    annualized_excess = (samples - daily_hurdle).mean(axis=1) * TRADING_DAYS_PER_YEAR
     volatility = samples.std(axis=1, ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR)
     return np.divide(
         annualized_excess,
@@ -1002,6 +1128,7 @@ def _comparison(
     returns_long: pd.DataFrame | None = None,
     *,
     expected_dates: pd.Index | None = None,
+    risk_free_daily: pd.Series | None = None,
 ) -> pd.DataFrame:
     if validation.empty:
         return pd.DataFrame()
@@ -1093,6 +1220,11 @@ def _comparison(
         metrics = evaluate_return_series(
             series,
             risk_free_rate_annual=risk_free_rate,
+            risk_free_daily=(
+                risk_free_daily.reindex(series.index)
+                if risk_free_daily is not None
+                else None
+            ),
         )
         metric_rows.append(
             {

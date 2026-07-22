@@ -1,14 +1,16 @@
 # QuantVerse
 
-QuantVerse is a Python public-data global equity selection, portfolio allocation,
-return-forecasting and risk-validation research platform.
+QuantVerse is a Python public-data equity selection, portfolio allocation,
+return-forecasting and risk-validation research platform. Its canonical current
+scope is **US-listed global-issuer equity research**; it does not claim broad
+global-exchange coverage from the present usable data.
 
 It is a research and decision-support project. It is not investment advice, a
 live trading system, or an institutional point-in-time backtest.
 
 ## What It Does
 
-- Builds and validates a sourced current global equity candidate universe.
+- Builds and validates a sourced current US-listed equity candidate universe.
 - Computes local and USD-normalized simple/log return matrices.
 - Scores stocks using coverage, market-cap liquidity proxy, momentum, volatility,
   drawdown, risk-adjusted return and diversification diagnostics.
@@ -21,12 +23,13 @@ live trading system, or an institutional point-in-time backtest.
   stress scenarios and risk contributions.
 - Runs current-universe public-data walk-forward validation with chronological
   train/test windows.
-- Generates PDF, HTML, Excel, thesis-style and showcase outputs.
+- Generates one decision-oriented PDF, one analytical Excel workbook and one
+  responsive HTML report for the canonical portfolio analysis.
 
 ## One-Command v2 Demo
 
 ```powershell
-python scripts/run_quantverse_v2_demo.py --config configs/global_quant_research.yaml
+python scripts/run_quantverse_v2_demo.py --config configs/global_equity_research.yaml
 ```
 
 Primary demo summary:
@@ -46,6 +49,26 @@ Summarize already generated local outputs:
 ```powershell
 python scripts/quantverse_latest_run_summary.py
 ```
+
+## Current Portfolio Decision
+
+The canonical policy selects 20 unique economic issuers. All primary models use
+the same holdings-count policy, chronological 504-day train / 21-day test
+walk-forward schedule, stitched net OOS dates, 10 bps primary transaction cost
+and time-aligned `^IRX` daily risk-free hurdle. The current evidence decision is:
+
+- Balanced research portfolio: **Equal Weight**.
+- Transparent benchmark: **Equal Weight** on the same selected issuers.
+- Defensive alternative: **GMV**, selected for the strongest observed OOS
+  drawdown and CVaR profile among valid positive-return alternatives.
+
+Equal Weight remains balanced because no active model has a paired block-bootstrap
+Sharpe-difference lower confidence bound above zero while also passing downside,
+cost, constraint and provenance gates. This is an evidence result, not an
+assumption that Equal Weight must win. The requested 5% issuer cap with exactly
+20 holdings mathematically forces 5% in every name, so active-model comparison
+uses a disclosed 10% operational cap while retaining all sector, industry,
+country and long-only constraints.
 
 ## Model League
 
@@ -75,6 +98,7 @@ Each row carries an `actual_status` such as `actually_run`, `benchmark_only`,
 - Stock scores: `data/processed/global_stock_scores.csv`
 - Return forecasts: `data/processed/global_stock_return_forecasts.csv`
 - Model league: `data/processed/global_portfolio_league.csv`
+- Published balanced/benchmark/defensive weights: `data/processed/global_current_portfolio_weights.csv`
 - Model weights: `data/processed/global_portfolio_league_weights.csv`
 - Robust model selection: `data/processed/global_model_selection_report.csv`
 - Final model decision: `data/processed/global_final_model_decision.json`
@@ -84,20 +108,19 @@ Each row carries an `actual_status` such as `actually_run`, `benchmark_only`,
 - Risk report: `data/processed/global_portfolio_risk_report.csv`
 - Walk-forward comparison: `data/processed/global_walk_forward_model_comparison.csv`
 - Walk-forward summary: `data/processed/global_walk_forward_summary.json`
-- v2 PDF: `output/pdf/quantverse_v2_research_report.pdf`
-- v2 HTML: `output/html/quantverse_v2_research_report.html`
-- v2 Excel: `output/excel/quantverse_v2_research_output.xlsx`
-- Full thesis PDF: `output/thesis/quantverse_doctoral_dissertation_full.pdf`
-- Full defense PDF: `output/thesis/quantverse_doctoral_defense_presentation_full.pdf`
+- Portfolio PDF: `output/pdf/quantverse_portfolio_analysis.pdf`
+- Portfolio HTML: `output/html/quantverse_portfolio_analysis.html`
+- Portfolio Excel: `output/excel/quantverse_portfolio_analysis.xlsx`
 
 Generated `data/processed/*` and `output/*` files are reproducible artifacts and
 are not source files.
 
 ## Current Status
 
-QuantVerse v2 is positioned as a public-data research engine. The system can
-score real public-provider stocks, build model weights, evaluate risk and run a
-current-universe walk-forward validation.
+QuantVerse v2 is positioned as a public-data research engine. The system scores
+real public-provider US-listed stocks, deduplicates share classes at economic-
+issuer level, publishes exact weights, evaluates risk and runs a current-universe
+walk-forward validation across all available non-overlapping folds.
 
 The project does not claim official exact top-100 membership, point-in-time
 historical constituent validity, institutional delisting reconciliation,

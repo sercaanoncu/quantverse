@@ -159,5 +159,6 @@ def test_v2_demo_rewrites_completed_summary_when_report_step_fails(
     assert written[0]["run_status"] == "completed"
     assert written[-1]["run_status"] == "failed"
     assert (
-        written[-1]["failed_step"] == "scripts/build_quantverse_v2_research_report.py"
+        written[-1]["failed_step"]
+        == "scripts/build_quantverse_portfolio_analysis.py --config unit.yaml"
     )

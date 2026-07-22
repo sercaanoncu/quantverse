@@ -17,6 +17,8 @@ from project.research.global_portfolio_league import (
     write_portfolio_league_outputs,
 )  # noqa: E402
 from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.global_portfolio_core import policy_from_mapping  # noqa: E402
+from project.research.risk_free import read_risk_free_series  # noqa: E402
 from project.research.run_identity import (  # noqa: E402
     read_run_manifest,
     register_artifacts,
@@ -32,26 +34,34 @@ def main() -> int:
     returns_path = output / "global_security_simple_returns_usd.csv"
     scores_path = output / "global_stock_scores.csv"
     forecasts_path = output / "global_stock_return_forecasts.csv"
-    universe_path = Path("data/universe/current_global_equity_universe.csv")
+    metadata_path = output / "global_current_selected_securities.csv"
+    risk_free_path = output / "global_risk_free_series.csv"
     if not returns_path.exists() or not scores_path.exists():
         print("Missing returns or scores; portfolio league not built.")
         return 0
+    if not metadata_path.exists() or not risk_free_path.exists():
+        raise RuntimeError(
+            "Canonical metadata and market risk-free evidence are required."
+        )
+    v2 = config.get("v2", {})
+    risk_free = read_risk_free_series(risk_free_path)
+    risk_free_daily = risk_free.set_index("Date")["daily_hurdle"]
     league, weights, status = build_portfolio_league(
         _read_returns(returns_path),
         pd.read_csv(scores_path),
         pd.read_csv(forecasts_path) if forecasts_path.exists() else None,
-        pd.read_csv(universe_path) if universe_path.exists() else None,
-        max_assets=int(config.get("v2", {}).get("max_selected_stocks", 40)),
-        max_weight=float(config.get("v2", {}).get("max_weight", 0.10)),
-        risk_free_rate_annual=float(
-            config.get("v2", {}).get("risk_free_rate_annual", 0.0)
-        ),
+        pd.read_csv(metadata_path),
+        max_assets=int(v2.get("target_holdings", 20)),
+        max_weight=float(v2.get("max_weight", 0.10)),
+        risk_free_rate_annual=float(risk_free["annual_rate"].mean()),
         risk_free_policy=str(
-            config.get("v2", {}).get(
+            v2.get(
                 "risk_free_policy",
-                "zero_rate_labeled_research_assumption",
+                "time_aligned_market_proxy_compounded_daily_hurdle",
             )
         ),
+        risk_free_daily=risk_free_daily,
+        constraint_policy=policy_from_mapping(v2),
     )
     run_metadata = read_run_manifest(output)
     league = attach_run_metadata(league, run_metadata)

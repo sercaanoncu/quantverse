@@ -46,7 +46,7 @@ def main() -> int:
         metadata=universe,
         random_portfolios=int(config.get("robustness_random_portfolios", 150)),
         max_scenarios=int(config.get("robustness_max_scenarios", 48)),
-        risk_free_rate_annual=float(config.get("risk_free_rate_annual", 0.0)),
+        risk_free_rate_annual=_diagnostic_annual_risk_free(config, returns.index),
         risk_free_policy=str(
             config.get(
                 "risk_free_policy",
@@ -98,6 +98,27 @@ def _read_returns(path: Path) -> pd.DataFrame:
         frame = frame.set_index(first)
     frame.index = pd.to_datetime(frame.index, errors="coerce")
     return frame
+
+
+def _diagnostic_annual_risk_free(
+    config: dict[str, object],
+    dates: pd.Index,
+) -> float:
+    """Use the dated market-RF evidence when the scalar legacy input is disabled."""
+    configured = config.get("risk_free_rate_annual")
+    if configured is not None:
+        return float(configured)
+    evidence = _read_csv(PROCESSED / "global_risk_free_series.csv")
+    if evidence.empty or not {"Date", "annual_rate"}.issubset(evidence.columns):
+        raise RuntimeError("Robustness diagnostics require market risk-free evidence.")
+    evidence["Date"] = pd.to_datetime(evidence["Date"], errors="coerce")
+    annual = evidence.set_index("Date")["annual_rate"].astype(float)
+    aligned = annual.reindex(pd.DatetimeIndex(dates))
+    if aligned.isna().any():
+        raise RuntimeError(
+            "Robustness diagnostics cannot align the market risk-free evidence."
+        )
+    return float(aligned.mean())
 
 
 if __name__ == "__main__":
