@@ -49,7 +49,7 @@ class ClusteringRegimeDetector:
 
         # Drawdown level
         cum = (1 + port_returns).cumprod()
-        f["drawdown"] = cum / cum.cummax() - 1
+        f["drawdown"] = cum / cum.cummax().clip(lower=1.0) - 1
 
         # Average cross-asset correlation (market stress indicator)
         rolling_corr = self.returns.rolling(window).corr()

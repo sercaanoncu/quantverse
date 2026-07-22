@@ -641,7 +641,7 @@ def _portfolio_sanity(processed: Path) -> list[dict[str, Any]]:
                         True,
                     )
                 )
-            if numeric.isna().any() or np.isinf(numeric.fillna(0.0).to_numpy()).any():
+            if numeric.isna().any() or np.isinf(numeric.to_numpy(dtype=float)).any():
                 issues.append(
                     _issue(
                         "critical",
@@ -1075,7 +1075,9 @@ def _num(value: Any) -> float:
 
 
 def _effective_holdings(weights: pd.Series) -> float:
-    numeric = pd.to_numeric(weights, errors="coerce").fillna(0.0)
+    numeric = pd.to_numeric(weights, errors="coerce")
+    if numeric.isna().any() or not np.isfinite(numeric.to_numpy(dtype=float)).all():
+        return float("nan")
     denom = float((numeric**2).sum())
     return float(1.0 / denom) if denom > 0 else 0.0
 

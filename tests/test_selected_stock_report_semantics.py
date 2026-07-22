@@ -167,14 +167,10 @@ def _write_semantic_validator_fixture(root: Path, *, semantic: bool) -> None:
         quality = build_selected_stock_report_view_quality(view)
         table = view
         headers = [
-            "ticker",
-            "selection_rank",
-            "composite_quant_score",
-            "listing_country",
-            "issuer_country",
-            "economic_country",
-            "listing_currency",
-            "metadata_confidence",
+            "Ticker",
+            "Listing Country",
+            "Issuer Country",
+            "Economic Country",
         ]
     else:
         view = pd.DataFrame(
@@ -191,7 +187,7 @@ def _write_semantic_validator_fixture(root: Path, *, semantic: bool) -> None:
             }
         )
         table = view
-        headers = ["ticker", "country", "currency"]
+        headers = ["Ticker", "Country", "Currency"]
     view.to_csv(processed / "global_selected_stocks_report_view.csv", index=False)
     quality.to_csv(
         processed / "global_selected_stocks_report_view_quality.csv", index=False
@@ -205,20 +201,20 @@ def _write_semantic_validator_fixture(root: Path, *, semantic: bool) -> None:
         "venue, trading currency or issuer domicile."
     )
     html = (
-        "<h2>Stock Scoring Methodology</h2>"
+        '<h2 id="portfolio">Portfolio holdings</h2>'
         + disclosure
         + table.to_html(index=False, table_id="selected-stock-semantic-view")
-        + "<h2>Expected Return Forecasts</h2>"
+        + "<h2>Visual Portfolio Analytics</h2>"
     )
     (html_dir / "quantverse_v2_research_report.html").write_text(html, encoding="utf-8")
 
-    pdf_path = pdf_dir / "quantverse_v2_research_report.pdf"
+    pdf_path = pdf_dir / "quantverse_v2_executive_research_report.pdf"
     pdf = canvas.Canvas(str(pdf_path))
     lines = [
-        "Stock Scoring Methodology",
+        "2. Portfolio Holdings and Concentration",
         disclosure,
         *headers,
-        "Expected Return Forecasts",
+        "3. Out-of-Sample Path Evidence",
     ]
     for index, line in enumerate(lines):
         pdf.drawString(40, 780 - index * 18, line)

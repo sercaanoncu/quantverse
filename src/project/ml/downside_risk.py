@@ -266,7 +266,8 @@ def _build_dataset(
     returns = returns.sort_index().dropna(how="all")
     portfolio_returns = returns.mean(axis=1).dropna()
     cumulative = (1 + portfolio_returns).cumprod()
-    drawdown = cumulative / cumulative.cummax() - 1
+    running_peak = cumulative.cummax().clip(lower=1.0)
+    drawdown = cumulative / running_peak - 1
 
     features = pd.DataFrame(index=portfolio_returns.index)
     features["ret_1d"] = portfolio_returns
@@ -281,7 +282,7 @@ def _build_dataset(
     )
 
     if market_signals is not None and not market_signals.empty:
-        signals = market_signals.sort_index().reindex(features.index).ffill()
+        signals = market_signals.sort_index().reindex(features.index).ffill(limit=5)
         for col in signals.columns:
             safe_col = col.replace("^", "").replace("-", "_").replace(".", "_")
             features[f"signal_{safe_col}_level"] = signals[col]

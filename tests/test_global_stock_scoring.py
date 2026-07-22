@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
+import pytest
 
+import project.research.global_stock_scoring as stock_scoring
 from project.research.global_stock_scoring import (
     SCORE_COLUMNS,
     build_global_stock_scores,
@@ -92,3 +94,33 @@ def test_stock_scoring_respects_as_of_date_and_does_not_use_future_returns():
         baseline.set_index("ticker")["composite_quant_score"].sort_index(),
         after_future_appended.set_index("ticker")["composite_quant_score"].sort_index(),
     )
+
+
+def test_missing_correlation_evidence_receives_no_diversification_credit(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        stock_scoring,
+        "_correlation_diversification_scores",
+        lambda returns: pd.Series(dtype=float),
+    )
+
+    scores = build_global_stock_scores(_returns(), _universe(), max_selected=3)
+
+    assert scores["correlation_diversification_score"].eq(0.0).all()
+
+
+def test_partial_correlation_evidence_cannot_receive_full_diversification_credit():
+    matrix = pd.DataFrame(
+        {
+            "A": [-1.0, 0.0, 1.0, np.nan, np.nan, np.nan],
+            "B": [1.0, -2.0, 1.0, np.nan, np.nan, np.nan],
+            "C": [np.nan, np.nan, np.nan, -1.0, 0.0, 1.0],
+        }
+    )
+
+    scores = stock_scoring._correlation_diversification_scores(matrix)
+
+    assert scores["A"] == pytest.approx(0.5)
+    assert scores["B"] == pytest.approx(0.5)
+    assert scores["C"] == pytest.approx(0.0)

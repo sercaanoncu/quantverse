@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from project.data_pipeline.global_returns import normalize_returns_to_base
 from project.data_pipeline.security_universe import REQUIRED_UNIVERSE_COLUMNS
@@ -118,6 +119,24 @@ def test_calendar_mismatch_is_reported_without_long_silent_fill():
     row = report.loc[report["ticker"].eq("GBP_ASSET")].iloc[0]
     assert row["fx_normalization_status"] == "fx_normalized"
     assert int(row["fx_missing_dates"]) > 0
+
+
+@pytest.mark.parametrize("invalid_limit", [-1, True, 1.5, "2", None])
+def test_fx_forward_fill_limit_rejects_invalid_dynamic_values(invalid_limit):
+    dates = pd.date_range("2024-01-01", periods=2)
+    local = pd.DataFrame({"EUR_ASSET": [np.nan, 0.10]}, index=dates)
+    universe = _universe([{"ticker": "EUR_ASSET", "currency": "EUR"}])
+
+    with pytest.raises(
+        ValueError,
+        match="max_forward_fill_days must be a nonnegative integer",
+    ):
+        normalize_returns_to_base(
+            local,
+            universe,
+            pd.DataFrame(),
+            max_forward_fill_days=invalid_limit,
+        )
 
 
 def test_signal_only_assets_do_not_require_investable_fx_treatment():

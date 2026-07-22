@@ -14,8 +14,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from project.research.global_numerical_integrity import portfolio_return_series
-
 VISUAL_ANALYTICS_FILES = {
     "summary": "quantverse_v2_visual_analytics_summary.csv",
     "equity_curve": "quantverse_v2_visual_equity_curve.csv",
@@ -52,10 +50,10 @@ def build_visual_analytics_outputs(
     decision = _read_json(processed / "global_final_model_decision.json")
     summary_json = _read_json(processed / "quantverse_v2_demo_summary.json")
     final_model = _resolve_final_model(decision, summary_json)
-    returns = _read_returns(processed / "global_security_simple_returns_usd.csv")
     weights = _read_csv(processed / "global_portfolio_league_weights.csv")
     risk = _read_csv(processed / "global_portfolio_risk_report.csv")
     walk = _read_csv(processed / "global_walk_forward_model_comparison.csv")
+    walk_returns = _read_csv(processed / "global_walk_forward_returns.csv")
     random_distribution = _read_csv(
         processed / "global_random_portfolio_distribution.csv"
     )
@@ -69,7 +67,7 @@ def build_visual_analytics_outputs(
         raise ValueError(
             f"No portfolio weights were available for final model {final_model!r}."
         )
-    final_returns = portfolio_return_series(returns, final_weights)
+    final_returns = _walk_forward_model_returns(walk_returns, final_model)
 
     equity_curve = build_equity_curve(final_returns, final_model=final_model)
     drawdown_curve = build_drawdown_curve(equity_curve, final_model=final_model)
@@ -129,12 +127,13 @@ def build_visual_analytics_outputs(
 def _resolve_final_model(
     decision: dict[str, object], summary: dict[str, object]
 ) -> str:
-    for payload in (decision, summary):
-        value = str(payload.get("final_selected_model", "")).strip()
-        if value and value.lower() not in {"nan", "none", "not_available"}:
-            return value
+    del summary
+    value = str(decision.get("final_selected_model", "")).strip()
+    if value and value.lower() not in {"nan", "none", "not_available"}:
+        return value
     raise ValueError(
-        "Visual analytics require an explicit, available final-model decision."
+        "Visual analytics require an explicit, available final-model decision "
+        "artifact; a demo-summary fallback is not accepted."
     )
 
 
@@ -143,33 +142,57 @@ def build_equity_curve(
     *,
     final_model: str,
 ) -> pd.DataFrame:
-    """Build a final-model equity curve starting at 1.0."""
-    clean = pd.Series(returns, dtype=float).replace([np.inf, -np.inf], np.nan).dropna()
+    """Build an OOS final-model equity curve with an explicit 1.0 baseline."""
+    clean = pd.Series(returns, dtype=float).copy()
     if clean.empty:
         frame = pd.DataFrame(
-            columns=["date", "model_name", "daily_return", "equity_curve"]
+            columns=[
+                "date",
+                "model_name",
+                "daily_return",
+                "equity_curve",
+                "is_baseline",
+            ]
         )
     else:
+        values = clean.to_numpy(dtype=float)
+        if not np.isfinite(values).all():
+            raise ValueError("OOS equity-curve returns must be complete and finite.")
+        if bool((values < -1.0 - 1e-12).any()):
+            raise ValueError("A daily simple return below -100% is invalid.")
+        dates = pd.to_datetime(clean.index, errors="coerce")
+        if dates.isna().any() or dates.duplicated().any():
+            raise ValueError("OOS equity-curve dates must be valid and unique.")
+        clean.index = dates
+        clean = clean.sort_index()
         wealth = (1.0 + clean).cumprod()
-        wealth = wealth / float(wealth.iloc[0])
+        baseline_date = clean.index[0] - pd.offsets.BDay(1)
         frame = pd.DataFrame(
             {
-                "date": clean.index,
+                "date": pd.DatetimeIndex([baseline_date]).append(clean.index),
                 "model_name": final_model,
-                "daily_return": clean.to_numpy(dtype=float),
-                "equity_curve": wealth.to_numpy(dtype=float),
+                "daily_return": np.concatenate(
+                    [np.array([0.0]), clean.to_numpy(dtype=float)]
+                ),
+                "equity_curve": np.concatenate(
+                    [np.array([1.0]), wealth.to_numpy(dtype=float)]
+                ),
+                "is_baseline": np.concatenate(
+                    [np.array([True]), np.zeros(len(clean), dtype=bool)]
+                ),
             }
         )
-    return _with_metadata(
+    result = _with_metadata(
         frame,
-        formula_method="equity_curve_t = prod(1 + daily_simple_return) normalized so first point equals 1.0",
+        formula_method="equity_curve_0 = 1; equity_curve_t = prod_{i=1..t}(1 + stitched_walk_forward_net_simple_return_i)",
         source_basis="Portfolio theory and financial statistics: simple returns compound through cumulative wealth.",
-        why_valid="A one-period simple-return portfolio aggregates linearly by weights and compounds multiplicatively through time.",
-        limitation="Current-universe public data; not point-in-time institutional performance.",
-        invalidation_condition="Invalid if first equity_curve is not 1.0, returns are missing, or returns are not daily simple returns.",
+        why_valid="The plotted path uses the selected model's non-overlapping, transaction-cost-adjusted walk-forward OOS daily returns and preserves every return after an explicit 1.0 baseline.",
+        limitation="Current-universe public-data OOS evidence; not point-in-time institutional performance.",
+        invalidation_condition="Invalid if the source is not the selected model's stitched OOS net path, first equity_curve is not 1.0, any return is omitted, or dates overlap.",
         tested_by="tests/test_visual_analytics_outputs.py::test_equity_curve_starts_at_one_and_drawdown_non_positive",
-        output_status="diagnostic",
+        output_status="walk_forward_oos_net",
     )
+    return _attach_path_scope(result, clean)
 
 
 def build_drawdown_curve(
@@ -192,16 +215,17 @@ def build_drawdown_curve(
                 "drawdown": drawdown.clip(upper=0.0),
             }
         )
-    return _with_metadata(
+    result = _with_metadata(
         frame,
         formula_method="drawdown_t = equity_curve_t / running_max(equity_curve)_t - 1",
         source_basis="Portfolio risk management: drawdown measures peak-to-trough loss.",
-        why_valid="Drawdown is non-positive by construction and directly measures capital path risk.",
-        limitation="Historical drawdown does not prove future crisis behavior.",
-        invalidation_condition="Invalid if any drawdown is positive or equity curve is not a cumulative wealth series.",
+        why_valid="Drawdown is recomputed from the same selected-model stitched OOS net wealth path and is non-positive by construction.",
+        limitation="Current-universe historical OOS drawdown does not prove future crisis behavior.",
+        invalidation_condition="Invalid if any drawdown is positive, the equity source is not walk-forward OOS net, or the curve omits an OOS return.",
         tested_by="tests/test_visual_analytics_outputs.py::test_equity_curve_starts_at_one_and_drawdown_non_positive",
-        output_status="diagnostic",
+        output_status="walk_forward_oos_net",
     )
+    return _inherit_path_scope(result, equity_curve)
 
 
 def build_model_risk_return_chart(
@@ -513,9 +537,28 @@ def validate_visual_analytics_frames(
             "Equity curve must be normalized to 1.0 at the first plotted observation.",
         ),
         _check(
+            "equity_curve_uses_walk_forward_oos_net_scope",
+            _single_scope_is_walk_forward_oos_net(frames["equity_curve"]),
+            "Equity curve must be labelled as the selected model's stitched walk-forward OOS net path.",
+        ),
+        _check(
+            "equity_curve_compounds_every_oos_return",
+            _equity_curve_compounds_every_return(frames["equity_curve"]),
+            "An explicit 1.0 baseline must precede the compounded path and no OOS return may be normalized away.",
+        ),
+        _check(
             "drawdown_non_positive",
             _all_leq(frames["drawdown_curve"], "drawdown", 0.0),
             "Drawdown must be <= 0 because it is wealth/running peak - 1.",
+        ),
+        _check(
+            "drawdown_matches_equity_curve",
+            _drawdown_matches_equity_curve(
+                frames["equity_curve"],
+                frames["drawdown_curve"],
+                tolerance=tolerance,
+            ),
+            "Drawdown must be recomputable from the published OOS equity curve.",
         ),
         _check(
             "risk_return_axes_correct",
@@ -524,7 +567,7 @@ def validate_visual_analytics_frames(
         ),
         _check(
             "forecast_compares_random_walk",
-            {"model_mae", "random_walk_mae"}.issubset(frames["forecast_error"].columns),
+            _forecast_comparison_is_finite(frames["forecast_error"]),
             "Forecast chart must compare model error with random-walk error.",
         ),
         _check(
@@ -597,6 +640,19 @@ def validate_visual_analytics_outputs(
         "top_holdings": _read_csv(processed / VISUAL_ANALYTICS_FILES["top_holdings"]),
     }
     validation = validate_visual_analytics_frames(frames)
+    validation = pd.concat(
+        [
+            validation,
+            pd.DataFrame(
+                _validate_published_oos_path(
+                    processed,
+                    frames["equity_curve"],
+                    frames["drawdown_curve"],
+                )
+            ),
+        ],
+        ignore_index=True,
+    )
     missing_files = [
         filename
         for filename in VISUAL_ANALYTICS_FILES.values()
@@ -663,15 +719,70 @@ def _weights_for_model(weights: pd.DataFrame, model: str) -> pd.Series:
     return series
 
 
-def _read_returns(path: Path) -> pd.DataFrame:
-    if not path.exists():
-        return pd.DataFrame()
-    frame = pd.read_csv(path)
-    first = str(frame.columns[0]).lower() if len(frame.columns) else ""
-    if first in {"date", "datetime", "timestamp"}:
-        frame = frame.set_index(frame.columns[0])
-    frame.index = pd.to_datetime(frame.index, errors="coerce")
-    return frame.loc[frame.index.notna()]
+def _walk_forward_model_returns(
+    walk_returns: pd.DataFrame,
+    final_model: str,
+) -> pd.Series:
+    required = {"Date", "model_name", "return"}
+    if walk_returns.empty or not required.issubset(walk_returns.columns):
+        raise ValueError(
+            "Visual analytics require the raw stitched walk-forward return path."
+        )
+    selected = walk_returns.loc[
+        walk_returns["model_name"].astype(str).eq(str(final_model)),
+        ["Date", "return"],
+    ].copy()
+    if selected.empty:
+        raise ValueError(
+            f"No stitched walk-forward returns were available for {final_model!r}."
+        )
+    selected["Date"] = pd.to_datetime(selected["Date"], errors="coerce")
+    selected["return"] = pd.to_numeric(selected["return"], errors="coerce")
+    values = selected["return"].to_numpy(dtype=float)
+    if selected["Date"].isna().any() or not np.isfinite(values).all():
+        raise ValueError("Stitched walk-forward dates and returns must be finite.")
+    if selected["Date"].duplicated().any():
+        raise ValueError(
+            "Stitched walk-forward returns contain overlapping model-date rows."
+        )
+    selected = selected.sort_values("Date", kind="stable")
+    return pd.Series(
+        selected["return"].to_numpy(dtype=float),
+        index=pd.DatetimeIndex(selected["Date"]),
+        name=final_model,
+        dtype=float,
+    )
+
+
+def _attach_path_scope(frame: pd.DataFrame, returns: pd.Series) -> pd.DataFrame:
+    result = frame.copy()
+    result["evidence_scope"] = "walk_forward_oos_net"
+    result["source_observations"] = int(len(returns))
+    result["source_start_date"] = (
+        pd.Timestamp(returns.index.min()).date().isoformat()
+        if not returns.empty
+        else ""
+    )
+    result["source_end_date"] = (
+        pd.Timestamp(returns.index.max()).date().isoformat()
+        if not returns.empty
+        else ""
+    )
+    return result
+
+
+def _inherit_path_scope(frame: pd.DataFrame, source: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    for column in [
+        "evidence_scope",
+        "source_observations",
+        "source_start_date",
+        "source_end_date",
+    ]:
+        result[column] = (
+            source[column].iloc[0] if column in source and not source.empty else ""
+        )
+    return result
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
@@ -730,32 +841,203 @@ def _first_value(frame: pd.DataFrame, column: str) -> float | None:
 def _all_leq(frame: pd.DataFrame, column: str, value: float) -> bool:
     if frame.empty or column not in frame:
         return False
-    series = pd.to_numeric(frame[column], errors="coerce").dropna()
-    return bool(not series.empty and (series <= value + 1e-12).all())
+    series = pd.to_numeric(frame[column], errors="coerce")
+    finite = np.isfinite(series.to_numpy(dtype=float))
+    return bool(finite.all() and (series <= value + 1e-12).all())
 
 
 def _all_geq(frame: pd.DataFrame, column: str, value: float) -> bool:
     if frame.empty or column not in frame:
         return False
-    series = pd.to_numeric(frame[column], errors="coerce").dropna()
-    return bool(not series.empty and (series >= value - 1e-12).all())
+    series = pd.to_numeric(frame[column], errors="coerce")
+    finite = np.isfinite(series.to_numpy(dtype=float))
+    return bool(finite.all() and (series >= value - 1e-12).all())
 
 
 def _any_true(frame: pd.DataFrame, column: str) -> bool:
     if frame.empty or column not in frame:
         return True
-    return bool(frame[column].map(lambda item: str(item).lower() == "true").any())
+    normalized = frame[column].astype(str).str.strip().str.lower()
+    if not normalized.isin({"true", "false"}).all():
+        return True
+    return bool(normalized.eq("true").any())
+
+
+def _forecast_comparison_is_finite(frame: pd.DataFrame) -> bool:
+    required = {"model_mae", "random_walk_mae"}
+    if frame.empty or not required.issubset(frame.columns):
+        return False
+    values = frame[list(required)].apply(pd.to_numeric, errors="coerce")
+    return bool(np.isfinite(values.to_numpy(dtype=float)).all())
 
 
 def _risk_return_axes_correct(frame: pd.DataFrame) -> bool:
     if frame.empty or not {"x_axis", "y_axis", "risk_x", "return_y"}.issubset(frame):
         return False
+    risk = pd.to_numeric(frame["risk_x"], errors="coerce")
+    returns = pd.to_numeric(frame["return_y"], errors="coerce")
     return bool(
         frame["x_axis"].astype(str).eq("annualized_volatility").all()
         and frame["y_axis"].astype(str).eq("annualized_return").all()
-        and pd.to_numeric(frame["risk_x"], errors="coerce").notna().any()
-        and pd.to_numeric(frame["return_y"], errors="coerce").notna().any()
+        and np.isfinite(risk.to_numpy(dtype=float)).all()
+        and np.isfinite(returns.to_numpy(dtype=float)).all()
     )
+
+
+def _single_scope_is_walk_forward_oos_net(frame: pd.DataFrame) -> bool:
+    if frame.empty or "evidence_scope" not in frame:
+        return False
+    return bool(frame["evidence_scope"].astype(str).eq("walk_forward_oos_net").all())
+
+
+def _equity_curve_compounds_every_return(frame: pd.DataFrame) -> bool:
+    required = {"date", "daily_return", "equity_curve", "is_baseline"}
+    if frame.empty or not required.issubset(frame.columns):
+        return False
+    dates = pd.to_datetime(frame["date"], errors="coerce")
+    daily = pd.to_numeric(frame["daily_return"], errors="coerce")
+    equity = pd.to_numeric(frame["equity_curve"], errors="coerce")
+    baseline = frame["is_baseline"].map(
+        lambda value: str(value).strip().lower() in {"1", "true", "yes"}
+    )
+    if (
+        dates.isna().any()
+        or dates.duplicated().any()
+        or not dates.is_monotonic_increasing
+        or not np.isfinite(daily.to_numpy(dtype=float)).all()
+        or not np.isfinite(equity.to_numpy(dtype=float)).all()
+        or int(baseline.sum()) != 1
+        or not bool(baseline.iloc[0])
+        or not np.isclose(float(daily.iloc[0]), 0.0, atol=1e-12)
+        or not np.isclose(float(equity.iloc[0]), 1.0, atol=1e-12)
+    ):
+        return False
+    returns = daily.loc[~baseline].to_numpy(dtype=float)
+    if bool((returns < -1.0 - 1e-12).any()):
+        return False
+    expected = np.concatenate([np.array([1.0]), np.cumprod(1.0 + returns)])
+    return bool(
+        len(expected) == len(equity)
+        and np.allclose(
+            equity.to_numpy(dtype=float),
+            expected,
+            atol=1e-12,
+            rtol=1e-10,
+        )
+    )
+
+
+def _drawdown_matches_equity_curve(
+    equity_curve: pd.DataFrame,
+    drawdown_curve: pd.DataFrame,
+    *,
+    tolerance: float,
+) -> bool:
+    required_equity = {"date", "equity_curve"}
+    required_drawdown = {"date", "drawdown"}
+    if (
+        equity_curve.empty
+        or drawdown_curve.empty
+        or not required_equity.issubset(equity_curve.columns)
+        or not required_drawdown.issubset(drawdown_curve.columns)
+        or len(equity_curve) != len(drawdown_curve)
+        or not _single_scope_is_walk_forward_oos_net(drawdown_curve)
+    ):
+        return False
+    equity_dates = pd.to_datetime(equity_curve["date"], errors="coerce")
+    drawdown_dates = pd.to_datetime(drawdown_curve["date"], errors="coerce")
+    wealth = pd.to_numeric(equity_curve["equity_curve"], errors="coerce")
+    observed = pd.to_numeric(drawdown_curve["drawdown"], errors="coerce")
+    if (
+        equity_dates.isna().any()
+        or drawdown_dates.isna().any()
+        or not equity_dates.reset_index(drop=True).equals(
+            drawdown_dates.reset_index(drop=True)
+        )
+        or not np.isfinite(wealth.to_numpy(dtype=float)).all()
+        or not np.isfinite(observed.to_numpy(dtype=float)).all()
+    ):
+        return False
+    expected = wealth / wealth.cummax() - 1.0
+    return bool(
+        np.allclose(
+            observed.to_numpy(dtype=float),
+            expected.to_numpy(dtype=float),
+            atol=tolerance,
+            rtol=1e-10,
+        )
+    )
+
+
+def _validate_published_oos_path(
+    processed: Path,
+    equity_curve: pd.DataFrame,
+    drawdown_curve: pd.DataFrame,
+) -> list[dict[str, object]]:
+    try:
+        final_model = _resolve_final_model(
+            _read_json(processed / "global_final_model_decision.json"),
+            _read_json(processed / "quantverse_v2_demo_summary.json"),
+        )
+        expected = _walk_forward_model_returns(
+            _read_csv(processed / "global_walk_forward_returns.csv"),
+            final_model,
+        )
+        required = {
+            "date",
+            "model_name",
+            "daily_return",
+            "is_baseline",
+            "source_observations",
+            "source_start_date",
+            "source_end_date",
+        }
+        if equity_curve.empty or not required.issubset(equity_curve.columns):
+            raise ValueError("Published equity evidence is incomplete.")
+        baseline = equity_curve["is_baseline"].map(
+            lambda value: str(value).strip().lower() in {"1", "true", "yes"}
+        )
+        published = equity_curve.loc[~baseline].copy()
+        published_dates = pd.to_datetime(published["date"], errors="coerce")
+        published_returns = pd.to_numeric(
+            published["daily_return"],
+            errors="coerce",
+        )
+        source_matches = bool(
+            len(published) == len(expected)
+            and not published_dates.isna().any()
+            and published_dates.reset_index(drop=True).equals(
+                pd.Series(expected.index).reset_index(drop=True)
+            )
+            and np.allclose(
+                published_returns.to_numpy(dtype=float),
+                expected.to_numpy(dtype=float),
+                atol=1e-12,
+                rtol=1e-10,
+            )
+            and equity_curve["model_name"].astype(str).eq(final_model).all()
+            and int(equity_curve["source_observations"].iloc[0]) == len(expected)
+            and str(equity_curve["source_start_date"].iloc[0])
+            == expected.index.min().date().isoformat()
+            and str(equity_curve["source_end_date"].iloc[0])
+            == expected.index.max().date().isoformat()
+            and len(drawdown_curve) == len(equity_curve)
+        )
+        details = (
+            f"model={final_model}; source_rows={len(expected)}; "
+            f"published_return_rows={len(published)}; "
+            f"published_curve_rows={len(equity_curve)}"
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        source_matches = False
+        details = f"error_type={type(exc).__name__}"
+    return [
+        _check(
+            "published_equity_curve_reconciles_stitched_oos_source",
+            source_matches,
+            details,
+        )
+    ]
 
 
 def _exposures_sum_to_one(frame: pd.DataFrame, *, tolerance: float) -> bool:
@@ -763,6 +1045,12 @@ def _exposures_sum_to_one(frame: pd.DataFrame, *, tolerance: float) -> bool:
         return False
     weights = frame.copy()
     weights["weight"] = pd.to_numeric(weights["weight"], errors="coerce")
+    if (
+        weights["exposure_type"].isna().any()
+        or not np.isfinite(weights["weight"].to_numpy(dtype=float)).all()
+        or (weights["weight"] < -tolerance).any()
+    ):
+        return False
     sums = weights.groupby("exposure_type")["weight"].sum()
     return bool(
         not sums.empty and np.allclose(sums.to_numpy(dtype=float), 1.0, atol=tolerance)

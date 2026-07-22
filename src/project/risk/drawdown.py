@@ -44,7 +44,7 @@ class DrawdownAnalyzer:
     def _drawdown_series(self, returns: pd.Series) -> pd.Series:
         """Compute drawdown time series from returns."""
         cumulative = (1 + returns).cumprod()
-        running_max = cumulative.cummax()
+        running_max = cumulative.cummax().clip(lower=1.0)
         drawdown = cumulative / running_max - 1
         return drawdown
 
@@ -195,7 +195,7 @@ class DrawdownAnalyzer:
     def underwater_data(self) -> pd.DataFrame:
         """Return data for underwater equity curve plot."""
         cumulative = (1 + self.portfolio_returns).cumprod()
-        running_max = cumulative.cummax()
+        running_max = cumulative.cummax().clip(lower=1.0)
         underwater = cumulative / running_max - 1
 
         return pd.DataFrame(

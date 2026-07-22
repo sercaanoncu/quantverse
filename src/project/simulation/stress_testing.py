@@ -122,7 +122,8 @@ class StressTester:
 
                 # Max drawdown during scenario
                 cum = np.cumprod(1 + period_ret.values @ self.weights.values)
-                dd = cum / np.maximum.accumulate(cum) - 1
+                running_peak = np.maximum(np.maximum.accumulate(cum), 1.0)
+                dd = cum / running_peak - 1
                 max_dd = dd.min()
 
                 result = {

@@ -20,8 +20,8 @@ The current result is unusually strong and short:
 
 - 356 realized observations in the final-sample risk table;
 - 252 observations across 12 walk-forward test folds;
-- OOS Equal Weight CAGR 107.55%;
-- OOS Equal Weight Sharpe 2.5936.
+- OOS Equal Weight CAGR 107.49%;
+- OOS Equal Weight Sharpe 2.6307.
 
 These are warning conditions, not marketing claims. Current-universe bias,
 missing point-in-time membership, no complete delisting history, only
@@ -86,21 +86,29 @@ Clean-run identity:
 
 | Field | Value |
 |---|---|
-| Run ID | `qv2-2026-07-17-259efc27e54d3d25` |
+| Run ID | `qv2-2026-07-17-91ae2fedeee477c0` |
 | Data as of | `2026-07-17` |
-| Universe snapshot | `universe-0473f8d204e446a0` |
-| Data snapshot | `data-5a98fe44c52ea4402106` |
-| Config hash | `config-15c8c9e152aa1e734b86` |
-| Input fingerprint | `input-54d788bf05c12cbf05db` |
+| Universe snapshot | `universe-3b4a371b4b139640` |
+| Data snapshot | `data-cf9d19274e3ef8ccf1b7` |
+| Config hash | `config-927e366e46f809f645ca` |
+| Config scope | `composite:analysis,current_universe,master_portfolio,returns_matrix,source_universe` |
+| Analysis config hash | `config-e778648d7f8155ba1884` |
+| Current-universe config hash | `config-77f87687ab3f72a5b81b` |
+| Master-portfolio config hash | `config-773ed7d07c1328aab394` |
+| Returns config hash | `config-15c8c9e152aa1e734b86` |
+| Source-universe config hash | `config-9e56cc1fe2fe5d14d1b6` |
+| Input fingerprint | `input-fb2208f8f1e1439cc145` |
 
-The current universe contains 890 rows. One hundred assets passed the current
-return/history pipeline, 100 were scored, 99 met standard 12-month feature
+The current universe contains 890 rows. Ninety-eight assets passed the current
+return/history pipeline, 98 were scored, 97 met standard 12-month feature
 history, 40 were selected, and the final Equal Weight model contains 40
 holdings. Cross-artifact reconciliation passed.
 
-The 665 excluded price-coverage rows and 21 large-return outlier records remain
-visible diagnostics. They were not converted to zeros or silently winsorized
-using future information.
+The provider returned no usable observations for UNH and BHP during the clean
+rebuild. Both are recorded as `insufficient_price_coverage`, excluded rather
+than zero-filled, and change the data snapshot/run identity. All coverage
+exclusions and large-return outlier records remain visible diagnostics; they
+were not converted to zeros or silently winsorized using future information.
 
 ## 6. Security Identity
 
@@ -229,16 +237,16 @@ Final full-sample Equal Weight metrics:
 | Metric | Value | Interpretation |
 |---|---:|---|
 | Observations | 356 | short sample |
-| Arithmetic annual return | 69.48% | realized annualized estimate |
-| CAGR | 94.56% | realized compounded estimate |
-| Volatility | 23.90% | annualized |
-| Sharpe | 2.9072 | 0% labelled research RF assumption |
-| Sortino | 4.6334 | LPM2 convention |
-| Calmar | 4.6235 | annual return / drawdown magnitude |
-| Max drawdown | -20.45% | realized peak-to-trough |
-| Daily VaR 95 | -1.9633% | historical 5% quantile |
-| Daily CVaR 95 | -3.1724% | historical tail mean |
-| Total return | 156.06% | over the observed sample |
+| Arithmetic annual return | 70.61% | realized annualized estimate |
+| CAGR | 96.58% | realized compounded estimate |
+| Volatility | 24.27% | annualized |
+| Sharpe | 2.9089 | 0% labelled research RF assumption |
+| Sortino | 4.6072 | LPM2 convention |
+| Calmar | 4.5626 | CAGR / drawdown magnitude |
+| Max drawdown | -21.17% | realized peak-to-trough |
+| Daily VaR 95 | -2.0004% | historical 5% quantile |
+| Daily CVaR 95 | -3.2552% | historical tail mean |
+| Total return | 159.82% | over the observed sample |
 
 The annual return and CAGR are flagged
 `high_*_short_sample_review_required`. They are not forecast targets and do not
@@ -268,12 +276,12 @@ review warnings. Only then does it rank eligible models by OOS Sharpe.
 All active paired circular-block-bootstrap Sharpe-difference confidence
 intervals cross zero. Examples:
 
-- Inverse Volatility: `[-0.2951, 0.3922]`;
-- Risk Parity: `[-0.4126, 0.4897]`;
-- HRP: `[-0.7113, 0.3966]`.
+- Inverse Volatility: `[-0.2832, 0.4442]`;
+- Risk Parity: `[-0.4067, 0.5600]`;
+- HRP: `[-0.6753, 0.5007]`.
 
-Inverse Volatility has the highest active OOS Sharpe, 2.6706, versus Equal
-Weight 2.5936, but its improvement is not statistically established and it has
+Inverse Volatility has the highest active OOS Sharpe, 2.7419, versus Equal
+Weight 2.6307, but its improvement is not statistically established and it has
 an extreme-metric review warning. Equal Weight therefore remains the
 defensible benchmark/final research model.
 
@@ -282,9 +290,11 @@ the result is now `not_available`; no model is fabricated.
 
 ## 15. Robustness
 
-The bounded sensitivity grid evaluated 48 of 216 feasible configurations. Equal
-Weight was the dominant model in 100% of sampled scenarios. This is
-`diagnostic_configuration_stability_only`.
+The bounded sensitivity grid evaluated 48 of 216 feasible configurations. Its
+current-sample diagnostic winner changed materially: GMV led 27 scenarios, Min
+CVaR 13, Risk Parity 7 and HRP 1. This is
+`diagnostic_configuration_stability_only` and explicitly indicates model/weight
+fragility rather than stable out-of-sample superiority.
 
 It does not rerun nested chronological model selection for every scenario and
 does not evaluate all covariance estimators, score weights, selection
@@ -335,37 +345,58 @@ Material controls added or strengthened:
 - expanded adversarial tests;
 - independent numerical reference implementation.
 
-The current suite has 306 passing tests. Black, Ruff, compileall, artifact
-validation, and `git diff --check` are final release gates. Pyright is not
-configured and is not falsely reported as passed.
+The current suite has 392 passing tests. Black, Ruff, compileall, artifact
+validation, and `git diff --check` are final release gates. A scoped Pyright
+gate covers twelve financial-critical modules and currently reports zero errors
+and zero warnings.
 
 ## 19. Reproducibility
 
 Run identity separates deterministic input fingerprints from execution
 metadata. Core artifacts carry run ID, as-of date, universe/data snapshot IDs,
-config hash, and input fingerprint. The validator rejects mixed-run core
-artifacts.
+a composite hash over analysis, current-universe, master-portfolio,
+returns-matrix and source-universe configurations, component hashes, and input
+fingerprint. A cost, constraint, source-policy or universe-policy change
+therefore changes run identity even when market-return bytes are unchanged.
+
+Publication loaders do not trust a passed CSV merely because its filename and
+run columns look correct. Every core source is matched to the current artifact
+registry by run identity, byte size, and SHA-256 before user-facing publication.
+The validator rejects mixed-run, stale, or post-registration-mutated evidence.
 
 Random portfolio, bootstrap, and simulation paths use explicit seeds. Output
 files are generated and excluded from the source commit.
 
-The independent reference validator recalculated 21 representative return,
-portfolio, risk, and weight identities without calling the production metric
-functions. All 21 checks passed.
+The independent reference validator recalculated 45 return, FX, portfolio,
+risk, covariance, optimizer, OOS path, cost, random-provenance, bootstrap and
+model-selection identities without calling the production metric functions.
+All 45 checks passed.
 
 ## 20. Reporting
 
-The rebuilt package contains:
+The rebuilt publication package contains:
 
 - 27 chart images;
-- chart-led scientific audit PDF and presentation;
-- v2 research PDF and HTML;
-- v2 research Excel workbook;
+- 10-page executive quantitative research PDF;
+- 13-page scientific methodology and validation appendix;
+- responsive v2 HTML with 10 validated SVG charts;
+- 69-sheet v2 analytical workbook with 18 primary reader-facing sheets;
 - explainable Excel workbook with full weights and blockers.
+
+All 23 PDF pages, all 18 reader-facing workbook sheets and the HTML report at
+desktop and 390-pixel mobile width were rendered after the final rebuild.
+Workbook structure was inspected across all 69 sheets and ten drawing objects;
+the formula-error scan returned zero matches. The HTML contained ten nonempty
+SVG charts, no document-level horizontal overflow and no detected visible
+clipping.
 
 Visual data contracts enforce an equity curve starting at 1.0, non-positive
 drawdown, risk on the x-axis and return on the y-axis, non-degenerate random
 benchmarks, same-horizon forecast/error comparison, and exposure sums of one.
+The equity and drawdown charts now consume the selected model's raw stitched
+walk-forward OOS net returns. The 253 plotted rows comprise one explicit
+baseline plus every one of the 252 OOS returns; final wealth and drawdown
+reconcile exactly to the raw source.
 
 If a final-model decision is absent, visual/exposure builders no longer assume
 Equal Weight.
@@ -378,9 +409,9 @@ The table counts internal correctness findings from the baseline commit
 | Severity | Found | Fixed | Unresolved |
 |---|---:|---:|---:|
 | P0 - core result invalidation | 12 | 12 | 0 |
-| P1 - material interpretation | 15 | 15 | 0 |
-| P2 - robustness/quality | 18 | 12 | 6 |
-| P3 - engineering/presentation | 8 | 6 | 2 |
+| P1 - material interpretation | 49 | 49 | 0 |
+| P2 - robustness/quality | 33 | 26 | 7 |
+| P3 - engineering/presentation | 11 | 11 | 0 |
 
 P0 repairs covered missing-return arithmetic, FX/stablecoin master inputs,
 security/price identity, feature eligibility/ranking, forecast timing,
@@ -393,17 +424,105 @@ fallbacks, v2/legacy weight mixing, robustness labels, covariance labels,
 Black-Litterman prerequisites, risk-free labels, run identity, mixed artifacts,
 stress semantics, VaR horizon semantics, and projection horizon/missingness.
 
-The six unresolved P2 items are:
+The governing-objective falsification pass found eleven additional P1 defects
+and repaired all eleven: optimistic robustness defaults; random-benchmark provenance
+asserted without primitive evidence; non-zero risk-free formula-text drift;
+unbounded/implicit missing-data transformations; exposure fallback to a
+different or malformed portfolio; non-replayable FX direction; duplicate OOS
+rows crashing rather than failing a gate; covariance replay using the wrong
+return basis; legacy stages overwriting canonical stress evidence; and an
+undeclared report-column fallback that plotted metadata as stress data; and a
+full-sample static-weight equity path incorrectly labelled as stitched OOS
+evidence.
+
+The final independent review found five further P1 defects and repaired all
+five:
+
+1. drawdown functions that omitted the initial-capital peak and could miss an
+   immediate first-period loss;
+2. model selection that displayed leakage diagnostics but did not fail closed
+   when exact current-run fold evidence was missing, failed, or stale;
+3. run identity that hashed the returns config but not analysis policy such as
+   transaction cost;
+4. publication that trusted registered filenames/run columns without
+   rechecking source byte size and SHA-256;
+5. an AST missing-data audit that could classify non-zero or expression-based
+   numerical fills as labels, plus optimistic diversification credit when
+   correlation evidence was undefined.
+
+Six additional P2 defects were repaired: incomplete independent reference
+coverage, untagged report-critical derived risk evidence, stale publication
+requirements and semantic claim checks, a hard-coded validator count in the
+methodology appendix, duplicated decision fields in the reader workbook, and
+non-round-trip CSV float parsing that produced a false random-weight
+fingerprint failure without weakening the canonical hash contract.
+
+Two final P2 defects were also repaired: visual validation now rejects partial
+NaN values rather than accepting a partly finite chart, and report model
+resolution now treats the final decision artifact as the only authority rather
+than falling back to a demo summary.
+
+The closing independent re-review found four further P1 defects and repaired
+all four: reader-workbook CSV inputs outside the required bundle were not bound
+to the artifact registry; the publication layer trusted the persisted final
+decision instead of independently rebuilding it from model-selection
+evidence; run identity still omitted three effective universe/master
+configuration files; and reader-facing turnover used the alternative
+half-L1 convention while the executable cost path used gross traded-notional
+L1. It also found four P2 defects and repaired all four: partial missing
+correlation evidence could earn partial diversification credit; two
+walk-forward CLI policy values were not forwarded; explicit-null forward-fill
+limits and unregistered zero-filled `reindex` calls could bypass the
+missing-data audit; and forecast/random/exposure chart inputs did not reject
+every nonfinite or invalid Boolean value.
+
+A subsequent two-reviewer closure pass found two further P1 defects and
+repaired both: synchronized omission of the same date from model and random OOS
+paths could preserve self-consistent stored hashes, and publication manifests
+did not prove the exact expected package type, member set, complete run
+identity and byte sizes. Primitive return-index slices now prove every
+fold/model/random date set; publication validates exact type, identity,
+membership, uniqueness, size and SHA-256.
+
+The same pass found three P2 defects. Two were repaired: computed forward-fill
+limits now require an exact reviewed call-site fingerprint plus a runtime
+integer bound, and legacy global-master transaction-cost/promotion settings are
+now passed into the executable gate and validated. One structural P2 remains:
+a hypothetical positive promotion-grade robustness payload is not yet
+independently reconstructed from primitive nested-OOS robustness rows. The
+current run supplies diagnostic-only robustness and therefore fails that gate;
+this limitation cannot promote or change the current Equal Weight decision.
+
+The final clean package passes 157 of 157 artifact checks, 45 of 45 independent
+reference-math checks, and a source-tree audit of 408 missing-data/alignment
+operations with zero unapproved calls. The same results are recorded in the
+append-only execution ledger.
+
+The final local closure review found one further P1 documentation-provenance
+defect: this audit's risk table still carried metrics from the preceding
+100-asset run after the source-only rebuild produced 98 usable return assets.
+The table and reference-check count were reconciled to run
+`qv2-2026-07-17-91ae2fedeee477c0`; the generated PDF, HTML and Excel package was
+already bound to the correct current-run evidence.
+
+The seven unresolved P2 items are:
 
 1. point-in-time membership and survivorship;
 2. official dated market-cap ranks/exact top-100 evidence;
 3. complete delisting/corporate-action history;
 4. nested OOS sensitivity across all policy dimensions;
 5. multiple-testing control across the model search;
-6. only 252 OOS observations and extreme point estimates.
+6. only 252 OOS observations and extreme point estimates;
+7. independent primitive-row reconstruction for any future positive
+   promotion-grade robustness claim.
 
-The two unresolved P3 items are no configured static type checker and no fully
-transactional/atomic end-to-end artifact publication layer.
+The two previously unresolved P3 items were repaired with a scoped Pyright CI
+gate and staged, rollback-capable, manifest-last report/workbook publication.
+One additional P3 mobile-overflow defect was found during browser QA and fixed;
+wide evidence tables now scroll only within bounded containers. Direct
+artifact-validator execution was made independent of the caller working
+directory, and final Excel QA repaired a clipped dashboard title and removed
+the visual connection between unordered risk-return scatter points.
 
 Generated audit severity also reports 43 open evidence issues: 12 critical, 11
 high, and 20 medium. These are scoped blockers or warnings, not 43 unresolved
@@ -422,9 +541,19 @@ Representative repairs:
 - covariance, LP CVaR, HRP, risk parity, GMV, and optimizer statuses are explicit;
 - expected-return models remain diagnostic where evidence is weak;
 - walk-forward returns are genuine concatenated net OOS daily series;
+- every OOS visual is built from that selected-model net path, not a
+  full-sample static-weight reconstruction;
 - uncertainty uses paired circular block bootstrap;
 - model selection requires a positive Sharpe-difference lower confidence bound;
+- model selection also requires a complete, passed, current-run leakage audit
+  with the exact expected check set for every fold;
 - all metric warnings block active model selection pending review;
+- drawdown always includes the initial capital value as a possible running
+  peak, including first-period-loss edge cases;
+- run identity binds both returns and analysis configs, and publication binds
+  each source artifact by size and SHA-256;
+- numerical fill operations require exact reviewed call-site allowlists, while
+  undefined correlation evidence earns zero diversification credit;
 - Monte Carlo uses log-space wealth with valid return support;
 - historical VaR/CVaR signs and horizons are explicit;
 - legacy tearsheet Sharpe, Sortino, alpha, and benchmark overlap were corrected;

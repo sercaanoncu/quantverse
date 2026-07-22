@@ -25,6 +25,16 @@ METRIC_REVIEW_THRESHOLDS = {
     "absolute_sortino": 5.00,
     "annualized_volatility": 1.00,
 }
+RUN_METADATA_FIELDS = (
+    "run_id",
+    "execution_id",
+    "data_as_of_date",
+    "generated_at",
+    "universe_snapshot_id",
+    "data_snapshot_id",
+    "config_hash",
+    "input_fingerprint",
+)
 
 
 def build_stock_risk_metrics(returns: pd.DataFrame) -> pd.DataFrame:
@@ -42,8 +52,8 @@ def build_stock_risk_metrics(returns: pd.DataFrame) -> pd.DataFrame:
                 "max_drawdown": _max_drawdown(series),
                 "var_95": _var_95(series),
                 "cvar_95": _cvar_95(series),
-                "skewness": float(series.skew()) if len(series) > 2 else 0.0,
-                "kurtosis": float(series.kurt()) if len(series) > 3 else 0.0,
+                "skewness": _number(series.skew()) if len(series) > 2 else 0.0,
+                "kurtosis": _number(series.kurt()) if len(series) > 3 else 0.0,
             }
         )
     return pd.DataFrame(rows)
@@ -72,7 +82,7 @@ def build_portfolio_risk_report(
         if aligned.sum() <= 0:
             continue
         aligned = aligned / aligned.sum()
-        model_returns = clean.loc[:, aligned.index]
+        model_returns = clean.reindex(columns=aligned.index)
         metrics = evaluate_return_series(
             portfolio_returns,
             risk_free_rate_annual=risk_free_rate_annual,
@@ -132,10 +142,10 @@ def evaluate_return_series(
         return _empty_metrics()
     if (clean < -1.0 - 1e-12).any():
         raise ValueError("Simple returns below -100% are mathematically invalid.")
-    total_return = float((1.0 + clean).prod() - 1.0)
+    total_return = _number((1.0 + clean).prod()) - 1.0
     years = max(len(clean) / TRADING_DAYS_PER_YEAR, 1e-12)
     cagr = float((1.0 + total_return) ** (1.0 / years) - 1.0)
-    annual_return = float(clean.mean() * TRADING_DAYS_PER_YEAR)
+    annual_return = _number(clean.mean()) * TRADING_DAYS_PER_YEAR
     volatility = _annualized_volatility(clean)
     daily_hurdle = (1.0 + float(risk_free_rate_annual)) ** (
         1.0 / TRADING_DAYS_PER_YEAR
@@ -176,17 +186,40 @@ def write_risk_outputs(
     """Write v2 risk outputs."""
     path = Path(output_dir)
     path.mkdir(parents=True, exist_ok=True)
+    definitions = _inherit_run_metadata(
+        build_risk_metric_definitions(),
+        portfolio_report,
+    )
+    sanity = _inherit_run_metadata(
+        build_risk_metric_sanity_checks(portfolio_report, tail_risk),
+        portfolio_report,
+    )
     stock_metrics.to_csv(path / "global_stock_risk_metrics.csv", index=False)
     portfolio_report.to_csv(path / "global_portfolio_risk_report.csv", index=False)
     risk_contributions.to_csv(path / "global_risk_contribution_report.csv", index=False)
     stress_tests.to_csv(path / "global_stress_test_results.csv", index=False)
     tail_risk.to_csv(path / "global_tail_risk_report.csv", index=False)
-    build_risk_metric_definitions().to_csv(
-        path / "global_risk_metric_definitions.csv", index=False
-    )
-    build_risk_metric_sanity_checks(portfolio_report, tail_risk).to_csv(
-        path / "global_risk_metric_sanity_checks.csv", index=False
-    )
+    definitions.to_csv(path / "global_risk_metric_definitions.csv", index=False)
+    sanity.to_csv(path / "global_risk_metric_sanity_checks.csv", index=False)
+
+
+def _inherit_run_metadata(
+    frame: pd.DataFrame,
+    source: pd.DataFrame,
+) -> pd.DataFrame:
+    """Copy a single declared run identity into a derived evidence frame."""
+    result = frame.copy()
+    for field in RUN_METADATA_FIELDS:
+        if field not in source:
+            continue
+        values = source[field].dropna().astype(str).unique().tolist()
+        if len(values) != 1:
+            raise ValueError(
+                f"Derived risk evidence requires exactly one {field}; "
+                f"observed={values}."
+            )
+        result[field] = values[0]
+    return result
 
 
 def build_risk_metric_definitions() -> pd.DataFrame:
@@ -531,7 +564,8 @@ def _max_drawdown(series: pd.Series) -> float:
     if clean.empty:
         return 0.0
     wealth = (1.0 + clean).cumprod()
-    drawdown = wealth / wealth.cummax() - 1.0
+    running_peak = wealth.cummax().clip(lower=1.0)
+    drawdown = wealth / running_peak - 1.0
     return float(drawdown.min())
 
 
@@ -556,19 +590,20 @@ def _ulcer_index(series: pd.Series) -> float:
     if clean.empty:
         return 0.0
     wealth = (1.0 + clean).cumprod()
-    drawdown = wealth / wealth.cummax() - 1.0
+    running_peak = wealth.cummax().clip(lower=1.0)
+    drawdown = wealth / running_peak - 1.0
     return float(np.sqrt((drawdown.clip(upper=0.0) ** 2).mean()))
 
 
 def _extreme_metric_warning(metrics: dict[str, object]) -> str:
     """Return operational review flags for unusually scaled point estimates."""
     warnings = []
-    observations = int(metrics.get("observations", 0) or 0)
-    annualized_return = abs(float(metrics.get("annualized_return", 0.0)))
-    cagr = abs(float(metrics.get("cagr", 0.0)))
-    sharpe = abs(float(metrics.get("sharpe", 0.0)))
-    sortino = abs(float(metrics.get("sortino", 0.0)))
-    volatility = abs(float(metrics.get("annualized_volatility", 0.0)))
+    observations = int(_number(metrics.get("observations", 0)))
+    annualized_return = abs(_number(metrics.get("annualized_return", 0.0)))
+    cagr = abs(_number(metrics.get("cagr", 0.0)))
+    sharpe = abs(_number(metrics.get("sharpe", 0.0)))
+    sortino = abs(_number(metrics.get("sortino", 0.0)))
+    volatility = abs(_number(metrics.get("annualized_volatility", 0.0)))
     if (
         observations < METRIC_REVIEW_THRESHOLDS["short_sample_observations"]
         and annualized_return
@@ -591,6 +626,18 @@ def _extreme_metric_warning(metrics: dict[str, object]) -> str:
     if volatility > METRIC_REVIEW_THRESHOLDS["annualized_volatility"]:
         warnings.append("extreme_volatility_review_required")
     return "; ".join(warnings) if warnings else "none"
+
+
+def _number(value: object, *, default: float = 0.0) -> float:
+    """Convert scalar evidence to float without accepting array-like values."""
+    try:
+        if value is None or value is pd.NA or value is pd.NaT:
+            return float(default)
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            return float(value)
+        return float(str(value))
+    except (TypeError, ValueError):
+        return float(default)
 
 
 def _empty_metrics() -> dict[str, object]:

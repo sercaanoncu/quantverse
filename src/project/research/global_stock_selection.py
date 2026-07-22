@@ -175,7 +175,12 @@ def build_inverse_volatility_portfolio(
     selected = _validate_tickers(returns, tickers)
     matrix = _complete_case_returns(returns[selected])
     vol = matrix.std(ddof=1).replace(0.0, np.nan)
-    raw = (1.0 / vol).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    raw = (1.0 / vol).replace([np.inf, -np.inf], np.nan)
+    if raw.isna().any():
+        raise ValueError(
+            "Inverse-volatility allocation requires finite positive volatility "
+            "for every selected asset."
+        )
     if raw.sum() <= 0:
         raw = pd.Series(1.0, index=selected)
     weights = _apply_max_weight_cap(raw, max_weight)
@@ -187,21 +192,27 @@ def build_shrinkage_max_sharpe_portfolio(
     returns: pd.DataFrame,
     tickers: Iterable[str],
     max_weight: float = 0.10,
+    risk_free_rate_annual: float = 0.0,
 ) -> pd.Series:
     """Build a capped long-only Max Sharpe candidate using shrinkage covariance."""
     selected = _validate_tickers(returns, tickers)
     matrix = _complete_case_returns(returns[selected])
     _check_cap_feasible(len(selected), max_weight)
+    if (
+        not np.isfinite(float(risk_free_rate_annual))
+        or float(risk_free_rate_annual) <= -1.0
+    ):
+        raise ValueError("risk_free_rate_annual must be finite and greater than -1.")
     mu = matrix.mean().values * TRADING_DAYS_PER_YEAR
     cov = LedoitWolf().fit(matrix.values).covariance_ * TRADING_DAYS_PER_YEAR
     x0 = build_inverse_volatility_portfolio(matrix, selected, max_weight).values
 
     def objective(weights: np.ndarray) -> float:
-        port_return = float(weights @ mu)
+        port_excess_return = float(weights @ mu) - float(risk_free_rate_annual)
         port_vol = float(np.sqrt(weights @ cov @ weights))
         if port_vol <= 0:
             return 1e6
-        return -port_return / port_vol
+        return -port_excess_return / port_vol
 
     result = minimize(
         objective,
@@ -475,6 +486,8 @@ def _validate_tickers(returns: pd.DataFrame, tickers: Iterable[str]) -> list[str
 
 def _apply_max_weight_cap(weights: pd.Series, max_weight: float) -> pd.Series:
     raw = pd.Series(weights, dtype=float).clip(lower=0.0)
+    if not np.isfinite(raw.to_numpy(dtype=float)).all():
+        raise ValueError("Raw portfolio weights must be finite.")
     _check_cap_feasible(len(raw), max_weight)
     if raw.sum() <= 0:
         raw = pd.Series(1.0, index=raw.index)
@@ -518,7 +531,8 @@ def _max_drawdown(series: pd.Series) -> float:
     if clean.empty:
         return 0.0
     wealth = (1.0 + clean).cumprod()
-    drawdown = wealth / wealth.cummax() - 1.0
+    running_peak = wealth.cummax().clip(lower=1.0)
+    drawdown = wealth / running_peak - 1.0
     return float(drawdown.min())
 
 

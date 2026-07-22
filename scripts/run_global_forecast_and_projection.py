@@ -96,7 +96,7 @@ def main() -> int:
         output_dir / "global_scenario_analysis.csv", index=False
     )
     simulations["stress_tests"].to_csv(
-        output_dir / "global_stress_test_results.csv", index=False
+        output_dir / "global_projection_stress_test_results.csv", index=False
     )
     _write_status(
         output_dir, "completed", "Global forecast and projection outputs written."

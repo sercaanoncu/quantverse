@@ -205,7 +205,7 @@ def apply_security_history_boundaries(
         applied = False
         if ticker in clean and start is not None:
             before = clean.index < start
-            before_count = int(clean.loc[before, ticker].notna().sum())
+            before_count = int(clean[ticker].where(before).notna().sum())
             if before_count and continuity not in VERIFIED_CONTINUITY_STATUSES:
                 clean.loc[before, ticker] = np.nan
                 applied = True
@@ -554,7 +554,9 @@ def _record_map(frame: pd.DataFrame | None) -> dict[str, dict[str, object]]:
     if frame is None or frame.empty or "ticker" not in frame:
         return {}
     return {
-        normalize_ticker(record["ticker"]): record
+        normalize_ticker(record["ticker"]): {
+            str(key): value for key, value in record.items()
+        }
         for record in frame.to_dict("records")
     }
 
@@ -571,7 +573,9 @@ def _included_investable(row: pd.Series) -> bool:
 def _as_bool(value: object) -> bool:
     if isinstance(value, (bool, np.bool_)):
         return bool(value)
-    if value is None or pd.isna(value):
+    if value is None or value is pd.NA or value is pd.NaT:
+        return False
+    if isinstance(value, (float, np.floating)) and np.isnan(float(value)):
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
@@ -579,15 +583,17 @@ def _as_bool(value: object) -> bool:
 def _timestamp(value: object) -> pd.Timestamp | None:
     if value is None or str(value).strip() in {"", "unavailable", "nan", "NaT"}:
         return None
-    parsed = pd.to_datetime(value, errors="coerce", utc=True)
-    return None if pd.isna(parsed) else pd.Timestamp(parsed).tz_convert(None)
+    parsed = pd.to_datetime(str(value), errors="coerce", utc=True)
+    if not isinstance(parsed, pd.Timestamp):
+        return None
+    return parsed.tz_convert(None)
 
 
 def _first_valid_index(series: pd.Series) -> pd.Timestamp | None:
     valid = series.dropna()
     if valid.empty:
         return None
-    return pd.Timestamp(valid.index.min())
+    return _timestamp(valid.index.min())
 
 
 def _maximum_timestamp(

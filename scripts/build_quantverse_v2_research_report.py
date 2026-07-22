@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -17,20 +18,63 @@ from project.research.global_numerical_integrity import (
 from project.reporting.selected_stock_report_view import (  # noqa: E402
     write_selected_stock_report_artifacts,
 )
+from project.reporting.artifact_publication import (  # noqa: E402
+    publish_staged_files,
+    staged_publication,
+)
+from project.reporting.quantverse_v2_publication import (  # noqa: E402
+    RUN_IDENTITY_FIELDS,
+    build_publication_bundle,
+    load_publication_evidence,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 OUTPUT_PDF = ROOT / "output" / "pdf" / "quantverse_v2_research_report.pdf"
+EXECUTIVE_PDF = ROOT / "output" / "pdf" / "quantverse_v2_executive_research_report.pdf"
+METHODOLOGY_PDF = (
+    ROOT / "output" / "pdf" / "quantverse_v2_methodology_validation_appendix.pdf"
+)
 OUTPUT_HTML = ROOT / "output" / "html" / "quantverse_v2_research_report.html"
+PUBLICATION_MANIFEST = (
+    ROOT / "output" / "quantverse_v2_report_publication_manifest.json"
+)
 
 
 def main() -> int:
-    sections = _sections()
-    OUTPUT_PDF.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_HTML.parent.mkdir(parents=True, exist_ok=True)
-    _write_pdf(sections)
-    _write_html(sections)
+    evidence = load_publication_evidence(ROOT)
+    run_identity = {
+        field: evidence.manifest.get(field, "missing") for field in RUN_IDENTITY_FIELDS
+    }
+    with staged_publication(ROOT, "quantverse-v2-report") as stage:
+        staged_executive = stage / EXECUTIVE_PDF.name
+        staged_methodology = stage / METHODOLOGY_PDF.name
+        staged_html = stage / OUTPUT_HTML.name
+        staged_legacy = stage / OUTPUT_PDF.name
+        result = build_publication_bundle(
+            evidence,
+            executive_pdf=staged_executive,
+            methodology_pdf=staged_methodology,
+            html_report=staged_html,
+        )
+        shutil.copy2(staged_executive, staged_legacy)
+        publish_staged_files(
+            {
+                staged_executive: EXECUTIVE_PDF,
+                staged_methodology: METHODOLOGY_PDF,
+                staged_html: OUTPUT_HTML,
+                staged_legacy: OUTPUT_PDF,
+            },
+            root=ROOT,
+            manifest_path=PUBLICATION_MANIFEST,
+            run_identity=run_identity,
+            publication_type="quantverse_v2_pdf_html_research_package",
+        )
     print(f"QuantVerse v2 research PDF written: {OUTPUT_PDF}")
+    print(f"QuantVerse v2 executive PDF written: {EXECUTIVE_PDF}")
+    print(f"QuantVerse v2 methodology PDF written: {METHODOLOGY_PDF}")
     print(f"QuantVerse v2 research HTML written: {OUTPUT_HTML}")
+    print(f"QuantVerse v2 report publication manifest: {PUBLICATION_MANIFEST}")
+    print(f"QuantVerse v2 publication chart count: {result['chart_count']}")
     return 0
 
 

@@ -12,7 +12,7 @@ def test_known_drawdown_var_and_cvar_sign_convention():
     metrics = evaluate_return_series(series)
 
     wealth = (1.0 + series).cumprod()
-    expected_drawdown = float((wealth / wealth.cummax() - 1.0).min())
+    expected_drawdown = float((wealth / wealth.cummax().clip(lower=1.0) - 1.0).min())
     expected_var = float(series.quantile(0.05))
     expected_cvar = float(series[series <= expected_var].mean())
 
@@ -20,6 +20,12 @@ def test_known_drawdown_var_and_cvar_sign_convention():
     assert np.isclose(metrics["var_95"], expected_var)
     assert np.isclose(metrics["cvar_95"], expected_cvar)
     assert metrics["cvar_95"] <= metrics["var_95"]
+
+
+def test_drawdown_includes_initial_capital_baseline():
+    metrics = evaluate_return_series(pd.Series([-0.20, 0.25]))
+
+    assert np.isclose(metrics["max_drawdown"], -0.20)
 
 
 def test_risk_metric_sanity_checks_detect_valid_report():

@@ -243,9 +243,9 @@ def _check_final_return_series(
         return
     diagnostics = return_series_diagnostics(series)
     passed = bool(
-        diagnostics["observations"] > 0
-        and diagnostics["nonzero_count"] > 0
-        and float(diagnostics["standard_deviation"]) > 0
+        _float(diagnostics["observations"]) > 0
+        and _float(diagnostics["nonzero_count"]) > 0
+        and _float(diagnostics["standard_deviation"]) > 0
     )
     checks.append(
         _check(
@@ -287,7 +287,16 @@ def _check_random_percentiles_not_degenerate(
     if numeric.empty:
         passed = False
     else:
-        all_one = numeric.notna().all(axis=1) & np.isclose(numeric, 1.0).all(axis=1)
+        close_values = np.asarray(
+            np.isclose(numeric.to_numpy(dtype=float), 1.0),
+            dtype=bool,
+        ).all(axis=1)
+        close_to_one = pd.Series(
+            close_values.tolist(),
+            index=numeric.index,
+            dtype=bool,
+        )
+        all_one = numeric.notna().all(axis=1) & close_to_one
         passed = bool(not all_one.all() and numeric.nunique(dropna=True).sum() > 1)
     checks.append(
         _check(
@@ -307,7 +316,12 @@ def _check_forecast_scale(
         return
     frame = forecasts.copy()
     for column in ["mean_mae", "mean_rmse", "mean_random_walk_mae"]:
-        frame[column] = pd.to_numeric(frame.get(column), errors="coerce")
+        source = (
+            frame[column]
+            if column in frame
+            else pd.Series(np.nan, index=frame.index, dtype=float)
+        )
+        frame[column] = pd.to_numeric(source, errors="coerce")
     model_error = frame[["mean_mae", "mean_rmse"]].max(axis=1)
     random_error = frame["mean_random_walk_mae"]
     absurd_absolute = model_error > 2.0
@@ -511,9 +525,11 @@ def _read_returns(path: Path) -> pd.DataFrame:
 
 def _float(value: object, *, default: float = np.nan) -> float:
     try:
-        if value is None or pd.isna(value):
+        if value is None or value is pd.NA or value is pd.NaT:
             return float(default)
-        return float(value)
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            return float(value)
+        return float(str(value))
     except (TypeError, ValueError):
         return float(default)
 

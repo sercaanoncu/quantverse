@@ -1,4 +1,4 @@
-.PHONY: setup test lint format smoke pipeline report clean
+.PHONY: setup test lint typecheck format smoke pipeline report clean
 
 PYTHON ?= python
 CONFIG ?= configs/base.yaml
@@ -11,6 +11,9 @@ test:
 
 lint:
 	$(PYTHON) -m ruff check src scripts tests
+
+typecheck:
+	$(PYTHON) -m pyright
 
 format:
 	$(PYTHON) -m black src scripts tests

@@ -271,6 +271,49 @@ def test_max_sharpe_failure_is_not_silently_relabelled(monkeypatch):
         )
 
 
+def test_max_sharpe_objective_uses_nonzero_risk_free_hurdle(monkeypatch):
+    objective_values = []
+
+    class SuccessfulResult:
+        success = True
+        message = "ok"
+
+        def __init__(self, weights):
+            self.x = weights
+
+    def capture_objective(objective, *, x0, **_kwargs):
+        objective_values.append(float(objective(x0)))
+        return SuccessfulResult(x0)
+
+    monkeypatch.setattr(stock_selection, "minimize", capture_objective)
+    returns = _returns(n_assets=8)
+    tickers = returns.columns[:5]
+
+    build_shrinkage_max_sharpe_portfolio(
+        returns,
+        tickers,
+        max_weight=0.40,
+        risk_free_rate_annual=0.0,
+    )
+    build_shrinkage_max_sharpe_portfolio(
+        returns,
+        tickers,
+        max_weight=0.40,
+        risk_free_rate_annual=0.05,
+    )
+
+    assert len(objective_values) == 2
+    assert objective_values[1] > objective_values[0]
+
+
+def test_weight_cap_projection_rejects_nonfinite_inputs():
+    with pytest.raises(ValueError, match="finite"):
+        stock_selection.apply_max_weight_cap(
+            pd.Series({"A": 0.5, "B": np.nan}),
+            max_weight=0.60,
+        )
+
+
 def test_min_cvar_failure_is_not_silently_relabelled(monkeypatch):
     class FailedResult:
         success = False

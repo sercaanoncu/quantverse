@@ -100,12 +100,12 @@ class PerformanceMetrics:
     # --- Drawdown Metrics ---
     def max_drawdown(self) -> float:
         cum = (1 + self.returns).cumprod()
-        dd = cum / cum.cummax() - 1
+        dd = cum / cum.cummax().clip(lower=1.0) - 1
         return dd.min()
 
     def max_drawdown_duration(self) -> int:
         cum = (1 + self.returns).cumprod()
-        peak = cum.cummax()
+        peak = cum.cummax().clip(lower=1.0)
         in_dd = cum < peak
         if not in_dd.any():
             return 0
@@ -115,12 +115,12 @@ class PerformanceMetrics:
 
     def average_drawdown(self) -> float:
         cum = (1 + self.returns).cumprod()
-        dd = cum / cum.cummax() - 1
+        dd = cum / cum.cummax().clip(lower=1.0) - 1
         return dd[dd < 0].mean() if (dd < 0).any() else 0
 
     def ulcer_index(self) -> float:
         cum = (1 + self.returns).cumprod()
-        dd = cum / cum.cummax() - 1
+        dd = cum / cum.cummax().clip(lower=1.0) - 1
         return np.sqrt((dd**2).mean())
 
     # --- Tail Risk ---

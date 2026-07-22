@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from project.research.run_identity import (
@@ -73,10 +74,12 @@ def build_cross_artifact_count_reconciliation(
     final_holdings = 0
     if {"model_name", "ticker", "weight"}.issubset(weights):
         final = weights.loc[weights["model_name"].astype(str).eq(final_model)].copy()
-        final_holdings = int(
-            (
-                pd.to_numeric(final["weight"], errors="coerce").fillna(0.0).abs() > 1e-8
-            ).sum()
+        numeric_weights = pd.to_numeric(final["weight"], errors="coerce")
+        final_holdings = (
+            -1
+            if numeric_weights.isna().any()
+            or not np.isfinite(numeric_weights.to_numpy(dtype=float)).all()
+            else int(numeric_weights.abs().gt(1e-8).sum())
         )
     latest_walk_count = (
         int(pd.to_numeric(walk_windows["selected_count"], errors="coerce").iloc[-1])

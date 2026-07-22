@@ -46,11 +46,15 @@ def main() -> int:
         max_folds=int(config.get("walk_forward_max_folds", 12)),
         default_scope=str(config.get("default_scope", "equity_only")),
         include_crypto=bool(config.get("include_crypto", False)),
+        random_state=int(config.get("random_state", 42)),
         security_identity_audit=_read_optional_csv(
             output / "global_security_identity_audit.csv"
         ),
         minimum_standard_observations=int(
-            config.get("minimum_standard_history_observations", 252)
+            config.get(
+                "minimum_walk_forward_history_observations",
+                config.get("minimum_standard_history_observations", 252),
+            )
         ),
         risk_free_rate_annual=float(config.get("risk_free_rate_annual", 0.0)),
         risk_free_policy=str(
@@ -78,9 +82,12 @@ def main() -> int:
         "window_summary",
         "model_comparison",
         "random_distribution",
+        "random_returns",
+        "random_weights",
         "uncertainty",
     ]:
         result[key] = attach_run_metadata(result[key], run_metadata)
+    result["random_benchmark_provenance"].update(run_metadata)
     result["summary"].update(run_metadata)
     write_walk_forward_outputs(result, output)
     register_artifacts(
@@ -94,6 +101,9 @@ def main() -> int:
             output / "global_walk_forward_window_summary.csv",
             output / "global_walk_forward_model_comparison.csv",
             output / "global_walk_forward_random_distribution.csv",
+            output / "global_walk_forward_random_returns.csv",
+            output / "global_walk_forward_random_weights.csv",
+            output / "global_walk_forward_random_benchmark_provenance.json",
             output / "global_walk_forward_uncertainty.csv",
             output / "global_walk_forward_summary.json",
         ],

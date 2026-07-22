@@ -9,6 +9,7 @@ from project.research.global_portfolio_risk import (
     _extreme_metric_warning,
     build_portfolio_risk_report,
     build_stock_risk_metrics,
+    write_risk_outputs,
 )
 
 
@@ -135,3 +136,43 @@ def test_high_short_sample_point_estimates_are_review_flags():
 
     assert "high_annualized_return_short_sample_review_required" in warning
     assert "high_cagr_short_sample_review_required" in warning
+
+
+def test_derived_risk_evidence_inherits_one_run_identity(tmp_path):
+    returns = _returns()
+    weights = pd.DataFrame(
+        {
+            "model_name": ["Equal Weight"] * 4,
+            "ticker": ["A", "B", "C", "D"],
+            "weight": [0.25] * 4,
+        }
+    )
+    report, contributions, stress, tail = build_portfolio_risk_report(
+        returns,
+        weights,
+        metadata=_metadata(),
+    )
+    metadata = {
+        "run_id": "run-1",
+        "execution_id": "run-1",
+        "data_as_of_date": "2026-07-17",
+        "generated_at": "2026-07-19T00:00:00+00:00",
+        "universe_snapshot_id": "universe-1",
+        "data_snapshot_id": "data-1",
+        "config_hash": "config-1",
+        "input_fingerprint": "input-1",
+    }
+    frames = [build_stock_risk_metrics(returns), report, contributions, stress, tail]
+    for frame in frames:
+        for field, value in metadata.items():
+            frame[field] = value
+
+    write_risk_outputs(*frames, tmp_path)
+
+    for filename in [
+        "global_risk_metric_definitions.csv",
+        "global_risk_metric_sanity_checks.csv",
+    ]:
+        derived = pd.read_csv(tmp_path / filename)
+        assert set(derived["run_id"]) == {"run-1"}
+        assert set(derived["config_hash"]) == {"config-1"}

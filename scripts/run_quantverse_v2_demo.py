@@ -8,7 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -58,6 +60,7 @@ def main() -> int:
 
 def _pipeline_steps(config: str) -> list[list[str]]:
     """Return the dependency-ordered evidence build for one coherent run."""
+    master_config = _configured_master_portfolio_path(config)
     return [
         [
             "scripts/validate_source_universe_inputs.py",
@@ -74,6 +77,14 @@ def _pipeline_steps(config: str) -> list[list[str]]:
             "scripts/build_global_returns_matrix.py",
             "--config",
             "configs/global_returns_matrix.yaml",
+            "--analysis-config",
+            config,
+            "--master-config",
+            master_config,
+            "--source-config",
+            "configs/source_universe_validation.yaml",
+            "--universe-config",
+            "configs/current_global_universe.yaml",
         ],
         ["scripts/run_global_statistical_diagnostics.py"],
         ["scripts/build_global_stock_scores.py", "--config", config],
@@ -84,7 +95,7 @@ def _pipeline_steps(config: str) -> list[list[str]]:
         [
             "scripts/run_global_master_portfolio.py",
             "--config",
-            "configs/global_master_portfolio.yaml",
+            master_config,
         ],
         ["scripts/run_global_robustness_analysis.py", "--config", config],
         ["scripts/build_global_model_selection_report.py", "--config", config],
@@ -92,10 +103,24 @@ def _pipeline_steps(config: str) -> list[list[str]]:
         ["scripts/build_security_history_reconciliation.py", "--config", config],
         ["scripts/validate_global_forecasts.py", "--config", config],
         ["scripts/audit_global_scientific_sanity.py"],
+        ["scripts/audit_quantverse_v2_missing_data_operations.py"],
         ["scripts/qa/verify_quantverse_reference_math.py"],
         ["scripts/build_visual_scientific_audit_report.py"],
         ["scripts/build_explainable_excel_output.py"],
     ]
+
+
+def _configured_master_portfolio_path(config_path: str) -> str:
+    path = Path(config_path)
+    if not path.exists():
+        return "configs/global_master_portfolio.yaml"
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return str(
+        payload.get(
+            "master_portfolio_config",
+            "configs/global_master_portfolio.yaml",
+        )
+    )
 
 
 def build_demo_summary() -> dict[str, object]:
@@ -374,9 +399,12 @@ def _all_checks_passed(frame: pd.DataFrame) -> bool:
 def _transaction_cost_status(turnover: pd.DataFrame) -> str:
     if turnover.empty or "transaction_cost_decimal" not in turnover:
         return "not_available"
-    total_cost = pd.to_numeric(
-        turnover["transaction_cost_decimal"], errors="coerce"
-    ).fillna(0.0)
+    total_cost = pd.to_numeric(turnover["transaction_cost_decimal"], errors="coerce")
+    if (
+        total_cost.isna().any()
+        or not np.isfinite(total_cost.to_numpy(dtype=float)).all()
+    ):
+        return "invalid_non_finite_transaction_cost"
     if float(total_cost.sum()) > 0:
         return "applied_in_walk_forward_net_returns"
     return "no_turnover_cost_observed"

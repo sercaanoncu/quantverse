@@ -107,7 +107,8 @@ def _weight_rows(
                 "max_weight": float(numeric.max()) if not numeric.empty else np.nan,
                 "min_weight": float(numeric.min()) if not numeric.empty else np.nan,
                 "nan_or_inf_weights": bool(
-                    numeric.isna().any() or np.isinf(numeric.fillna(0.0)).any()
+                    numeric.isna().any()
+                    or np.isinf(numeric.to_numpy(dtype=float)).any()
                 ),
                 "negative_weights": int((numeric < -TOLERANCE).sum()),
                 "holdings_count": int((numeric > TOLERANCE).sum()),
@@ -216,7 +217,7 @@ def _audit_returns_and_risk() -> list[dict[str, object]]:
         if str(first).lower() in {"date", "datetime", "timestamp"}:
             returns = returns.set_index(first)
         numeric = returns.apply(pd.to_numeric, errors="coerce")
-        if np.isinf(numeric.fillna(0.0).to_numpy()).any():
+        if np.isinf(numeric.to_numpy(dtype=float)).any():
             issues.append(
                 _issue("returns", "", "infinite_returns", "error", str(returns_path))
             )

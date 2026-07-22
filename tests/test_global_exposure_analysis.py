@@ -1,6 +1,38 @@
 import pandas as pd
+import pytest
 
 from project.research.global_exposure_analysis import build_exposure_analysis
+
+
+def test_exposure_fails_closed_when_requested_final_model_is_missing():
+    weights = pd.DataFrame(
+        {
+            "model_name": ["Equal Weight"],
+            "ticker": ["A"],
+            "weight": [1.0],
+        }
+    )
+    universe = pd.DataFrame({"ticker": ["A"], "name": ["Asset A"]})
+
+    with pytest.raises(ValueError, match="missing from the weight artifact"):
+        build_exposure_analysis(weights, universe, final_model="HRP")
+
+
+def test_exposure_rejects_non_numeric_or_non_unit_weights():
+    universe = pd.DataFrame({"ticker": ["A", "B"], "name": ["A", "B"]})
+    malformed = pd.DataFrame(
+        {
+            "model_name": ["Equal Weight", "Equal Weight"],
+            "ticker": ["A", "B"],
+            "weight": [0.5, "missing"],
+        }
+    )
+    non_unit = malformed.assign(weight=[0.4, 0.4])
+
+    with pytest.raises(ValueError, match="finite numeric"):
+        build_exposure_analysis(malformed, universe, final_model="Equal Weight")
+    with pytest.raises(ValueError, match="sum to 1.0"):
+        build_exposure_analysis(non_unit, universe, final_model="Equal Weight")
 
 
 def test_exposure_sums_to_one_and_top_holdings_explanation_exists():

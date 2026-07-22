@@ -40,7 +40,7 @@ class TearsheetGenerator:
 
         # Precompute
         self.cum = (1 + self.returns).cumprod()
-        self.dd = self.cum / self.cum.cummax() - 1
+        self.dd = self.cum / self.cum.cummax().clip(lower=1.0) - 1
 
         if benchmark is not None:
             bench_common = benchmark.reindex(self.returns.index).dropna()

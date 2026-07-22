@@ -287,7 +287,8 @@ class AdaptiveAllocator:
         ann_vol = port_returns.std() * np.sqrt(252)
         sharpe = (ann_ret - self.rf) / ann_vol if ann_vol > 0 else 0
         cum = port_values.values
-        max_dd = (cum / np.maximum.accumulate(cum) - 1).min()
+        running_peak = np.maximum(np.maximum.accumulate(cum), 1.0)
+        max_dd = (cum / running_peak - 1).min()
 
         return {
             "label": f"Adaptive ({mode})",

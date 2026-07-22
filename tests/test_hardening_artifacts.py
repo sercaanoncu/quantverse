@@ -310,6 +310,20 @@ def test_ml_drift_report_handles_too_few_predictions():
     assert drift.loc[0, "Status"] == "inconclusive"
 
 
+def test_active_source_has_no_unbounded_forward_or_backward_fill():
+    root = Path(__file__).resolve().parents[1]
+    active_files = list((root / "src").rglob("*.py")) + list(
+        (root / "scripts").rglob("*.py")
+    )
+    violations = []
+    for path in active_files:
+        text = path.read_text(encoding="utf-8")
+        if ".ffill()" in text or ".bfill()" in text:
+            violations.append(path.relative_to(root).as_posix())
+
+    assert violations == []
+
+
 def test_population_stability_index_returns_nan_for_constant_expected():
     psi = _population_stability_index(pd.Series([0.5] * 10), pd.Series([0.5] * 10))
 

@@ -85,6 +85,81 @@ def test_master_allocator_outputs_weights_comparison_and_promotion_gate():
     assert 5 <= result["decision_summary"]["selected_holdings"] <= 6
 
 
+def test_master_promotion_gate_uses_configured_cost_and_threshold_contract():
+    result = run_master_portfolio_research(
+        _returns(),
+        _metadata(),
+        min_holdings=5,
+        max_holdings=6,
+        max_weight=0.40,
+        n_random_portfolios=25,
+        random_state=5,
+        promotion_gate_config={
+            "random_percentile_threshold": 0.95,
+            "volatility_relative_limit": 1.10,
+            "max_drawdown_penalty": 0.02,
+            "cvar_penalty": 0.01,
+            "estimated_initial_turnover": 0.25,
+            "transaction_cost_bps": 20.0,
+            "max_turnover": 0.50,
+            "max_transaction_cost_drag": 0.001,
+        },
+    )
+
+    gate = result["promotion_gate"].iloc[0]
+
+    assert gate["Turnover"] == pytest.approx(0.25)
+    assert gate["Transaction_Cost_Bps"] == pytest.approx(20.0)
+    assert gate["Transaction_Cost_Drag"] == pytest.approx(0.0005)
+    assert gate["Random_Percentile_Threshold"] == pytest.approx(0.95)
+    assert gate["Max_Turnover_Allowed"] == pytest.approx(0.50)
+    assert gate["Max_Transaction_Cost_Drag_Allowed"] == pytest.approx(0.001)
+
+
+def test_master_promotion_gate_rejects_invalid_configured_threshold():
+    with pytest.raises(ValueError, match="random_percentile_threshold"):
+        run_master_portfolio_research(
+            _returns(),
+            _metadata(),
+            min_holdings=5,
+            max_holdings=6,
+            max_weight=0.40,
+            n_random_portfolios=25,
+            random_state=5,
+            promotion_gate_config={"random_percentile_threshold": 1.01},
+        )
+
+
+def test_master_outputs_do_not_overwrite_canonical_risk_stress_evidence(tmp_path):
+    result = run_master_portfolio_research(
+        _returns(),
+        _metadata(),
+        min_holdings=5,
+        max_holdings=6,
+        max_weight=0.40,
+        n_random_portfolios=25,
+        random_state=5,
+    )
+    canonical = tmp_path / "global_stress_test_results.csv"
+    canonical.write_text("run_id,scenario\nrisk-run,equity_selloff\n", encoding="utf-8")
+    canonical_projection = tmp_path / "global_monte_carlo_projection.csv"
+    canonical_projection.write_text(
+        "run_id,terminal_value\nprojection-run,1.1\n",
+        encoding="utf-8",
+    )
+
+    master_portfolio.write_master_portfolio_outputs(result, tmp_path)
+
+    assert canonical.read_text(encoding="utf-8") == (
+        "run_id,scenario\nrisk-run,equity_selloff\n"
+    )
+    assert (tmp_path / "global_master_stress_test_results.csv").exists()
+    assert canonical_projection.read_text(encoding="utf-8") == (
+        "run_id,terminal_value\nprojection-run,1.1\n"
+    )
+    assert (tmp_path / "global_master_monte_carlo_projection.csv").exists()
+
+
 def test_master_random_benchmark_is_reproducible():
     first = run_master_portfolio_research(
         _returns(),

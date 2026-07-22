@@ -58,7 +58,19 @@ def test_walk_forward_recomputes_scores_inside_train_window_without_future_winne
     )
 
     assert result["summary"]["leakage_audit_passed"] is True
+    assert result["summary"]["leakage_audit_status"] == (
+        "passed_with_current_universe_survivorship_limitation"
+    )
+    assert result["summary"]["institutional_point_in_time_supported"] is False
     assert result["leakage_audit"]["passed"].all()
+    assert set(result["leakage_audit"]["evidence_scope"]) == {
+        "current_universe_not_point_in_time"
+    }
+    assert (
+        not result["leakage_audit"]["institutional_point_in_time_supported"]
+        .astype(bool)
+        .any()
+    )
     selected = result["window_summary"]["selected_tickers"].iloc[0]
     assert selected == "GOOD"
 

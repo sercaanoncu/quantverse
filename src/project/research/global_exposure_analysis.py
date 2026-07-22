@@ -184,19 +184,27 @@ def write_exposure_outputs(
 
 def _final_weights(weights: pd.DataFrame, final_model: str) -> pd.DataFrame:
     if weights.empty or not {"ticker", "weight"}.issubset(weights.columns):
-        return pd.DataFrame(columns=["ticker", "weight"])
+        raise ValueError("Final-model exposure requires non-empty ticker/weight data.")
     frame = weights.copy()
     if "model_name" in frame:
         selected = frame.loc[frame["model_name"].astype(str).eq(str(final_model))]
         if selected.empty:
-            selected = frame.loc[frame["model_name"].astype(str).eq("Equal Weight")]
-        frame = selected if not selected.empty else frame
+            raise ValueError(
+                f"Final model {final_model!r} is missing from the weight artifact."
+            )
+        frame = selected
     frame = frame[["ticker", "weight"]].copy()
     frame["ticker"] = frame["ticker"].astype(str)
-    frame["weight"] = pd.to_numeric(frame["weight"], errors="coerce").fillna(0.0)
+    frame["weight"] = pd.to_numeric(frame["weight"], errors="coerce")
+    if frame["weight"].isna().any() or not np.isfinite(frame["weight"]).all():
+        raise ValueError("Final-model exposure weights must be finite numeric values.")
+    if (frame["weight"] < -1e-12).any():
+        raise ValueError("Final-model exposure weights must be long-only.")
     total = float(frame["weight"].sum())
-    if total > 0:
-        frame["weight"] = frame["weight"] / total
+    if not np.isclose(total, 1.0, atol=1e-6, rtol=0.0):
+        raise ValueError(
+            f"Final-model exposure weights must sum to 1.0; observed {total:.12g}."
+        )
     return frame
 
 
@@ -672,7 +680,9 @@ def _metadata_quality(enriched: pd.DataFrame) -> pd.DataFrame:
             return 0.0
         values = enriched[column].fillna("missing").astype(str).str.strip()
         valid = values.ne("") & values.str.lower().ne("missing")
-        weights = pd.to_numeric(enriched["weight"], errors="coerce").fillna(0.0)
+        weights = pd.to_numeric(enriched["weight"], errors="coerce")
+        if weights.isna().any() or not np.isfinite(weights.to_numpy(dtype=float)).all():
+            return 0.0
         total = float(weights.sum())
         if total <= 0:
             return 0.0
@@ -757,7 +767,9 @@ def _metadata_quality(enriched: pd.DataFrame) -> pd.DataFrame:
 def _metadata_confidence_distribution(enriched: pd.DataFrame) -> dict[str, float]:
     if "metadata_confidence" not in enriched or enriched.empty:
         return {}
-    weights = pd.to_numeric(enriched["weight"], errors="coerce").fillna(0.0)
+    weights = pd.to_numeric(enriched["weight"], errors="coerce")
+    if weights.isna().any() or not np.isfinite(weights.to_numpy(dtype=float)).all():
+        return {}
     total = float(weights.sum())
     if total <= 0:
         return {}

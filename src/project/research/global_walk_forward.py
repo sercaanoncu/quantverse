@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 import pandas as pd
@@ -19,6 +21,24 @@ from project.research.global_portfolio_risk import evaluate_return_series
 from project.research.global_return_forecasting import build_return_forecasts
 from project.research.global_stock_scoring import build_global_stock_scores
 from project.research.global_stock_selection import apply_max_weight_cap
+
+
+class WalkForwardResult(TypedDict):
+    """Typed walk-forward evidence package."""
+
+    validation: pd.DataFrame
+    returns: pd.DataFrame
+    weights: pd.DataFrame
+    turnover: pd.DataFrame
+    leakage_audit: pd.DataFrame
+    window_summary: pd.DataFrame
+    model_comparison: pd.DataFrame
+    random_distribution: pd.DataFrame
+    random_returns: pd.DataFrame
+    random_weights: pd.DataFrame
+    random_benchmark_provenance: dict[str, object]
+    uncertainty: pd.DataFrame
+    summary: dict[str, object]
 
 
 def run_public_data_walk_forward(
@@ -43,7 +63,7 @@ def run_public_data_walk_forward(
     uncertainty_bootstrap_samples: int = 500,
     uncertainty_block_length: int = 21,
     uncertainty_confidence_level: float = 0.95,
-) -> dict[str, pd.DataFrame | dict[str, object]]:
+) -> WalkForwardResult:
     """Run current-universe public-data walk-forward research validation."""
     clean = _clean_returns(returns)
     scoped_tickers = _scope_tickers(
@@ -55,9 +75,13 @@ def run_public_data_walk_forward(
     if available_scoped:
         clean = clean[available_scoped].dropna(how="all")
     if clean.shape[0] < train_window_days + test_window_days:
-        summary = {
+        summary: dict[str, object] = {
             "walk_forward_status": "insufficient_history",
             "reason": "Not enough observations for configured train/test windows.",
+        }
+        random_provenance: dict[str, object] = {
+            "benchmark_scope": "not_available",
+            "provenance_status": "insufficient_history",
         }
         empty = pd.DataFrame()
         return {
@@ -69,6 +93,9 @@ def run_public_data_walk_forward(
             "window_summary": empty,
             "model_comparison": empty,
             "random_distribution": empty,
+            "random_returns": empty,
+            "random_weights": empty,
+            "random_benchmark_provenance": random_provenance,
             "uncertainty": empty,
             "summary": summary,
         }
@@ -83,6 +110,7 @@ def run_public_data_walk_forward(
     previous_random_weights: dict[int, pd.Series] = {}
     random_return_frames: list[pd.DataFrame] = []
     random_turnover_rows: list[dict[str, object]] = []
+    random_weight_rows: list[dict[str, object]] = []
     fold = 0
     starts = list(
         range(0, clean.shape[0] - train_window_days - test_window_days + 1, step_days)
@@ -182,9 +210,11 @@ def run_public_data_walk_forward(
             transaction_cost_bps=transaction_cost_bps,
             random_state=random_state,
             portfolio_count=random_benchmark_portfolios,
+            rebalance_date=as_of_date,
             previous_weights=previous_random_weights,
             return_frames=random_return_frames,
             turnover_rows=random_turnover_rows,
+            weight_rows=random_weight_rows,
         )
         run_models = status.loc[
             status["actual_status"].isin(
@@ -216,7 +246,7 @@ def run_public_data_walk_forward(
                 transaction_cost_bps=transaction_cost_bps,
             )
             turnover = _two_way_turnover(aligned, previous_weights.get(model))
-            previous_weights[model] = aligned
+            previous_weights[model] = _drift_weights_through_returns(aligned, test)
             validation_rows.append(
                 {
                     "fold": fold,
@@ -281,7 +311,11 @@ def run_public_data_walk_forward(
     turnover = pd.DataFrame(turnover_rows)
     leakage_audit = pd.DataFrame(leakage_rows)
     window_summary = pd.DataFrame(window_rows)
-    comparison = _comparison(validation, returns_long)
+    comparison = _comparison(
+        validation,
+        returns_long,
+        expected_dates=clean.index,
+    )
     uncertainty = _paired_block_bootstrap_uncertainty(
         returns_long,
         risk_free_rate_annual=risk_free_rate_annual,
@@ -302,15 +336,41 @@ def run_public_data_walk_forward(
         if random_return_frames
         else pd.DataFrame()
     )
+    random_weights_long = pd.DataFrame(random_weight_rows)
     random_distribution = _random_oos_distribution(
         random_returns_long,
         pd.DataFrame(random_turnover_rows),
         risk_free_rate_annual=risk_free_rate_annual,
     )
-    summary = _summary(comparison, validation, leakage_audit)
-    summary["random_benchmark_status"] = (
-        "walk_forward_oos_net" if not random_distribution.empty else "not_available"
+    random_provenance = _build_random_benchmark_provenance(
+        model_returns=returns_long,
+        random_returns=random_returns_long,
+        random_weights=random_weights_long,
+        window_summary=window_summary,
+        train_window_days=train_window_days,
+        test_window_days=test_window_days,
+        step_days=step_days,
+        max_assets=max_assets,
+        max_weight=max_weight,
+        transaction_cost_bps=transaction_cost_bps,
+        random_state=random_state,
+        risk_free_rate_annual=risk_free_rate_annual,
+        risk_free_policy=risk_free_policy,
     )
+    random_distribution = _attach_random_benchmark_protocol(
+        random_distribution,
+        random_provenance,
+    )
+    random_returns_long = _attach_random_benchmark_protocol(
+        random_returns_long,
+        random_provenance,
+    )
+    random_weights_long = _attach_random_benchmark_protocol(
+        random_weights_long,
+        random_provenance,
+    )
+    summary = _summary(comparison, validation, leakage_audit)
+    summary["random_benchmark_status"] = str(random_provenance["provenance_status"])
     summary["random_benchmark_portfolios"] = int(len(random_distribution))
     summary["uncertainty_status"] = (
         "paired_circular_block_bootstrap" if not uncertainty.empty else "not_available"
@@ -326,13 +386,16 @@ def run_public_data_walk_forward(
         "window_summary": window_summary,
         "model_comparison": comparison,
         "random_distribution": random_distribution,
+        "random_returns": random_returns_long,
+        "random_weights": random_weights_long,
+        "random_benchmark_provenance": random_provenance,
         "uncertainty": uncertainty,
         "summary": summary,
     }
 
 
 def write_walk_forward_outputs(
-    result: dict[str, pd.DataFrame | dict[str, object]],
+    result: WalkForwardResult,
     output_dir: str | Path,
 ) -> None:
     """Write walk-forward outputs."""
@@ -355,6 +418,16 @@ def write_walk_forward_outputs(
     )
     result["random_distribution"].to_csv(
         path / "global_walk_forward_random_distribution.csv", index=False
+    )
+    result["random_returns"].to_csv(
+        path / "global_walk_forward_random_returns.csv", index=False
+    )
+    result["random_weights"].to_csv(
+        path / "global_walk_forward_random_weights.csv", index=False
+    )
+    (path / "global_walk_forward_random_benchmark_provenance.json").write_text(
+        json.dumps(result["random_benchmark_provenance"], indent=2, default=str),
+        encoding="utf-8",
     )
     result["uncertainty"].to_csv(
         path / "global_walk_forward_uncertainty.csv", index=False
@@ -411,6 +484,50 @@ def _two_way_turnover(
     )
 
 
+def _drift_weights_through_returns(
+    weights: pd.Series,
+    asset_returns: pd.DataFrame,
+) -> pd.Series:
+    """Return end-of-window weights after buy-and-hold asset return drift.
+
+    The resulting weights are the economically relevant pre-trade weights for
+    the next rebalance. Missing selected returns fail closed; they are never
+    interpreted as zero returns or implicit cash.
+    """
+    current = pd.Series(weights, dtype=float)
+    current = current.loc[current.abs() > 1e-12]
+    if current.empty:
+        raise ValueError("Cannot drift an empty portfolio.")
+    missing_tickers = [
+        str(ticker) for ticker in current.index if ticker not in asset_returns.columns
+    ]
+    if missing_tickers:
+        raise ValueError(
+            "Selected portfolio weights are missing from the drift return matrix: "
+            + ", ".join(missing_tickers)
+        )
+    selected = asset_returns.reindex(columns=current.index).apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+    values = selected.to_numpy(dtype=float)
+    if selected.empty or not np.isfinite(values).all():
+        raise ValueError(
+            "Selected asset returns must be complete and finite before weight drift."
+        )
+    if bool((values < -1.0 - 1e-12).any()):
+        raise ValueError("A simple asset return below -100% is invalid.")
+    growth = (1.0 + selected).prod(axis=0)
+    terminal_values = current * growth
+    total = float(terminal_values.sum())
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("Portfolio terminal value must remain positive and finite.")
+    drifted = terminal_values / total
+    if not np.isfinite(drifted.to_numpy(dtype=float)).all():
+        raise ValueError("Drifted portfolio weights must be finite.")
+    return drifted.astype(float)
+
+
 def _append_random_oos_fold(
     test: pd.DataFrame,
     selected_tickers: list[str],
@@ -420,9 +537,11 @@ def _append_random_oos_fold(
     transaction_cost_bps: float,
     random_state: int,
     portfolio_count: int,
+    rebalance_date: pd.Timestamp,
     previous_weights: dict[int, pd.Series],
     return_frames: list[pd.DataFrame],
     turnover_rows: list[dict[str, object]],
+    weight_rows: list[dict[str, object]],
 ) -> None:
     if portfolio_count <= 0 or not selected_tickers:
         return
@@ -436,7 +555,7 @@ def _append_random_oos_fold(
             dtype=float,
         )
         target = apply_max_weight_cap(raw, max_weight)
-        aligned = target.reindex(test.columns).fillna(0.0)
+        aligned = target.astype(float)
         gross_returns = portfolio_return_series(test, aligned)
         if gross_returns.empty:
             continue
@@ -448,7 +567,8 @@ def _append_random_oos_fold(
             transaction_cost_bps=transaction_cost_bps,
         )
         turnover = _two_way_turnover(aligned, previous)
-        previous_weights[portfolio_id] = aligned
+        post_test = _drift_weights_through_returns(aligned, test)
+        previous_weights[portfolio_id] = post_test
         return_frames.append(
             pd.DataFrame(
                 {
@@ -465,7 +585,24 @@ def _append_random_oos_fold(
                 "portfolio_id": portfolio_id,
                 "turnover": turnover,
                 "transaction_cost_bps": float(transaction_cost_bps),
+                "transaction_cost_decimal": turnover
+                * float(transaction_cost_bps)
+                / 10000.0,
             }
+        )
+        prior = pd.Series(dtype=float) if previous is None else previous.astype(float)
+        union = aligned.index.union(prior.index).union(post_test.index)
+        weight_rows.extend(
+            {
+                "fold": fold,
+                "rebalance_date": rebalance_date,
+                "portfolio_id": portfolio_id,
+                "ticker": str(ticker),
+                "target_weight": float(aligned.get(ticker, 0.0)),
+                "pre_trade_weight": float(prior.get(ticker, 0.0)),
+                "post_test_weight": float(post_test.get(ticker, 0.0)),
+            }
+            for ticker in union
         )
 
 
@@ -501,26 +638,207 @@ def _random_oos_distribution(
         )
         rows.append(
             {
-                "portfolio_id": int(portfolio_id),
-                "folds": int(group["fold"].nunique()),
-                "avg_turnover": float(turnover_map.get(portfolio_id, np.nan)),
+                "portfolio_id": _integer(portfolio_id),
+                "folds": _integer(group["fold"].nunique()),
+                "avg_turnover": _number(turnover_map.get(portfolio_id, np.nan)),
                 "benchmark_scope": "walk_forward_oos_net",
                 "sampling_method": (
                     "iid_uniform_raw_scores_projected_to_capped_simplex"
                 ),
-                "cagr": float(metrics["cagr"]),
-                "annualized_return": float(metrics["annualized_return"]),
-                "volatility": float(metrics["annualized_volatility"]),
-                "sharpe": float(metrics["sharpe"]),
-                "sortino": float(metrics["sortino"]),
-                "max_drawdown": float(metrics["max_drawdown"]),
-                "var_95": float(metrics["var_95"]),
-                "cvar_95": float(metrics["cvar_95"]),
-                "calmar": float(metrics["calmar"]),
-                "total_return": float(metrics["total_return"]),
+                "cagr": _number(metrics["cagr"]),
+                "annualized_return": _number(metrics["annualized_return"]),
+                "volatility": _number(metrics["annualized_volatility"]),
+                "sharpe": _number(metrics["sharpe"]),
+                "sortino": _number(metrics["sortino"]),
+                "max_drawdown": _number(metrics["max_drawdown"]),
+                "var_95": _number(metrics["var_95"]),
+                "cvar_95": _number(metrics["cvar_95"]),
+                "calmar": _number(metrics["calmar"]),
+                "total_return": _number(metrics["total_return"]),
             }
         )
     return pd.DataFrame(rows)
+
+
+def _build_random_benchmark_provenance(
+    *,
+    model_returns: pd.DataFrame,
+    random_returns: pd.DataFrame,
+    random_weights: pd.DataFrame,
+    window_summary: pd.DataFrame,
+    train_window_days: int,
+    test_window_days: int,
+    step_days: int,
+    max_assets: int,
+    max_weight: float,
+    transaction_cost_bps: float,
+    random_state: int,
+    risk_free_rate_annual: float,
+    risk_free_policy: str,
+) -> dict[str, object]:
+    """Build auditable same-protocol evidence from actual OOS return rows."""
+    model_hashes = _date_hashes_by_group(model_returns, "model_name")
+    random_hashes = _date_hashes_by_group(random_returns, "portfolio_id")
+    equal_weight_hash = model_hashes.get("Equal Weight", "missing")
+    model_dates_match = bool(
+        equal_weight_hash != "missing"
+        and model_hashes
+        and all(value == equal_weight_hash for value in model_hashes.values())
+    )
+    random_dates_match = bool(
+        equal_weight_hash != "missing"
+        and random_hashes
+        and all(value == equal_weight_hash for value in random_hashes.values())
+    )
+    oos_dates_match = bool(model_dates_match and random_dates_match)
+    fold_schedule_hash = _stable_frame_hash(
+        window_summary,
+        [
+            "fold",
+            "train_start",
+            "train_end",
+            "test_start",
+            "test_end",
+        ],
+    )
+    selected_universe_hash = _stable_frame_hash(
+        window_summary,
+        ["fold", "selected_count", "selected_tickers"],
+    )
+    random_weights_hash = _stable_frame_hash(
+        random_weights,
+        [
+            "fold",
+            "portfolio_id",
+            "ticker",
+            "target_weight",
+            "pre_trade_weight",
+            "post_test_weight",
+        ],
+    )
+    protocol = {
+        "benchmark_scope": "walk_forward_oos_net",
+        "selection_protocol": "training_window_only_per_fold",
+        "constraint_policy": "long_only_capped_simplex",
+        "rebalance_schedule": "fixed_step_chronological_walk_forward",
+        "transaction_cost_convention": (
+            "gross_traded_notional_l1_applied_to_first_oos_day"
+        ),
+        "train_window_days": int(train_window_days),
+        "test_window_days": int(test_window_days),
+        "step_days": int(step_days),
+        "max_assets": int(max_assets),
+        "max_weight": float(max_weight),
+        "transaction_cost_bps": float(transaction_cost_bps),
+        "random_state": int(random_state),
+        "risk_free_rate_annual": float(risk_free_rate_annual),
+        "risk_free_policy": str(risk_free_policy),
+        "fold_count": (
+            int(window_summary["fold"].nunique())
+            if not window_summary.empty and "fold" in window_summary
+            else 0
+        ),
+        "random_portfolio_count": int(len(random_hashes)),
+        "fold_schedule_hash": fold_schedule_hash,
+        "selected_universe_by_fold_hash": selected_universe_hash,
+        "model_oos_dates_hash": equal_weight_hash,
+        "random_oos_dates_hash": (
+            next(iter(random_hashes.values()))
+            if random_hashes and random_dates_match
+            else "inconsistent_or_missing"
+        ),
+        "random_weights_hash": random_weights_hash,
+        "oos_dates_match": oos_dates_match,
+        "model_date_sets_match": model_dates_match,
+        "random_date_sets_match": random_dates_match,
+    }
+    protocol_payload = json.dumps(
+        protocol,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    protocol_hash = f"wf-random-{hashlib.sha256(protocol_payload).hexdigest()[:24]}"
+    return {
+        **protocol,
+        "protocol_hash": protocol_hash,
+        "provenance_status": (
+            "verified_same_protocol"
+            if oos_dates_match
+            and protocol["fold_count"] > 0
+            and protocol["random_portfolio_count"] > 0
+            and random_weights_hash != "missing"
+            else "failed_protocol_reconciliation"
+        ),
+        "limitation": (
+            "Current-universe public-data walk-forward benchmark; the protocol "
+            "match does not create institutional point-in-time evidence."
+        ),
+    }
+
+
+def _attach_random_benchmark_protocol(
+    frame: pd.DataFrame,
+    provenance: dict[str, object],
+) -> pd.DataFrame:
+    output = frame.copy()
+    if output.empty:
+        return output
+    output["benchmark_scope"] = str(provenance["benchmark_scope"])
+    output["benchmark_provenance_status"] = str(provenance["provenance_status"])
+    output["protocol_hash"] = str(provenance["protocol_hash"])
+    output["fold_schedule_hash"] = str(provenance["fold_schedule_hash"])
+    output["selected_universe_by_fold_hash"] = str(
+        provenance["selected_universe_by_fold_hash"]
+    )
+    output["model_oos_dates_hash"] = str(provenance["model_oos_dates_hash"])
+    output["random_oos_dates_hash"] = str(provenance["random_oos_dates_hash"])
+    output["random_weights_hash"] = str(provenance["random_weights_hash"])
+    output["transaction_cost_bps"] = _number(provenance["transaction_cost_bps"])
+    output["max_weight"] = _number(provenance["max_weight"])
+    return output
+
+
+def _date_hashes_by_group(
+    frame: pd.DataFrame,
+    group_column: str,
+) -> dict[object, str]:
+    if frame.empty or not {group_column, "Date"}.issubset(frame.columns):
+        return {}
+    hashes: dict[object, str] = {}
+    for key, group in frame.groupby(group_column, sort=True):
+        dates = (
+            pd.to_datetime(group["Date"], errors="coerce")
+            .dropna()
+            .drop_duplicates()
+            .sort_values()
+        )
+        payload = "\n".join(dates.dt.strftime("%Y-%m-%d")).encode("utf-8")
+        hashes[key] = f"dates-{hashlib.sha256(payload).hexdigest()[:24]}"
+    return hashes
+
+
+def _stable_frame_hash(frame: pd.DataFrame, columns: list[str]) -> str:
+    if frame.empty or not set(columns).issubset(frame.columns):
+        return "missing"
+    normalized = frame[columns].copy()
+    for column in columns:
+        if "date" in column or column.endswith("_start") or column.endswith("_end"):
+            normalized[column] = pd.to_datetime(
+                normalized[column], errors="coerce"
+            ).dt.strftime("%Y-%m-%d")
+        elif pd.api.types.is_numeric_dtype(normalized[column]):
+            numeric = pd.to_numeric(normalized[column], errors="coerce")
+            normalized[column] = numeric.map(
+                lambda value: (
+                    f"{float(value):.12g}" if np.isfinite(value) else "missing"
+                )
+            )
+        else:
+            normalized[column] = normalized[column].fillna("").astype(str)
+    normalized = normalized.sort_values(columns, kind="stable")
+    payload = normalized.to_csv(index=False, lineterminator="\n").encode("utf-8")
+    return f"frame-{hashlib.sha256(payload).hexdigest()[:24]}"
 
 
 def _paired_block_bootstrap_uncertainty(
@@ -541,6 +859,7 @@ def _paired_block_bootstrap_uncertainty(
         "bootstrap_samples",
         "block_length",
         "confidence_level",
+        "random_state",
         "annual_return_diff_ci_lower",
         "annual_return_diff_ci_upper",
         "probability_annual_return_improvement",
@@ -584,6 +903,7 @@ def _paired_block_bootstrap_uncertainty(
                     "bootstrap_samples": int(samples),
                     "block_length": int(block_length),
                     "confidence_level": float(confidence_level),
+                    "random_state": int(random_state),
                 }
             )
             continue
@@ -599,6 +919,7 @@ def _paired_block_bootstrap_uncertainty(
                     "bootstrap_samples": int(samples),
                     "block_length": int(block_length),
                     "confidence_level": float(confidence_level),
+                    "random_state": int(random_state) + 200_000 + model_number * 1009,
                 }
             )
             continue
@@ -649,6 +970,7 @@ def _paired_block_bootstrap_uncertainty(
                 "bootstrap_samples": int(samples),
                 "block_length": int(block_length),
                 "confidence_level": float(confidence_level),
+                "random_state": int(random_state) + 200_000 + model_number * 1009,
                 "annual_return_diff_ci_lower": float(annual_low),
                 "annual_return_diff_ci_upper": float(annual_high),
                 "probability_annual_return_improvement": float(
@@ -678,6 +1000,8 @@ def _bootstrap_sharpe(samples: np.ndarray, daily_hurdle: float) -> np.ndarray:
 def _comparison(
     validation: pd.DataFrame,
     returns_long: pd.DataFrame | None = None,
+    *,
+    expected_dates: pd.Index | None = None,
 ) -> pd.DataFrame:
     if validation.empty:
         return pd.DataFrame()
@@ -718,7 +1042,29 @@ def _comparison(
     clean_returns = returns_long.copy()
     clean_returns["Date"] = pd.to_datetime(clean_returns["Date"], errors="coerce")
     clean_returns["return"] = pd.to_numeric(clean_returns["return"], errors="coerce")
-    clean_returns = clean_returns.dropna(subset=["Date", "model_name", "return"])
+    clean_returns["fold"] = pd.to_numeric(clean_returns["fold"], errors="coerce")
+    clean_returns["model_name"] = clean_returns["model_name"].astype(str).str.strip()
+    return_values = clean_returns["return"].to_numpy(dtype=float)
+    fold_values = clean_returns["fold"].to_numpy(dtype=float)
+    finite_folds = np.isfinite(fold_values)
+    invalid_rows = (
+        clean_returns["Date"].isna()
+        | clean_returns["model_name"].eq("")
+        | ~np.isfinite(return_values)
+        | ~finite_folds
+        | ~(finite_folds & np.isclose(fold_values, np.round(fold_values)))
+    )
+    if invalid_rows.any():
+        raise ValueError(
+            "Walk-forward OOS returns contain invalid dates, folds, model names "
+            "or non-finite returns; rows must never be silently removed."
+        )
+    clean_returns["fold"] = clean_returns["fold"].astype(int)
+    _validate_oos_path_completeness(
+        validation_for_summary,
+        clean_returns,
+        expected_dates=expected_dates,
+    )
     duplicate_dates = clean_returns.duplicated(
         subset=["model_name", "Date"], keep=False
     )
@@ -740,7 +1086,7 @@ def _comparison(
             fold_summary["model_name"].astype(str).eq(str(model))
         ]
         risk_free_rate = (
-            float(model_fold_summary["risk_free_rate_annual"].iloc[0])
+            _number(model_fold_summary["risk_free_rate_annual"].iloc[0])
             if not model_fold_summary.empty
             else 0.0
         )
@@ -751,14 +1097,14 @@ def _comparison(
         metric_rows.append(
             {
                 "model_name": str(model),
-                "oos_observations": int(metrics["observations"]),
-                "oos_cagr": float(metrics["cagr"]),
-                "oos_annualized_return": float(metrics["annualized_return"]),
-                "oos_volatility": float(metrics["annualized_volatility"]),
-                "oos_sharpe": float(metrics["sharpe"]),
-                "oos_sortino": float(metrics["sortino"]),
-                "oos_max_drawdown": float(metrics["max_drawdown"]),
-                "oos_cvar_95": float(metrics["cvar_95"]),
+                "oos_observations": _integer(metrics["observations"]),
+                "oos_cagr": _number(metrics["cagr"]),
+                "oos_annualized_return": _number(metrics["annualized_return"]),
+                "oos_volatility": _number(metrics["annualized_volatility"]),
+                "oos_sharpe": _number(metrics["sharpe"]),
+                "oos_sortino": _number(metrics["sortino"]),
+                "oos_max_drawdown": _number(metrics["max_drawdown"]),
+                "oos_cvar_95": _number(metrics["cvar_95"]),
                 "metric_aggregation": (
                     "concatenated_non_overlapping_net_oos_daily_returns"
                 ),
@@ -788,6 +1134,102 @@ def _comparison(
             grouped["oos_cagr"] > ew_row["oos_cagr"]
         )
     return grouped.sort_values(["oos_sharpe", "oos_cagr"], ascending=False)
+
+
+def _validate_oos_path_completeness(
+    validation: pd.DataFrame,
+    returns_long: pd.DataFrame,
+    *,
+    expected_dates: pd.Index | None,
+) -> None:
+    required = {
+        "fold",
+        "model_name",
+        "test_start",
+        "test_end",
+        "test_observations",
+    }
+    if not required.issubset(validation.columns):
+        raise ValueError(
+            "Walk-forward validation requires fold, model_name, test_start, "
+            "test_end and test_observations to prove OOS path completeness."
+        )
+    schedule = validation[
+        ["fold", "model_name", "test_start", "test_end", "test_observations"]
+    ].copy()
+    schedule["fold"] = pd.to_numeric(schedule["fold"], errors="coerce")
+    schedule["test_observations"] = pd.to_numeric(
+        schedule["test_observations"],
+        errors="coerce",
+    )
+    schedule["test_start"] = pd.to_datetime(schedule["test_start"], errors="coerce")
+    schedule["test_end"] = pd.to_datetime(schedule["test_end"], errors="coerce")
+    schedule["model_name"] = schedule["model_name"].astype(str).str.strip()
+    fold_values = schedule["fold"].to_numpy(dtype=float)
+    observation_values = schedule["test_observations"].to_numpy(dtype=float)
+    invalid_schedule = (
+        schedule["test_start"].isna()
+        | schedule["test_end"].isna()
+        | schedule["model_name"].eq("")
+        | ~np.isfinite(fold_values)
+        | ~np.isclose(fold_values, np.round(fold_values))
+        | ~np.isfinite(observation_values)
+        | ~np.isclose(observation_values, np.round(observation_values))
+        | schedule["test_observations"].le(0)
+    )
+    if invalid_schedule.any() or schedule.duplicated(["fold", "model_name"]).any():
+        raise ValueError("Walk-forward fold/model schedule is invalid or duplicated.")
+    schedule["fold"] = schedule["fold"].astype(int)
+    schedule["test_observations"] = schedule["test_observations"].astype(int)
+
+    expected_index: pd.DatetimeIndex | None = None
+    if expected_dates is not None:
+        expected_index = pd.DatetimeIndex(
+            pd.to_datetime(expected_dates, errors="coerce")
+        )
+        expected_index = expected_index[expected_index.notna()].unique().sort_values()
+
+    expected_groups = set(
+        schedule[["fold", "model_name"]].itertuples(index=False, name=None)
+    )
+    observed_groups = set(
+        returns_long[["fold", "model_name"]].itertuples(index=False, name=None)
+    )
+    if expected_groups != observed_groups:
+        raise ValueError(
+            "Walk-forward OOS return groups do not exactly match the validation "
+            "fold/model schedule."
+        )
+
+    for row in schedule.itertuples(index=False):
+        test_start = pd.Timestamp(str(row.test_start))
+        test_end = pd.Timestamp(str(row.test_end))
+        actual = returns_long.loc[
+            returns_long["fold"].eq(row.fold)
+            & returns_long["model_name"].eq(row.model_name),
+            "Date",
+        ]
+        actual_dates = pd.DatetimeIndex(actual).unique().sort_values()
+        if expected_index is None:
+            dates_complete = bool(
+                len(actual_dates) == row.test_observations
+                and len(actual_dates) > 0
+                and actual_dates.min() == test_start
+                and actual_dates.max() == test_end
+            )
+        else:
+            scheduled_dates = expected_index[
+                (expected_index >= test_start) & (expected_index <= test_end)
+            ]
+            dates_complete = bool(
+                len(scheduled_dates) == row.test_observations
+                and actual_dates.equals(scheduled_dates)
+            )
+        if not dates_complete:
+            raise ValueError(
+                "Walk-forward OOS dates are incomplete or inconsistent for "
+                f"fold={row.fold}, model={row.model_name}."
+            )
 
 
 def _summary(
@@ -828,6 +1270,12 @@ def _summary(
         "leakage_audit_passed": (
             bool(leakage_audit["passed"].all()) if not leakage_audit.empty else False
         ),
+        "leakage_audit_status": (
+            "passed_with_current_universe_survivorship_limitation"
+            if not leakage_audit.empty and bool(leakage_audit["passed"].all())
+            else "failed_or_missing"
+        ),
+        "institutional_point_in_time_supported": False,
         "equal_weight_comparison": {
             "beats_equal_weight_avg_sharpe": bool(
                 best.get("beats_equal_weight_avg_sharpe", False)
@@ -855,7 +1303,7 @@ def _leakage_audit_rows(
         if "scoring_as_of_date" in scores
         else pd.Series([train_end])
     )
-    return [
+    rows = [
         {
             "fold": fold,
             "check": "train_end_before_test_start",
@@ -881,6 +1329,22 @@ def _leakage_audit_rows(
             "evidence": "build_global_stock_scores called on train window inside fold",
         },
     ]
+    for row in rows:
+        row.update(
+            {
+                "audit_status": (
+                    "passed_with_current_universe_survivorship_limitation"
+                    if bool(row["passed"])
+                    else "failed"
+                ),
+                "evidence_scope": "current_universe_not_point_in_time",
+                "institutional_point_in_time_supported": False,
+                "survivorship_bias_limitation": (
+                    "Current constituents are not historical point-in-time membership."
+                ),
+            }
+        )
+    return rows
 
 
 def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
@@ -927,3 +1391,21 @@ def _scope_tickers(
 
 def _truthy(value: object) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _number(value: object, *, default: float = np.nan) -> float:
+    """Convert scalar evidence to float while rejecting array-like values."""
+    try:
+        if value is None or value is pd.NA or value is pd.NaT:
+            return float(default)
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            return float(value)
+        return float(str(value))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _integer(value: object, *, default: int = 0) -> int:
+    """Convert scalar evidence to integer through the reviewed numeric contract."""
+    number = _number(value, default=float(default))
+    return int(number) if np.isfinite(number) else int(default)

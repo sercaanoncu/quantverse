@@ -291,7 +291,10 @@ class MonteCarloSimulator:
         terminal_returns = terminal - 1  # simple return
 
         # Drawdowns per path
-        running_max = np.maximum.accumulate(wealth_paths, axis=1)
+        running_max = np.maximum(
+            np.maximum.accumulate(wealth_paths, axis=1),
+            1.0,
+        )
         drawdowns = wealth_paths / running_max - 1
         max_drawdowns = drawdowns.min(axis=1)
 

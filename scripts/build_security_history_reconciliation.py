@@ -16,6 +16,9 @@ from project.research.run_identity import (  # noqa: E402
     read_run_manifest,
     register_artifacts,
 )
+from project.data_pipeline.security_identity import (  # noqa: E402
+    attach_run_metadata,
+)
 from project.research.security_history_reconciliation import (  # noqa: E402
     build_cross_artifact_count_reconciliation,
 )
@@ -36,6 +39,7 @@ def main() -> int:
     ) or {}
     v2 = config.get("v2", {})
     output = Path("data/processed")
+    run_metadata = read_run_manifest(output)
     scores_path = output / "global_stock_scores.csv"
     top_holdings_path = output / "global_top_holdings_explanation.csv"
     universe_path = Path("data/universe/current_global_equity_universe.csv")
@@ -45,12 +49,14 @@ def main() -> int:
             pd.read_csv(top_holdings_path),
             output,
             pd.read_csv(universe_path),
+            run_metadata=run_metadata,
         )
     reconciliation = build_cross_artifact_count_reconciliation(
         output,
         max_selected_stocks=int(v2.get("max_selected_stocks", 40)),
         walk_forward_max_assets=int(v2.get("walk_forward_max_assets", 20)),
     )
+    reconciliation = attach_run_metadata(reconciliation, run_metadata)
     path = output / "global_cross_artifact_count_reconciliation.csv"
     reconciliation.to_csv(path, index=False)
     register_artifacts(
@@ -60,7 +66,7 @@ def main() -> int:
             output / "global_selected_stocks_report_view.csv",
             output / "global_selected_stocks_report_view_quality.csv",
         ],
-        read_run_manifest(output),
+        run_metadata,
     )
     failed = reconciliation.loc[reconciliation["status"].astype(str).eq("failed")]
     print(

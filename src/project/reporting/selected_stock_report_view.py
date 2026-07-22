@@ -8,11 +8,14 @@ distinct meanings of listing venue, issuer domicile, and economic exposure.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import pandas as pd
 
-from project.data_pipeline.security_identity import resolve_security_master_rows
+from project.data_pipeline.security_identity import (
+    attach_run_metadata,
+    resolve_security_master_rows,
+)
 
 REPORT_COLUMNS = [
     "ticker",
@@ -262,6 +265,7 @@ def write_selected_stock_report_artifacts(
     top_holdings_metadata: pd.DataFrame,
     output_dir: str | Path,
     universe_metadata: pd.DataFrame | None = None,
+    run_metadata: Mapping[str, object] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build and write the semantic view plus its quality report."""
 
@@ -271,6 +275,9 @@ def write_selected_stock_report_artifacts(
         stock_scores, top_holdings_metadata, universe_metadata
     )
     quality = build_selected_stock_report_view_quality(report_view)
+    if run_metadata:
+        report_view = attach_run_metadata(report_view, run_metadata)
+        quality = attach_run_metadata(quality, run_metadata)
     report_view.to_csv(output / "global_selected_stocks_report_view.csv", index=False)
     quality.to_csv(
         output / "global_selected_stocks_report_view_quality.csv", index=False

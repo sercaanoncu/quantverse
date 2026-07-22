@@ -6,6 +6,7 @@ import pytest
 
 from project.research.global_visual_analytics import (
     VISUAL_ANALYTICS_FILES,
+    _resolve_final_model,
     build_drawdown_curve,
     build_equity_curve,
     build_exposure_chart,
@@ -15,6 +16,7 @@ from project.research.global_visual_analytics import (
     build_top_holdings_chart,
     build_visual_analytics_outputs,
     validate_visual_analytics_frames,
+    validate_visual_analytics_outputs,
 )
 
 
@@ -28,6 +30,11 @@ def test_equity_curve_starts_at_one_and_drawdown_non_positive():
     drawdown = build_drawdown_curve(equity, final_model="HRP")
 
     assert equity["equity_curve"].iloc[0] == 1.0
+    assert len(equity) == len(returns) + 1
+    assert equity["is_baseline"].tolist() == [True, False, False, False, False]
+    assert equity["equity_curve"].iloc[-1] == pytest.approx(
+        float(np.prod(1.0 + returns.to_numpy(dtype=float)))
+    )
     assert (drawdown["drawdown"] <= 0.0).all()
 
 
@@ -156,10 +163,67 @@ def test_visual_analytics_outputs_have_required_schema(tmp_path):
         assert (processed / filename).exists()
     assert set(outputs["model_risk_return"]["x_axis"]) == {"annualized_volatility"}
     assert set(outputs["model_risk_return"]["y_axis"]) == {"annualized_return"}
+    assert set(outputs["equity_curve"]["evidence_scope"]) == {"walk_forward_oos_net"}
+    assert int(outputs["equity_curve"]["source_observations"].iloc[0]) == 6
+    assert len(outputs["equity_curve"]) == 7
     exposure_summary = (
         outputs["summary"].loc[outputs["summary"]["chart_name"].eq("exposure")].iloc[0]
     )
     assert exposure_summary["validation_status"] == "passed_with_metadata_warning"
+
+
+def test_visual_validation_rejects_partial_non_finite_chart_values(tmp_path):
+    processed = _write_visual_fixture(tmp_path)
+    outputs = build_visual_analytics_outputs(processed)
+    outputs["drawdown_curve"].loc[1, "drawdown"] = np.nan
+    outputs["model_risk_return"].loc[0, "risk_x"] = np.nan
+    outputs["forecast_error"].loc[0, "model_mae"] = np.nan
+    outputs["random_benchmark"]["is_degenerate"] = outputs["random_benchmark"][
+        "is_degenerate"
+    ].astype(object)
+    outputs["random_benchmark"].loc[0, "is_degenerate"] = np.nan
+    outputs["exposure"].loc[0, "weight"] = np.nan
+
+    validation = validate_visual_analytics_frames(outputs).set_index("check")
+
+    assert not bool(validation.loc["drawdown_non_positive", "passed"])
+    assert not bool(validation.loc["risk_return_axes_correct", "passed"])
+    assert not bool(validation.loc["forecast_compares_random_walk", "passed"])
+    assert not bool(validation.loc["random_benchmark_not_degenerate", "passed"])
+    assert not bool(validation.loc["exposure_sums_to_one", "passed"])
+
+
+def test_visual_final_model_does_not_fallback_to_demo_summary():
+    with pytest.raises(ValueError, match="demo-summary fallback is not accepted"):
+        _resolve_final_model({}, {"final_selected_model": "HRP"})
+
+
+def test_visual_validator_rejects_full_sample_curve_labelled_as_oos(tmp_path):
+    processed = _write_visual_fixture(tmp_path)
+    build_visual_analytics_outputs(processed)
+    full_sample = pd.Series(
+        [0.001] * 80,
+        index=pd.date_range("2024-01-01", periods=80, freq="B"),
+    )
+    wrong_equity = build_equity_curve(full_sample, final_model="HRP")
+    wrong_drawdown = build_drawdown_curve(wrong_equity, final_model="HRP")
+    wrong_equity.to_csv(
+        processed / VISUAL_ANALYTICS_FILES["equity_curve"],
+        index=False,
+    )
+    wrong_drawdown.to_csv(
+        processed / VISUAL_ANALYTICS_FILES["drawdown_curve"],
+        index=False,
+    )
+
+    result = validate_visual_analytics_outputs(processed)
+
+    assert result["overall_status"] == "failed"
+    assert any(
+        row["check"] == "published_equity_curve_reconciles_stitched_oos_source"
+        and not row["passed"]
+        for row in result["checks"]
+    )
 
 
 def test_visual_analytics_does_not_fabricate_final_model(tmp_path):
@@ -188,6 +252,22 @@ def _write_visual_fixture(root: Path) -> Path:
             "weight": [0.6, 0.4, 0.5, 0.5],
         }
     ).to_csv(processed / "global_portfolio_league_weights.csv", index=False)
+    oos_dates = pd.date_range("2024-04-01", periods=6, freq="B")
+    pd.DataFrame(
+        [
+            {
+                "Date": date,
+                "fold": 0 if index < 3 else 1,
+                "model_name": model,
+                "return": value,
+            }
+            for model, values in [
+                ("HRP", [0.01, -0.02, 0.015, 0.005, -0.003, 0.012]),
+                ("Equal Weight", [0.008, -0.018, 0.012, 0.004, -0.002, 0.010]),
+            ]
+            for index, (date, value) in enumerate(zip(oos_dates, values, strict=True))
+        ]
+    ).to_csv(processed / "global_walk_forward_returns.csv", index=False)
     pd.DataFrame(
         {
             "model_name": ["HRP", "Equal Weight"],

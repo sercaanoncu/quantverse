@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +17,10 @@ from project.data_pipeline.market_cap_rank_evidence import (
     black_litterman_priors_available,
     validate_market_cap_rank_evidence,
 )
-from project.data_pipeline.security_identity import resolve_security_master_rows
+from project.data_pipeline.security_identity import (
+    attach_run_metadata,
+    resolve_security_master_rows,
+)
 from project.data_pipeline.security_universe import filter_included_investable_assets
 from project.optimization.black_litterman import black_litterman_weights
 from project.projection.portfolio_projection import (
@@ -51,6 +54,7 @@ def run_master_portfolio_research(
     n_random_portfolios: int = 10000,
     random_state: int = 42,
     portfolio_constraints: dict[str, float | int | bool] | None = None,
+    promotion_gate_config: Mapping[str, float | int] | None = None,
     fx_report: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame | dict[str, object]]:
     """Run the first-pass global master portfolio research layer."""
@@ -126,6 +130,7 @@ def run_master_portfolio_research(
         final_weights,
         candidates["Equal Weight"],
         randoms,
+        promotion_gate_config=promotion_gate_config,
     )
     final_constraint = constraint_audit.loc[
         constraint_audit["Model"].eq(final_model)
@@ -152,6 +157,7 @@ def run_master_portfolio_research(
             final_weights,
             candidates["Equal Weight"],
             randoms,
+            promotion_gate_config=promotion_gate_config,
         )
         final_constraint = constraint_audit.loc[
             constraint_audit["Model"].eq(final_model)
@@ -266,6 +272,24 @@ def write_master_portfolio_outputs(
     """Write master portfolio outputs to CSV/JSON."""
     path = Path(output_dir)
     path.mkdir(parents=True, exist_ok=True)
+    decision_summary = result.get("decision_summary")
+    if not isinstance(decision_summary, dict):
+        raise TypeError("decision_summary must be a dictionary.")
+    run_metadata = {
+        key: value
+        for key, value in decision_summary.items()
+        if key
+        in {
+            "run_id",
+            "execution_id",
+            "data_as_of_date",
+            "generated_at",
+            "universe_snapshot_id",
+            "data_snapshot_id",
+            "config_hash",
+            "input_fingerprint",
+        }
+    }
     file_map = {
         "selected_assets": "global_master_selected_assets.csv",
         "candidate_weights": "global_master_candidate_weights.csv",
@@ -279,7 +303,7 @@ def write_master_portfolio_outputs(
         "cluster_weights": "global_master_cluster_weights.csv",
         "risk_report": "global_master_risk_report.csv",
         "projection_summary": "global_master_projection_summary.csv",
-        "stress_tests": "global_stress_test_results.csv",
+        "stress_tests": "global_master_stress_test_results.csv",
         "correlation_matrix": "global_correlation_matrix.csv",
         "high_correlation_pairs": "global_high_correlation_pairs.csv",
         "cluster_diagnostics": "global_cluster_diagnostics.csv",
@@ -290,13 +314,22 @@ def write_master_portfolio_outputs(
     for key, filename in file_map.items():
         value = result[key]
         if isinstance(value, pd.DataFrame):
-            value.to_csv(path / filename, index=key != "correlation_matrix")
-    (path / "global_monte_carlo_projection.csv").write_text(
-        result["projection_summary"].to_csv(index=False),
+            bound = attach_run_metadata(value, run_metadata) if run_metadata else value
+            bound.to_csv(path / filename, index=key != "correlation_matrix")
+    projection_summary = result.get("projection_summary")
+    if not isinstance(projection_summary, pd.DataFrame):
+        raise TypeError("projection_summary must be a DataFrame.")
+    bound_projection = (
+        attach_run_metadata(projection_summary, run_metadata)
+        if run_metadata
+        else projection_summary
+    )
+    (path / "global_master_monte_carlo_projection.csv").write_text(
+        bound_projection.to_csv(index=False),
         encoding="utf-8",
     )
     (path / "global_master_decision_summary.json").write_text(
-        json.dumps(result["decision_summary"], indent=2),
+        json.dumps(decision_summary, indent=2),
         encoding="utf-8",
     )
 
@@ -493,7 +526,52 @@ def _comparison_and_gate(
     candidate_weights: pd.Series,
     equal_weight_weights: pd.Series,
     randoms: pd.DataFrame,
+    *,
+    promotion_gate_config: Mapping[str, float | int] | None = None,
 ) -> tuple[dict[str, float | bool], dict[str, object]]:
+    config = dict(promotion_gate_config or {})
+    turnover = _finite_gate_value(
+        config.get("estimated_initial_turnover", 1.0),
+        name="estimated_initial_turnover",
+        minimum=0.0,
+    )
+    transaction_cost_bps = _finite_gate_value(
+        config.get("transaction_cost_bps", 10.0),
+        name="transaction_cost_bps",
+        minimum=0.0,
+    )
+    random_percentile_threshold = _finite_gate_value(
+        config.get("random_percentile_threshold", 0.90),
+        name="random_percentile_threshold",
+        minimum=0.0,
+        maximum=1.0,
+    )
+    volatility_relative_limit = _finite_gate_value(
+        config.get("volatility_relative_limit", 1.25),
+        name="volatility_relative_limit",
+        minimum=0.0,
+        minimum_inclusive=False,
+    )
+    max_drawdown_penalty = _finite_gate_value(
+        config.get("max_drawdown_penalty", 0.05),
+        name="max_drawdown_penalty",
+        minimum=0.0,
+    )
+    cvar_penalty = _finite_gate_value(
+        config.get("cvar_penalty", 0.05),
+        name="cvar_penalty",
+        minimum=0.0,
+    )
+    max_turnover = _finite_gate_value(
+        config.get("max_turnover", 1.0),
+        name="max_turnover",
+        minimum=0.0,
+    )
+    max_transaction_cost_drag = _finite_gate_value(
+        config.get("max_transaction_cost_drag", 0.0025),
+        name="max_transaction_cost_drag",
+        minimum=0.0,
+    )
     candidate_returns = returns @ candidate_weights
     ew_returns = returns @ equal_weight_weights
     comparison = compare_candidate_to_equal_weight_and_random(
@@ -503,12 +581,48 @@ def _comparison_and_gate(
     )
     comparison.update(
         {
-            "Turnover": 1.0,
-            "Transaction_Cost_Bps": 10.0,
-            "Transaction_Cost_Drag": 0.001,
+            "Turnover": turnover,
+            "Transaction_Cost_Bps": transaction_cost_bps,
+            "Transaction_Cost_Drag": turnover * transaction_cost_bps / 10000.0,
         }
     )
-    return comparison, build_stock_selection_promotion_gate(comparison)
+    return comparison, build_stock_selection_promotion_gate(
+        comparison,
+        random_percentile_threshold=random_percentile_threshold,
+        volatility_relative_limit=volatility_relative_limit,
+        max_drawdown_penalty=max_drawdown_penalty,
+        cvar_penalty=cvar_penalty,
+        max_turnover=max_turnover,
+        max_transaction_cost_drag=max_transaction_cost_drag,
+    )
+
+
+def _finite_gate_value(
+    value: object,
+    *,
+    name: str,
+    minimum: float,
+    maximum: float | None = None,
+    minimum_inclusive: bool = True,
+) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite numeric value.") from exc
+    minimum_ok = number >= minimum if minimum_inclusive else number > minimum
+    maximum_ok = maximum is None or number <= maximum
+    if not np.isfinite(number) or not minimum_ok or not maximum_ok:
+        interval = (
+            f"{minimum} <= {name} <= {maximum}"
+            if maximum is not None and minimum_inclusive
+            else (
+                f"{minimum} < {name}"
+                if maximum is None and not minimum_inclusive
+                else f"{name} >= {minimum}"
+            )
+        )
+        raise ValueError(f"{name} violates its configured domain ({interval}).")
+    return number
 
 
 def _apply_non_performance_blocks(

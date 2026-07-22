@@ -50,6 +50,32 @@ def parse_args() -> argparse.Namespace:
         default="configs/global_returns_matrix.yaml",
         help="Path to global returns matrix YAML config.",
     )
+    parser.add_argument(
+        "--analysis-config",
+        default="configs/global_equity_research.yaml",
+        help=(
+            "Path to the downstream analytical YAML included in the composite "
+            "run identity."
+        ),
+    )
+    parser.add_argument(
+        "--master-config",
+        default="configs/global_master_portfolio.yaml",
+        help=(
+            "Path to the master-portfolio YAML included in the composite run "
+            "identity."
+        ),
+    )
+    parser.add_argument(
+        "--source-config",
+        default="configs/source_universe_validation.yaml",
+        help="Path to the source-universe validation YAML included in run identity.",
+    )
+    parser.add_argument(
+        "--universe-config",
+        default="configs/current_global_universe.yaml",
+        help="Path to the current-universe build YAML included in run identity.",
+    )
     return parser.parse_args()
 
 
@@ -60,6 +86,30 @@ def main() -> int:
         print(f"Config not found: {config_path}")
         return 1
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    analysis_config_path = Path(args.analysis_config)
+    if not analysis_config_path.exists():
+        print(f"Analysis config not found: {analysis_config_path}")
+        return 1
+    analysis_config = (
+        yaml.safe_load(analysis_config_path.read_text(encoding="utf-8")) or {}
+    )
+    master_config_path = Path(args.master_config)
+    if not master_config_path.exists():
+        print(f"Master portfolio config not found: {master_config_path}")
+        return 1
+    master_config = yaml.safe_load(master_config_path.read_text(encoding="utf-8")) or {}
+    source_config_path = Path(args.source_config)
+    if not source_config_path.exists():
+        print(f"Source universe config not found: {source_config_path}")
+        return 1
+    source_config = yaml.safe_load(source_config_path.read_text(encoding="utf-8")) or {}
+    universe_config_path = Path(args.universe_config)
+    if not universe_config_path.exists():
+        print(f"Current universe config not found: {universe_config_path}")
+        return 1
+    universe_config = (
+        yaml.safe_load(universe_config_path.read_text(encoding="utf-8")) or {}
+    )
     output_dir = Path(config.get("output_dir", "data/processed"))
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -146,7 +196,13 @@ def main() -> int:
         universe,
         data_as_of_date=data_as_of,
         data_snapshot=simple_returns_usd,
-        config=config,
+        config_components={
+            "returns_matrix": config,
+            "analysis": analysis_config,
+            "master_portfolio": master_config,
+            "source_universe": source_config,
+            "current_universe": universe_config,
+        },
     )
     write_run_manifest(output_dir, run_manifest, reset_registry=True)
     identity_audit = build_security_identity_audit(
@@ -183,6 +239,7 @@ def main() -> int:
     log_returns_usd.to_csv(
         output_dir / "global_security_log_returns_usd.csv", index_label="Date"
     )
+    fx_prices.to_csv(output_dir / "global_fx_prices.csv", index_label="Date")
     simple_returns_usd.to_csv(
         output_dir / "global_security_simple_returns.csv", index_label="Date"
     )
@@ -213,11 +270,13 @@ def main() -> int:
     register_artifacts(
         output_dir,
         [
+            *[Path(path) for path in universe_paths if path and Path(path).exists()],
             output_dir / "global_security_prices.csv",
             output_dir / "global_security_simple_returns_local.csv",
             output_dir / "global_security_simple_returns_usd.csv",
             output_dir / "global_security_log_returns_local.csv",
             output_dir / "global_security_log_returns_usd.csv",
+            output_dir / "global_fx_prices.csv",
             output_dir / "global_returns_coverage_report.csv",
             output_dir / "global_fx_normalization_report.csv",
             output_dir / "global_security_identity_audit.csv",
@@ -225,6 +284,7 @@ def main() -> int:
             output_dir / "global_returns_matrix_status.json",
         ],
         run_manifest,
+        root=ROOT,
     )
     print(f"Global returns matrix assets: {simple_returns_usd.shape[1]}")
     return 0

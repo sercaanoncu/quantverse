@@ -72,6 +72,8 @@ def main() -> int:
             output / "global_risk_contribution_report.csv",
             output / "global_stress_test_results.csv",
             output / "global_tail_risk_report.csv",
+            output / "global_risk_metric_definitions.csv",
+            output / "global_risk_metric_sanity_checks.csv",
         ],
         run_metadata,
     )

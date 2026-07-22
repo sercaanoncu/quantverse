@@ -487,7 +487,7 @@ def _write_signal_artifacts(
         signals = fetcher.fetch_signals(use_cache=True)
         if signals.empty:
             raise ValueError("empty signal data")
-        signals = signals.sort_index().loc[: analysis_index[-1]].ffill()
+        signals = signals.sort_index().loc[: analysis_index[-1]].ffill(limit=5)
         signals = signals.loc[signals.index >= analysis_index[0]]
         signals.to_parquet(output_dir / "market_signals.parquet")
         return {

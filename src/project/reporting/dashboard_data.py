@@ -68,7 +68,7 @@ class DashboardDataBuilder:
             ann_vol = r.std() * np.sqrt(252)
             sharpe = (ann_ret - self.risk_free_rate) / ann_vol if ann_vol > 0 else 0
             cum = (1 + r).cumprod()
-            max_dd = (cum / cum.cummax() - 1).min()
+            max_dd = (cum / cum.cummax().clip(lower=1.0) - 1).min()
             rows.append(
                 {
                     "Strategy": strat,
@@ -182,7 +182,7 @@ class DashboardDataBuilder:
         for strat in self.strategies[:6]:
             r = self._port_returns(strat)
             cum = (1 + r).cumprod()
-            dd = (cum / cum.cummax() - 1) * 100
+            dd = (cum / cum.cummax().clip(lower=1.0) - 1) * 100
             ax5.plot(dd.index, dd.values, lw=1, alpha=0.7, label=strat)
         ax5.set_ylabel("Drawdown (%)")
         ax5.set_title("Drawdowns", fontsize=12, fontweight="bold")

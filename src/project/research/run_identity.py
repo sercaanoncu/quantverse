@@ -31,12 +31,26 @@ def build_run_manifest(
     generated_at: str | None = None,
     data_snapshot: pd.DataFrame | pd.Series | None = None,
     config: Mapping[str, object] | None = None,
+    config_components: Mapping[str, Mapping[str, object]] | None = None,
 ) -> dict[str, str]:
     """Create execution and stable-input identities for one evidence build."""
     generated = generated_at or datetime.now(timezone.utc).isoformat()
     universe_id = universe_snapshot_id(universe)
     data_id = data_snapshot_id(data_snapshot)
-    config_id = config_snapshot_hash(config)
+    components = {
+        str(name): dict(payload)
+        for name, payload in sorted((config_components or {}).items())
+    }
+    if components:
+        config_id = config_snapshot_hash({"components": components})
+        component_hashes = {
+            name: config_snapshot_hash(payload) for name, payload in components.items()
+        }
+        config_scope = "composite:" + ",".join(components)
+    else:
+        config_id = config_snapshot_hash(config)
+        component_hashes = {"primary": config_id}
+        config_scope = "single_config"
     input_seed = f"{universe_id}|{data_as_of_date}|{data_id}|{config_id}".encode(
         "utf-8"
     )
@@ -53,6 +67,12 @@ def build_run_manifest(
         "universe_snapshot_id": universe_id,
         "data_snapshot_id": data_id,
         "config_hash": config_id,
+        "config_scope": config_scope,
+        "config_component_hashes": json.dumps(
+            component_hashes,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
         "input_fingerprint": input_fingerprint,
     }
 
@@ -67,15 +87,27 @@ def universe_snapshot_id(universe: pd.DataFrame) -> str:
             "ticker",
             "name",
             "sleeve",
+            "region",
+            "country",
+            "listing_country",
+            "issuer_country",
+            "economic_country",
             "exchange",
             "currency",
             "asset_type",
+            "sector",
+            "industry",
+            "market_cap_usd",
+            "market_cap_rank",
             "investable",
             "benchmark_only",
             "signal_only",
             "include",
             "as_of_date",
+            "source",
+            "data_provider",
             "source_method",
+            "proxy_type",
         ]
         if column in universe
     ]
@@ -150,9 +182,12 @@ def register_artifacts(
     output_dir: str | Path,
     artifact_paths: Iterable[str | Path],
     manifest: dict[str, str] | None = None,
+    *,
+    root: str | Path | None = None,
 ) -> pd.DataFrame:
     """Register generated artifacts against the active run identity."""
     output = Path(output_dir)
+    project_root = Path(root).resolve() if root is not None else Path.cwd().resolve()
     metadata = manifest or read_run_manifest(output)
     if not metadata or not metadata.get("run_id"):
         raise ValueError("QuantVerse v2 run manifest is missing.")
@@ -173,11 +208,12 @@ def register_artifacts(
     for raw_path in artifact_paths:
         path = Path(raw_path)
         if not path.is_absolute():
-            path = Path.cwd() / path
+            path = project_root / path
+        path = path.resolve()
         if not path.exists() or not path.is_file():
             continue
         try:
-            artifact = path.relative_to(Path.cwd()).as_posix()
+            artifact = path.relative_to(project_root).as_posix()
         except ValueError:
             artifact = str(path)
         rows.append(
@@ -197,6 +233,62 @@ def register_artifacts(
     return combined
 
 
+def validate_registered_artifacts(
+    output_dir: str | Path,
+    artifact_paths: Iterable[str | Path],
+    *,
+    manifest: Mapping[str, object] | None = None,
+    root: str | Path | None = None,
+) -> list[str]:
+    """Return fail-closed registry, identity, size, and SHA-256 mismatches."""
+    output = Path(output_dir)
+    project_root = Path(root).resolve() if root is not None else Path.cwd().resolve()
+    expected = dict(manifest or read_run_manifest(output))
+    registry_path = output / RUN_REGISTRY_NAME
+    if not registry_path.exists():
+        return ["artifact_registry:missing"]
+    registry = pd.read_csv(registry_path, dtype=str).fillna("")
+    required = {"artifact", *RUN_FIELDS, "file_size", "sha256"}
+    if not required.issubset(registry.columns):
+        return [
+            "artifact_registry:missing_columns="
+            + ",".join(sorted(required.difference(registry.columns)))
+        ]
+
+    failures: list[str] = []
+    for raw_path in artifact_paths:
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = project_root / path
+        path = path.resolve()
+        try:
+            artifact = path.relative_to(project_root).as_posix()
+        except ValueError:
+            artifact = str(path)
+        rows = registry.loc[registry["artifact"].astype(str).eq(artifact)]
+        if len(rows) != 1:
+            failures.append(f"{artifact}:registry_rows={len(rows)}")
+            continue
+        if not path.exists() or not path.is_file():
+            failures.append(f"{artifact}:file_missing")
+            continue
+        row = rows.iloc[0]
+        identity_mismatch = [
+            field
+            for field in RUN_FIELDS
+            if str(row.get(field, "")) != str(expected.get(field, ""))
+        ]
+        if identity_mismatch:
+            failures.append(
+                f"{artifact}:identity_mismatch=" + ",".join(sorted(identity_mismatch))
+            )
+        if str(row.get("file_size", "")) != str(int(path.stat().st_size)):
+            failures.append(f"{artifact}:file_size_mismatch")
+        if str(row.get("sha256", "")) != file_sha256(path):
+            failures.append(f"{artifact}:sha256_mismatch")
+    return failures
+
+
 def registry_run_ids(
     output_dir: str | Path,
     artifacts: Iterable[str],
@@ -211,9 +303,14 @@ def registry_run_ids(
     return dict(zip(subset["artifact"], subset["run_id"], strict=False))
 
 
-def _file_hash(path: Path) -> str:
+def file_sha256(path: str | Path) -> str:
+    """Return a streaming SHA-256 digest for one artifact."""
+    source = Path(path)
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    with source.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+_file_hash = file_sha256

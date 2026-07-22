@@ -10,8 +10,6 @@ import numpy as np
 import pandas as pd
 
 from project.research.global_model_selection import (
-    build_final_model_decision,
-    build_model_selection_report,
     build_random_percentile_report,
     simulate_constrained_random_distribution,
 )
@@ -237,26 +235,52 @@ def _one_scenario(
         random_state=random_seed,
     )
     percentiles = build_random_percentile_report(league, random_distribution)
-    selection = build_model_selection_report(
-        league,
-        walk_forward=None,
-        risk_report=None,
-        turnover=None,
-        random_percentiles=percentiles,
-        robustness_status="diagnostic_configuration_stability_only",
+    diagnostic_candidates = league.loc[
+        league["actual_status"].astype(str).isin(["actually_run", "benchmark_only"])
+        & league["constraints_pass"].map(_truthy)
+        & league["model_name"].astype(str).ne("Random Portfolios")
+    ].copy()
+    diagnostic_candidates["sharpe"] = pd.to_numeric(
+        diagnostic_candidates["sharpe"], errors="coerce"
     )
-    decision = build_final_model_decision(selection)
-    final_model = str(decision["final_selected_model"])
-    final_row = selection.loc[selection["model_name"].astype(str).eq(final_model)]
-    final_row = final_row.iloc[0] if not final_row.empty else selection.iloc[0]
+    diagnostic_candidates = diagnostic_candidates.dropna(subset=["sharpe"])
+    if diagnostic_candidates.empty:
+        raise ValueError(
+            "No constrained current-sample model is available for diagnostic "
+            "robustness comparison."
+        )
+    final_row = diagnostic_candidates.sort_values(
+        ["sharpe", "model_name"],
+        ascending=[False, True],
+    ).iloc[0]
+    final_model = str(final_row["model_name"])
     final_weights = _weights_for_model(weights, final_model, returns[selected_tickers])
     turnover_proxy = _weight_turnover(
         final_weights,
         pd.Series(1.0 / len(final_weights), index=final_weights.index),
     )
     transaction_cost_drag = turnover_proxy * transaction_cost_bps / 10000.0
-    gross_return = float(final_row["walk_forward_annualized_return"])
+    gross_return = float(final_row["annualized_return"])
     net_return = gross_return - transaction_cost_drag
+    random_row = percentiles.loc[percentiles["model_name"].astype(str).eq(final_model)]
+    random_sharpe_percentile = (
+        float(random_row["sharpe_percentile"].iloc[0])
+        if not random_row.empty
+        else float("nan")
+    )
+    equal_weight = diagnostic_candidates.loc[
+        diagnostic_candidates["model_name"].astype(str).eq("Equal Weight")
+    ]
+    ew_return = (
+        float(equal_weight["annualized_return"].iloc[0])
+        if not equal_weight.empty
+        else float("nan")
+    )
+    ew_sharpe = (
+        float(equal_weight["sharpe"].iloc[0])
+        if not equal_weight.empty
+        else float("nan")
+    )
     return {
         "row": {
             "scenario_id": scenario_id,
@@ -269,26 +293,27 @@ def _one_scenario(
             "transaction_cost_bps": transaction_cost_bps,
             "random_seed": random_seed,
             "final_model": final_model,
-            "final_model_selection_score": float(
-                decision["final_model_selection_score"]
-            ),
+            "final_model_selection_score": float(final_row["sharpe"]),
             "gross_annualized_return": gross_return,
             "transaction_cost_drag": transaction_cost_drag,
             "net_annualized_return": net_return,
-            "sharpe": float(final_row["walk_forward_sharpe"]),
-            "max_drawdown": float(final_row["walk_forward_max_drawdown"]),
-            "cvar_95": float(final_row["walk_forward_cvar_95"]),
+            "sharpe": float(final_row["sharpe"]),
+            "max_drawdown": float(final_row["max_drawdown"]),
+            "cvar_95": float(final_row["cvar_95"]),
             "selected_holdings_count": int((final_weights.abs() > 1e-10).sum()),
             "selected_holdings_overlap_with_base": np.nan,
             "top10_overlap_with_base": np.nan,
             "weight_turnover_vs_base": np.nan,
-            "random_sharpe_percentile": float(final_row["random_sharpe_percentile"]),
+            "random_sharpe_percentile": random_sharpe_percentile,
             "equal_weight_return_gate": bool(
-                final_row["beats_equal_weight_return_after_costs"]
+                np.isfinite(ew_return) and net_return > ew_return
             ),
-            "equal_weight_sharpe_gate": bool(final_row["beats_equal_weight_sharpe"]),
+            "equal_weight_sharpe_gate": bool(
+                np.isfinite(ew_sharpe) and float(final_row["sharpe"]) > ew_sharpe
+            ),
             "stability_interpretation": (
-                "Scenario evidence; not a guarantee of future stability."
+                "Current-sample diagnostic Sharpe comparator only; not OOS selection, "
+                "not promotion evidence and not a guarantee of future stability."
             ),
         },
         "weights": final_weights,
@@ -483,3 +508,7 @@ def _weight_turnover(current: pd.Series, base: pd.Series) -> float:
     return float(
         (current.reindex(idx).fillna(0.0) - base.reindex(idx).fillna(0.0)).abs().sum()
     )
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "passed"}

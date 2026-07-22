@@ -24,7 +24,35 @@ from project.research.global_master_portfolio import (
     run_master_portfolio_research,
     write_master_portfolio_outputs,
 )
-from project.research.run_identity import read_run_manifest
+from project.research.run_identity import read_run_manifest, register_artifacts
+
+MASTER_PORTFOLIO_ARTIFACTS = (
+    "global_market_cap_rank_evidence_report.csv",
+    "global_exact_proxy_classification_report.csv",
+    "global_market_cap_rank_blockers.csv",
+    "global_black_litterman_prerequisite_report.csv",
+    "global_master_selected_assets.csv",
+    "global_master_candidate_weights.csv",
+    "global_master_model_comparison.csv",
+    "global_master_equal_weight_comparison.csv",
+    "global_master_random_portfolio_benchmark.csv",
+    "global_master_promotion_gate.csv",
+    "global_master_constraint_audit.csv",
+    "global_master_asset_class_weights.csv",
+    "global_master_region_weights.csv",
+    "global_master_cluster_weights.csv",
+    "global_master_risk_report.csv",
+    "global_master_projection_summary.csv",
+    "global_master_stress_test_results.csv",
+    "global_correlation_matrix.csv",
+    "global_high_correlation_pairs.csv",
+    "global_cluster_diagnostics.csv",
+    "global_estimator_comparison.csv",
+    "global_master_exact_proxy_classification.csv",
+    "global_master_black_litterman_prerequisites.csv",
+    "global_master_monte_carlo_projection.csv",
+    "global_master_decision_summary.json",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -117,6 +145,7 @@ def main() -> int:
     selection = config.get("selection", {}) or {}
     random_cfg = config.get("random_portfolios", {}) or {}
     constraints = config.get("portfolio_constraints", {}) or {}
+    promotion_gate = config.get("promotion_gate", {}) or {}
     minimum_holdings = int(selection.get("min_holdings", 10))
     if returns.shape[1] < minimum_holdings:
         message = (
@@ -135,6 +164,7 @@ def main() -> int:
         n_random_portfolios=int(random_cfg.get("n_portfolios", 10000)),
         random_state=int(selection.get("random_state", 42)),
         portfolio_constraints=constraints,
+        promotion_gate_config=promotion_gate,
         fx_report=fx_report,
     )
     result["decision_summary"].update(
@@ -145,6 +175,12 @@ def main() -> int:
         }
     )
     write_master_portfolio_outputs(result, output_dir)
+    register_artifacts(
+        output_dir,
+        [output_dir / name for name in MASTER_PORTFOLIO_ARTIFACTS],
+        run_metadata,
+        root=ROOT,
+    )
     if excluded:
         print(
             "Excluded from global master portfolio inputs by history gate: "

@@ -125,7 +125,7 @@ def build_global_stock_scores(
             ticker,
             clean[ticker],
             metadata,
-            diversification_scores.get(ticker, 1.0),
+            diversification_scores.get(ticker, 0.0),
             eligibility_map.get(ticker, {}),
         )
         for ticker in tickers
@@ -468,18 +468,25 @@ def _max_drawdown(series: pd.Series) -> float:
     if clean.empty:
         return 0.0
     wealth = (1.0 + clean).cumprod()
-    drawdown = wealth / wealth.cummax() - 1.0
+    running_peak = wealth.cummax().clip(lower=1.0)
+    drawdown = wealth / running_peak - 1.0
     return float(drawdown.min())
 
 
 def _correlation_diversification_scores(matrix: pd.DataFrame) -> pd.Series:
     if matrix.shape[1] <= 1:
-        return pd.Series(1.0, index=matrix.columns)
+        return pd.Series(0.0, index=matrix.columns)
     corr = matrix.corr().abs().replace([np.inf, -np.inf], np.nan)
     corr_array = corr.to_numpy(dtype=float, copy=True)
     np.fill_diagonal(corr_array, np.nan)
-    corr = pd.DataFrame(corr_array, index=corr.index, columns=corr.columns)
-    return (1.0 - corr.mean(skipna=True)).fillna(1.0)
+    observed_credit = np.where(
+        np.isfinite(corr_array),
+        1.0 - np.clip(corr_array, 0.0, 1.0),
+        0.0,
+    )
+    np.fill_diagonal(observed_credit, 0.0)
+    scores = observed_credit.sum(axis=1) / float(matrix.shape[1] - 1)
+    return pd.Series(scores, index=matrix.columns, dtype=float).clip(0.0, 1.0)
 
 
 def _market_cap_percentile(metadata: pd.DataFrame, tickers: pd.Series) -> pd.Series:

@@ -54,6 +54,7 @@ LEAGUE_COLUMNS = [
     "weight_sum",
     "negative_weight_count",
     "max_weight",
+    "configured_max_weight",
     "effective_holdings",
     "concentration_warning",
     "cagr",
@@ -142,7 +143,10 @@ def build_portfolio_league(
         statuses,
         "Max Sharpe",
         lambda: build_shrinkage_max_sharpe_portfolio(
-            selected_returns, selected, max_weight=max_weight
+            selected_returns,
+            selected,
+            max_weight=max_weight,
+            risk_free_rate_annual=risk_free_rate_annual,
         ),
         "diagnostic_only",
         "Expected-return optimizer; diagnostic until walk-forward evidence supports it.",
@@ -351,6 +355,7 @@ def _league_row(
             "metric_observations": 0,
             "risk_free_rate_annual": float(risk_free_rate_annual),
             "risk_free_policy": str(risk_free_policy),
+            "configured_max_weight": float(max_weight),
             "promotion_eligible": False,
             "rejection_reason": status["reason"],
             "interpretation": "Model is listed for governance but not executable under current inputs.",
@@ -393,6 +398,7 @@ def _league_row(
         "weight_sum": weight_sum,
         "negative_weight_count": negative,
         "max_weight": max_observed,
+        "configured_max_weight": float(max_weight),
         "effective_holdings": _effective_holdings(aligned),
         "concentration_warning": (
             "high_concentration" if (aligned**2).sum() > 0.20 else "none"
@@ -457,6 +463,7 @@ def _random_portfolio_row(
         "weight_sum": 1.0,
         "negative_weight_count": 0,
         "max_weight": max_weight,
+        "configured_max_weight": float(max_weight),
         "effective_holdings": np.nan,
         "concentration_warning": "benchmark_distribution",
         "cagr": float(frame["cagr"].median()),
@@ -574,10 +581,17 @@ def _forecast_enhanced_weights(
     max_weight: float,
 ) -> pd.Series:
     vol = returns.std(ddof=1).replace(0.0, np.nan)
-    raw = (expected_returns.clip(lower=0.0) / vol).replace([np.inf, -np.inf], np.nan)
-    if raw.fillna(0.0).sum() <= 0:
-        raw = expected_returns.rank(pct=True).fillna(0.5)
-    return _cap_and_normalize(raw.reindex(returns.columns).fillna(0.0), max_weight)
+    raw = (expected_returns.reindex(returns.columns).clip(lower=0.0) / vol).replace(
+        [np.inf, -np.inf], np.nan
+    )
+    if raw.isna().any():
+        raise ValueError(
+            "Forecast-enhanced weights require finite forecasts and volatility "
+            "for every selected asset."
+        )
+    if raw.sum() <= 0:
+        raw = expected_returns.reindex(returns.columns).rank(pct=True)
+    return _cap_and_normalize(raw, max_weight)
 
 
 def _policy_constrained(
@@ -596,7 +610,9 @@ def _policy_constrained(
 
 
 def _cap_and_normalize(weights: pd.Series, max_weight: float) -> pd.Series:
-    raw = pd.Series(weights, dtype=float).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    raw = pd.Series(weights, dtype=float).replace([np.inf, -np.inf], np.nan)
+    if raw.isna().any():
+        raise ValueError("Portfolio score/weight inputs must be finite.")
     raw = raw.clip(lower=0.0)
     if max_weight * len(raw) < 1.0 - 1e-12:
         raise ValueError("max_weight is infeasible for selected assets.")

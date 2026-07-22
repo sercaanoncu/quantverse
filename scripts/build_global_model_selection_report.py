@@ -38,11 +38,16 @@ def main() -> int:
     weights = _read_csv(PROCESSED / "global_portfolio_league_weights.csv")
     risk = _read_csv(PROCESSED / "global_portfolio_risk_report.csv")
     walk = _read_csv(PROCESSED / "global_walk_forward_model_comparison.csv")
+    leakage_audit = _read_csv(PROCESSED / "global_walk_forward_leakage_audit.csv")
     turnover = _read_csv(PROCESSED / "global_walk_forward_turnover.csv")
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
     robustness = _read_json(PROCESSED / "global_parameter_sensitivity_summary.json")
+    random_provenance = _read_json(
+        PROCESSED / "global_walk_forward_random_benchmark_provenance.json"
+    )
+    run_metadata = read_run_manifest(PROCESSED)
     if league.empty or returns.empty:
         print("Missing league or returns; model selection report not built.")
         return 0
@@ -53,7 +58,6 @@ def main() -> int:
         and oos_random["benchmark_scope"].astype(str).eq("walk_forward_oos_net").all()
     ):
         random_distribution = oos_random
-        random_benchmark_scope = "walk_forward_oos_net"
         benchmark_model_metrics = _oos_model_metrics(league, walk)
     else:
         selected_tickers = _selected_tickers_from_weights(weights, returns)
@@ -65,7 +69,6 @@ def main() -> int:
             random_state=int(config.get("random_state", 42)),
         )
         random_distribution["benchmark_scope"] = "full_sample_static_weights_diagnostic"
-        random_benchmark_scope = "full_sample_static_weights_diagnostic"
         benchmark_model_metrics = league
     random_percentiles = build_random_percentile_report(
         benchmark_model_metrics,
@@ -77,6 +80,8 @@ def main() -> int:
         risk_report=risk,
         turnover=turnover,
         random_percentiles=random_percentiles,
+        random_distribution=random_distribution,
+        walk_forward_leakage_audit=leakage_audit,
         drawdown_tolerance=float(
             config.get("max_drawdown_worsening_vs_equal_weight", 0.05)
         ),
@@ -89,11 +94,11 @@ def main() -> int:
         ),
         max_turnover=float(config.get("max_turnover", 2.0)),
         forecast_validation_status=_forecast_validation_status(forecast_validation),
-        robustness_status=str(robustness.get("robustness_status", "missing")),
-        random_benchmark_scope=random_benchmark_scope,
+        robustness_evidence=robustness,
+        random_benchmark_provenance=random_provenance,
+        expected_run_identity=run_metadata,
     )
     decision = build_final_model_decision(selection)
-    run_metadata = read_run_manifest(PROCESSED)
     selection = attach_run_metadata(selection, run_metadata)
     random_distribution = attach_run_metadata(random_distribution, run_metadata)
     random_percentiles = attach_run_metadata(random_percentiles, run_metadata)
@@ -109,6 +114,7 @@ def main() -> int:
         PROCESSED,
         [
             PROCESSED / "global_model_selection_report.csv",
+            PROCESSED / "global_model_selection_diagnostics.csv",
             PROCESSED / "global_final_model_decision.csv",
             PROCESSED / "global_final_model_decision.json",
             PROCESSED / "global_random_portfolio_distribution.csv",

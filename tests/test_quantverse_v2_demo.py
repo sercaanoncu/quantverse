@@ -103,7 +103,8 @@ def test_v2_demo_summary_schema_and_random_percentile(tmp_path, monkeypatch):
 
 
 def test_v2_pipeline_builds_robustness_evidence_before_model_selection():
-    scripts = [step[0] for step in demo._pipeline_steps("unit.yaml")]
+    steps = demo._pipeline_steps("unit.yaml")
+    scripts = [step[0] for step in steps]
 
     assert scripts.index("scripts/build_global_returns_matrix.py") < scripts.index(
         "scripts/run_global_statistical_diagnostics.py"
@@ -116,6 +117,16 @@ def test_v2_pipeline_builds_robustness_evidence_before_model_selection():
     )
     assert scripts.index("scripts/run_global_robustness_analysis.py") < (
         scripts.index("scripts/build_global_model_selection_report.py")
+    )
+    returns_step = next(
+        step for step in steps if step[0] == "scripts/build_global_returns_matrix.py"
+    )
+    master_step = next(
+        step for step in steps if step[0] == "scripts/run_global_master_portfolio.py"
+    )
+    assert (
+        returns_step[returns_step.index("--master-config") + 1]
+        == master_step[master_step.index("--config") + 1]
     )
 
 

@@ -95,11 +95,121 @@ def _random() -> pd.DataFrame:
     )
 
 
+def _identity(run_id: str = "unit-run") -> dict[str, str]:
+    return {
+        "run_id": run_id,
+        "config_hash": "config-unit",
+        "input_fingerprint": "input-unit",
+        "universe_snapshot_id": "universe-unit",
+        "data_snapshot_id": "data-unit",
+    }
+
+
+def _robustness(
+    status: str = "promotion_grade_nested_walk_forward_oos",
+    *,
+    run_id: str = "unit-run",
+    promotion_eligible: bool = True,
+) -> dict[str, object]:
+    return {
+        **_identity(run_id),
+        "robustness_status": status,
+        "robustness_method": "nested_chronological_walk_forward_oos",
+        "promotion_eligible": promotion_eligible,
+    }
+
+
+def _random_provenance(
+    *,
+    scope: str = "walk_forward_oos_net",
+    status: str = "verified_same_protocol",
+    run_id: str = "unit-run",
+) -> dict[str, object]:
+    return {
+        **_identity(run_id),
+        "benchmark_scope": scope,
+        "provenance_status": status,
+        "protocol_hash": "wf-random-unit",
+        "fold_schedule_hash": "frame-folds",
+        "selected_universe_by_fold_hash": "frame-universe",
+        "model_oos_dates_hash": "dates-unit",
+        "random_oos_dates_hash": "dates-unit",
+        "oos_dates_match": True,
+        "constraint_policy": "long_only_capped_simplex",
+        "train_window_days": 252,
+        "test_window_days": 21,
+        "step_days": 21,
+        "max_weight": 0.10,
+        "transaction_cost_bps": 10.0,
+        "random_portfolio_count": 2,
+    }
+
+
+def _random_distribution(
+    provenance: dict[str, object] | None = None,
+) -> pd.DataFrame:
+    payload = provenance or _random_provenance()
+    return pd.DataFrame(
+        [
+            {
+                "portfolio_id": portfolio_id,
+                "benchmark_scope": payload["benchmark_scope"],
+                "benchmark_provenance_status": payload["provenance_status"],
+                "protocol_hash": payload["protocol_hash"],
+                **{
+                    field: payload[field]
+                    for field in [
+                        "run_id",
+                        "config_hash",
+                        "input_fingerprint",
+                        "universe_snapshot_id",
+                        "data_snapshot_id",
+                    ]
+                },
+            }
+            for portfolio_id in range(2)
+        ]
+    )
+
+
+def _promotion_evidence() -> dict[str, object]:
+    provenance = _random_provenance()
+    identity = _identity()
+    leakage = pd.DataFrame(
+        [
+            {
+                "fold": 1,
+                "check": check,
+                "passed": True,
+                "audit_status": (
+                    "passed_with_current_universe_survivorship_limitation"
+                ),
+                "evidence_scope": "current_universe_not_point_in_time",
+                **identity,
+            }
+            for check in [
+                "train_end_before_test_start",
+                "scores_as_of_not_after_train_end",
+                "selected_tickers_available_in_train",
+                "scores_recomputed_inside_fold",
+            ]
+        ]
+    )
+    return {
+        "random_distribution": _random_distribution(provenance),
+        "robustness_evidence": _robustness(),
+        "random_benchmark_provenance": provenance,
+        "walk_forward_leakage_audit": leakage,
+        "expected_run_identity": identity,
+    }
+
+
 def test_active_model_can_beat_equal_weight_on_risk_adjusted_evidence():
     report = build_model_selection_report(
         _league(),
         walk_forward=_walk(),
         random_percentiles=_random(),
+        **_promotion_evidence(),
     )
     decision = build_final_model_decision(report)
 
@@ -121,6 +231,7 @@ def test_equal_weight_wins_when_active_fails_turnover_gate():
         walk_forward=_walk(active_turnover=3.0),
         random_percentiles=_random(),
         max_turnover=2.0,
+        **_promotion_evidence(),
     )
     decision = build_final_model_decision(report)
 
@@ -130,11 +241,16 @@ def test_equal_weight_wins_when_active_fails_turnover_gate():
 
 
 def test_configuration_only_sensitivity_cannot_pass_robustness_gate():
+    evidence = _promotion_evidence()
+    evidence["robustness_evidence"] = _robustness(
+        "diagnostic_configuration_stability_only",
+        promotion_eligible=False,
+    )
     report = build_model_selection_report(
         _league(),
         walk_forward=_walk(),
         random_percentiles=_random(),
-        robustness_status="diagnostic_configuration_stability_only",
+        **evidence,
     )
     decision = build_final_model_decision(report)
 
@@ -148,11 +264,18 @@ def test_configuration_only_sensitivity_cannot_pass_robustness_gate():
 
 
 def test_full_sample_random_distribution_cannot_pass_oos_random_gate():
+    evidence = _promotion_evidence()
+    provenance = _random_provenance(
+        scope="full_sample_static_weights_diagnostic",
+        status="diagnostic_full_sample",
+    )
+    evidence["random_benchmark_provenance"] = provenance
+    evidence["random_distribution"] = _random_distribution(provenance)
     report = build_model_selection_report(
         _league(),
         walk_forward=_walk(),
         random_percentiles=_random(),
-        random_benchmark_scope="full_sample_static_weights_diagnostic",
+        **evidence,
     )
     decision = build_final_model_decision(report)
 
@@ -160,8 +283,8 @@ def test_full_sample_random_distribution_cannot_pass_oos_random_gate():
     active = report.loc[report["model_name"].eq("Risk Managed Active")].iloc[0]
     assert not bool(active["random_sharpe_gate_pass"])
     assert (
-        "random benchmark is not same-protocol walk-forward OOS net evidence"
-        in active["promotion_gate_failed_reasons"]
+        "random benchmark provenance does not prove same-protocol "
+        "walk-forward OOS net evidence" in active["promotion_gate_failed_reasons"]
     )
 
 
@@ -174,6 +297,7 @@ def test_sharpe_point_estimate_cannot_pass_when_block_bootstrap_crosses_zero():
         _league(),
         walk_forward=walk,
         random_percentiles=_random(),
+        **_promotion_evidence(),
     )
     decision = build_final_model_decision(report)
 
@@ -188,6 +312,7 @@ def test_diagnostic_model_cannot_be_final_selected():
         _league(active_status="diagnostic_only"),
         walk_forward=_walk(),
         random_percentiles=_random(),
+        **_promotion_evidence(),
     )
     decision = build_final_model_decision(report)
 
@@ -206,6 +331,7 @@ def test_empty_or_missing_benchmark_evidence_cannot_select_a_model():
         _league(),
         walk_forward=_walk(),
         random_percentiles=_random(),
+        **_promotion_evidence(),
     )
     without_benchmark = report.loc[~report["model_name"].eq("Equal Weight")]
     decision = build_final_model_decision(without_benchmark)
@@ -231,6 +357,7 @@ def test_metric_review_warning_blocks_active_model_selection():
         walk_forward=_walk(),
         risk_report=risk,
         random_percentiles=_random(),
+        **_promotion_evidence(),
     )
     decision = build_final_model_decision(report)
 
@@ -244,8 +371,86 @@ def test_model_selection_diagnostics_schema_is_stable():
         _league(),
         walk_forward=_walk(),
         random_percentiles=_random(),
+        **_promotion_evidence(),
     )
     diagnostics = build_model_selection_diagnostics(report)
 
     assert list(diagnostics.columns) == MODEL_SELECTION_DIAGNOSTIC_COLUMNS
     assert "book_grounded_rank" in diagnostics
+
+
+def test_missing_robustness_fails_closed():
+    evidence = _promotion_evidence()
+    evidence["robustness_evidence"] = None
+    report = build_model_selection_report(
+        _league(),
+        walk_forward=_walk(),
+        random_percentiles=_random(),
+        **evidence,
+    )
+
+    active = report.loc[report["model_name"].eq("Risk Managed Active")].iloc[0]
+    assert not bool(active["robustness_gate_pass"])
+    assert active["robustness_evidence_status"] == "missing"
+
+
+def test_stale_robustness_fails_closed():
+    evidence = _promotion_evidence()
+    evidence["robustness_evidence"] = _robustness(run_id="stale-run")
+    report = build_model_selection_report(
+        _league(),
+        walk_forward=_walk(),
+        random_percentiles=_random(),
+        **evidence,
+    )
+
+    active = report.loc[report["model_name"].eq("Risk Managed Active")].iloc[0]
+    assert not bool(active["robustness_gate_pass"])
+    assert active["robustness_evidence_status"] == "stale_or_mismatched_run_identity"
+
+
+def test_mismatched_config_hash_fails_robustness_and_random_gates():
+    evidence = _promotion_evidence()
+    robustness = _robustness()
+    robustness["config_hash"] = "config-from-another-run"
+    provenance = _random_provenance()
+    provenance["config_hash"] = "config-from-another-run"
+    evidence["robustness_evidence"] = robustness
+    evidence["random_benchmark_provenance"] = provenance
+    evidence["random_distribution"] = _random_distribution(provenance)
+
+    report = build_model_selection_report(
+        _league(),
+        walk_forward=_walk(),
+        random_percentiles=_random(),
+        **evidence,
+    )
+
+    active = report.loc[report["model_name"].eq("Risk Managed Active")].iloc[0]
+    assert not bool(active["robustness_gate_pass"])
+    assert not bool(active["random_sharpe_gate_pass"])
+    assert active["robustness_evidence_status"] == "stale_or_mismatched_run_identity"
+    assert active["random_benchmark_provenance_status"] == (
+        "stale_or_mismatched_run_identity"
+    )
+
+
+def test_fragile_robustness_fails_closed():
+    evidence = _promotion_evidence()
+    evidence["robustness_evidence"] = _robustness(
+        "fragile_nested_walk_forward_oos",
+        promotion_eligible=False,
+    )
+    report = build_model_selection_report(
+        _league(),
+        walk_forward=_walk(),
+        random_percentiles=_random(),
+        **evidence,
+    )
+
+    active = report.loc[report["model_name"].eq("Risk Managed Active")].iloc[0]
+    assert not bool(active["robustness_gate_pass"])
+    assert active["robustness_evidence_status"] in {
+        "diagnostic_not_promotion_grade",
+        "fragile_or_failed",
+    }

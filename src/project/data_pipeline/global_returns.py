@@ -157,7 +157,12 @@ def build_log_returns_matrix(prices: pd.DataFrame) -> pd.DataFrame:
     """Convert adjusted-close prices into log returns for diagnostics."""
     clean = prices.apply(pd.to_numeric, errors="coerce").sort_index()
     clean = clean.loc[:, clean.notna().any()]
-    log_prices = np.log(clean.where(clean > 0))
+    positive = clean.where(clean > 0)
+    log_prices = pd.DataFrame(
+        np.log(positive.to_numpy(dtype=float)),
+        index=positive.index,
+        columns=positive.columns,
+    )
     return log_prices.diff().replace([float("inf"), -float("inf")], pd.NA)
 
 
@@ -217,6 +222,15 @@ def normalize_returns_to_base(
     currency. When an FX quote is supplied in the inverse direction, the quote
     price is inverted before returns are computed.
     """
+    if isinstance(max_forward_fill_days, bool) or not isinstance(
+        max_forward_fill_days,
+        (int, np.integer),
+    ):
+        raise ValueError("max_forward_fill_days must be a nonnegative integer.")
+    max_forward_fill_days = int(max_forward_fill_days)
+    if max_forward_fill_days < 0:
+        raise ValueError("max_forward_fill_days must be a nonnegative integer.")
+
     mappings = fx_mappings or DEFAULT_FX_MAPPINGS
     base = str(base_currency).upper()
     local = local_returns.apply(pd.to_numeric, errors="coerce").sort_index()
@@ -235,11 +249,15 @@ def normalize_returns_to_base(
     )
     tickers = list(local.columns)
     for ticker in tickers:
-        row = (
-            metadata.loc[ticker]
-            if ticker in metadata.index
-            else pd.Series(dtype=object)
-        )
+        if ticker in metadata.index:
+            selected_row = metadata.loc[ticker]
+            row = (
+                selected_row.iloc[0]
+                if isinstance(selected_row, pd.DataFrame)
+                else selected_row
+            )
+        else:
+            row = pd.Series(dtype=object)
         currency = str(row.get("currency", base) or base).upper()
         mapping = dict(mappings.get(currency, {}))
         asset_series = local[ticker]
@@ -305,6 +323,7 @@ def normalize_returns_to_base(
                 "fallback_behavior": str(
                     mapping.get("fallback_behavior", "fx_missing") or "fx_missing"
                 ),
+                "max_forward_fill_days": int(max_forward_fill_days),
                 "asset_return_observations": asset_obs,
                 "fx_return_observations": fx_obs,
                 "aligned_return_observations": aligned_obs,
@@ -377,9 +396,13 @@ def normalize_returns_to_base(
 def simple_to_log_returns(simple_returns: pd.DataFrame) -> pd.DataFrame:
     """Convert simple returns into log returns for diagnostics."""
     clean = simple_returns.apply(pd.to_numeric, errors="coerce")
-    return np.log1p(clean.where(clean > -1.0)).replace(
-        [float("inf"), -float("inf")], pd.NA
+    valid = clean.where(clean > -1.0)
+    result = pd.DataFrame(
+        np.log1p(valid.to_numpy(dtype=float)),
+        index=valid.index,
+        columns=valid.columns,
     )
+    return result.replace([float("inf"), -float("inf")], pd.NA)
 
 
 def coverage_report(
@@ -502,9 +525,11 @@ def _row_flags(row: pd.Series) -> dict[str, bool]:
 
 
 def _as_bool(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if pd.isna(value):
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if value is None or value is pd.NA or value is pd.NaT:
+        return False
+    if isinstance(value, (float, np.floating)) and np.isnan(float(value)):
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
@@ -567,6 +592,8 @@ def fetch_prices_with_yfinance(
             group_by="column",
             threads=True,
         )
+        if data is None:
+            continue
         close = _extract_close(data, batch)
         if not close.empty:
             frames.append(close)
@@ -591,4 +618,6 @@ def _extract_close(data: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
         close = data[["Close"]] if "Close" in data else data
         if len(tickers) == 1:
             close.columns = tickers
-    return close.apply(pd.to_numeric, errors="coerce")
+    if isinstance(close, pd.Series):
+        close = close.to_frame(name=tickers[0] if tickers else str(close.name))
+    return pd.DataFrame(close).apply(pd.to_numeric, errors="coerce")
