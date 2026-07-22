@@ -14,12 +14,11 @@ from project.research.global_stock_selection import cluster_assets_by_correlatio
 
 
 def clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
-    """Return numeric returns with all-empty rows/columns removed."""
+    """Return numeric returns without converting missing observations to zero."""
     return (
         returns.apply(pd.to_numeric, errors="coerce")
         .dropna(axis=0, how="all")
         .dropna(axis=1, how="all")
-        .fillna(0.0)
     )
 
 
@@ -28,6 +27,7 @@ def summary_statistics(returns: pd.DataFrame) -> pd.DataFrame:
     clean = clean_returns(returns)
     rows = []
     for ticker, series in clean.items():
+        series = series.dropna().astype(float)
         rows.append(
             {
                 "ticker": ticker,
@@ -51,6 +51,7 @@ def normality_tests(returns: pd.DataFrame) -> pd.DataFrame:
     clean = clean_returns(returns)
     rows = []
     for ticker, series in clean.items():
+        series = series.dropna().astype(float)
         if series.count() < 8:
             rows.append(
                 {
@@ -101,6 +102,7 @@ def stationarity_tests(returns: pd.DataFrame) -> pd.DataFrame:
             ]
         )
     for ticker, series in clean.items():
+        series = series.dropna().astype(float)
         if series.count() < 30:
             rows.append(
                 {
@@ -112,7 +114,21 @@ def stationarity_tests(returns: pd.DataFrame) -> pd.DataFrame:
                 }
             )
             continue
-        result = adfuller(series)
+        try:
+            result = adfuller(series)
+        except (ValueError, np.linalg.LinAlgError) as exc:
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "test": "adf",
+                    "statistic": np.nan,
+                    "p_value": np.nan,
+                    "stationarity_result": (
+                        f"not_computable_{type(exc).__name__.lower()}"
+                    ),
+                }
+            )
+            continue
         rows.append(
             {
                 "ticker": ticker,
@@ -131,14 +147,26 @@ def stationarity_tests(returns: pd.DataFrame) -> pd.DataFrame:
 
 def pca_summary(returns: pd.DataFrame, max_components: int = 10) -> pd.DataFrame:
     """Summarize PCA explained variance."""
-    clean = clean_returns(returns)
+    clean = _complete_case_returns(returns)
+    columns = [
+        "component",
+        "explained_variance_ratio",
+        "cumulative_explained_variance",
+        "status",
+    ]
     if clean.empty:
+        return pd.DataFrame(columns=columns)
+    if float(clean.var(ddof=1).sum()) <= 1e-15:
         return pd.DataFrame(
-            columns=[
-                "component",
-                "explained_variance_ratio",
-                "cumulative_explained_variance",
-            ]
+            [
+                {
+                    "component": 1,
+                    "explained_variance_ratio": np.nan,
+                    "cumulative_explained_variance": np.nan,
+                    "status": "not_computable_zero_total_variance",
+                }
+            ],
+            columns=columns,
         )
     n_components = min(max_components, clean.shape[1], clean.shape[0])
     pca = PCA(n_components=n_components, random_state=42)
@@ -149,13 +177,14 @@ def pca_summary(returns: pd.DataFrame, max_components: int = 10) -> pd.DataFrame
             "component": range(1, n_components + 1),
             "explained_variance_ratio": pca.explained_variance_ratio_,
             "cumulative_explained_variance": cumulative,
+            "status": "computed",
         }
-    )
+    ).reindex(columns=columns)
 
 
 def covariance_estimator_comparison(returns: pd.DataFrame) -> pd.DataFrame:
     """Compare covariance estimators for diagnostics."""
-    clean = clean_returns(returns)
+    clean = _complete_case_returns(returns)
     if clean.empty:
         return pd.DataFrame()
     sample = clean.cov() * TRADING_DAYS_PER_YEAR
@@ -167,7 +196,10 @@ def covariance_estimator_comparison(returns: pd.DataFrame) -> pd.DataFrame:
         columns=clean.columns,
     )
     ewma = clean.ewm(span=63, adjust=False).cov().groupby(level=1).tail(1)
-    ewma = ewma.droplevel(0) * TRADING_DAYS_PER_YEAR
+    ewma = (
+        ewma.droplevel(0).reindex(index=clean.columns, columns=clean.columns)
+        * TRADING_DAYS_PER_YEAR
+    )
     rows = []
     for name, cov in {
         "sample_covariance": sample,
@@ -176,24 +208,50 @@ def covariance_estimator_comparison(returns: pd.DataFrame) -> pd.DataFrame:
         "ewma_covariance": ewma,
     }.items():
         values = cov.to_numpy(dtype=float)
-        eigvals = np.linalg.eigvalsh(np.nan_to_num(values))
+        finite = bool(np.isfinite(values).all())
+        eigvals = (
+            np.linalg.eigvalsh(0.5 * (values + values.T))
+            if finite
+            else np.array([np.nan])
+        )
+        condition_number = float(np.linalg.cond(values)) if finite else np.inf
+        psd = bool(finite and np.nanmin(eigvals) >= -1e-10)
+        status = (
+            "invalid_non_finite"
+            if not finite
+            else (
+                "invalid_non_psd"
+                if not psd
+                else (
+                    "computed_ill_conditioned"
+                    if not np.isfinite(condition_number) or condition_number > 1e12
+                    else "computed"
+                )
+            )
+        )
         rows.append(
             {
                 "estimator": name,
-                "average_variance": float(np.diag(values).mean()),
-                "condition_number": float(np.linalg.cond(np.nan_to_num(values))),
-                "min_eigenvalue": float(eigvals.min()),
-                "psd_check": bool(eigvals.min() >= -1e-10),
-                "status": "computed",
+                "average_variance": (
+                    float(np.diag(values).mean()) if finite else np.nan
+                ),
+                "condition_number": condition_number,
+                "min_eigenvalue": float(np.nanmin(eigvals)),
+                "psd_check": psd,
+                "status": status,
             }
         )
     return pd.DataFrame(rows)
 
 
-def cluster_membership(returns: pd.DataFrame) -> pd.DataFrame:
+def cluster_membership(
+    returns: pd.DataFrame, max_clusters: int | None = None
+) -> pd.DataFrame:
     """Return selected correlation-cluster membership."""
-    clean = clean_returns(returns)
-    clusters = cluster_assets_by_correlation(clean)
+    clean = _complete_case_returns(returns)
+    if clean.empty:
+        return pd.DataFrame(columns=["ticker", "cluster"])
+    clusters = cluster_assets_by_correlation(clean, max_clusters=max_clusters)
     return pd.DataFrame({"ticker": clusters.index, "cluster": clusters.values})
 
 
@@ -201,6 +259,19 @@ def diagnostics_bundle(returns: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Build the full diagnostics output bundle."""
     clean = clean_returns(returns)
     corr_bundle = correlation_diagnostics(clean)
+    correlation_columns = list(corr_bundle["correlation_matrix"].columns)
+    selected_rows = corr_bundle["cluster_diagnostics"].loc[
+        corr_bundle["cluster_diagnostics"]
+        .get(
+            "selected",
+            pd.Series(False, index=corr_bundle["cluster_diagnostics"].index),
+        )
+        .fillna(False)
+        .astype(bool)
+    ]
+    selected_clusters = (
+        int(selected_rows["k"].iloc[0]) if not selected_rows.empty else None
+    )
     return {
         "summary_statistics": summary_statistics(clean),
         "normality_tests": normality_tests(clean),
@@ -210,5 +281,16 @@ def diagnostics_bundle(returns: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "pca_summary": pca_summary(clean),
         "covariance_estimator_comparison": covariance_estimator_comparison(clean),
         "cluster_diagnostics": corr_bundle["cluster_diagnostics"],
-        "cluster_membership": cluster_membership(clean),
+        "cluster_membership": cluster_membership(
+            clean[correlation_columns] if correlation_columns else pd.DataFrame(),
+            max_clusters=selected_clusters,
+        ),
     }
+
+
+def _complete_case_returns(returns: pd.DataFrame) -> pd.DataFrame:
+    """Return a common multivariate sample for matrix estimators."""
+    clean = clean_returns(returns).dropna(how="any")
+    if clean.shape[0] < 2:
+        return clean.iloc[0:0]
+    return clean

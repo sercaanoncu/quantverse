@@ -6,6 +6,40 @@ from project.research.global_model_selection import (
 )
 
 
+def _leakage_evidence() -> dict[str, object]:
+    identity = {
+        "run_id": "unit-run",
+        "config_hash": "config-unit",
+        "input_fingerprint": "input-unit",
+        "universe_snapshot_id": "universe-unit",
+        "data_snapshot_id": "data-unit",
+    }
+    audit = pd.DataFrame(
+        [
+            {
+                "fold": 1,
+                "check": check,
+                "passed": True,
+                "audit_status": (
+                    "passed_with_current_universe_survivorship_limitation"
+                ),
+                "evidence_scope": "current_universe_not_point_in_time",
+                **identity,
+            }
+            for check in [
+                "train_end_before_test_start",
+                "scores_as_of_not_after_train_end",
+                "selected_tickers_available_in_train",
+                "scores_recomputed_inside_fold",
+            ]
+        ]
+    )
+    return {
+        "walk_forward_leakage_audit": audit,
+        "expected_run_identity": identity,
+    }
+
+
 def test_forecast_failed_validation_blocks_forecast_enhanced_selection():
     league = pd.DataFrame(
         [
@@ -70,10 +104,22 @@ def test_forecast_failed_validation_blocks_forecast_enhanced_selection():
         walk_forward=walk,
         random_percentiles=random,
         forecast_validation_status="failed_scale_sanity",
+        **_leakage_evidence(),
     )
     decision = build_final_model_decision(report)
 
     assert decision["final_selected_model"] == "Equal Weight"
+    comparison = decision["equal_weight_comparison"]
+    assert comparison["comparison_status"] == "benchmark_self_comparison_not_applicable"
+    assert comparison["beats_equal_weight_return_after_costs"] is None
+    assert comparison["beats_equal_weight_sharpe"] is None
+    benchmark = report.loc[report["model_name"].eq("Equal Weight")].iloc[0]
+    assert not bool(benchmark["beats_equal_weight_return_after_costs"])
+    assert not bool(benchmark["beats_equal_weight_sharpe"])
+    assert (
+        "self-comparison is not applicable"
+        in benchmark["promotion_gate_failed_reasons"]
+    )
     forecast = report.loc[
         report["model_name"].eq("Forecast-Enhanced Constrained Portfolio")
     ].iloc[0]
@@ -140,6 +186,7 @@ def test_in_sample_max_sharpe_cannot_override_weak_walk_forward():
         league,
         walk_forward=walk,
         random_percentiles=random,
+        **_leakage_evidence(),
     )
     decision = build_final_model_decision(report)
 

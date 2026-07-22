@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -14,20 +15,66 @@ sys.path.insert(0, str(ROOT / "src"))
 from project.research.global_numerical_integrity import (
     validate_v2_numerical_integrity,
 )  # noqa: E402
+from project.reporting.selected_stock_report_view import (  # noqa: E402
+    write_selected_stock_report_artifacts,
+)
+from project.reporting.artifact_publication import (  # noqa: E402
+    publish_staged_files,
+    staged_publication,
+)
+from project.reporting.quantverse_v2_publication import (  # noqa: E402
+    RUN_IDENTITY_FIELDS,
+    build_publication_bundle,
+    load_publication_evidence,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 OUTPUT_PDF = ROOT / "output" / "pdf" / "quantverse_v2_research_report.pdf"
+EXECUTIVE_PDF = ROOT / "output" / "pdf" / "quantverse_v2_executive_research_report.pdf"
+METHODOLOGY_PDF = (
+    ROOT / "output" / "pdf" / "quantverse_v2_methodology_validation_appendix.pdf"
+)
 OUTPUT_HTML = ROOT / "output" / "html" / "quantverse_v2_research_report.html"
+PUBLICATION_MANIFEST = (
+    ROOT / "output" / "quantverse_v2_report_publication_manifest.json"
+)
 
 
 def main() -> int:
-    sections = _sections()
-    OUTPUT_PDF.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_HTML.parent.mkdir(parents=True, exist_ok=True)
-    _write_pdf(sections)
-    _write_html(sections)
+    evidence = load_publication_evidence(ROOT)
+    run_identity = {
+        field: evidence.manifest.get(field, "missing") for field in RUN_IDENTITY_FIELDS
+    }
+    with staged_publication(ROOT, "quantverse-v2-report") as stage:
+        staged_executive = stage / EXECUTIVE_PDF.name
+        staged_methodology = stage / METHODOLOGY_PDF.name
+        staged_html = stage / OUTPUT_HTML.name
+        staged_legacy = stage / OUTPUT_PDF.name
+        result = build_publication_bundle(
+            evidence,
+            executive_pdf=staged_executive,
+            methodology_pdf=staged_methodology,
+            html_report=staged_html,
+        )
+        shutil.copy2(staged_executive, staged_legacy)
+        publish_staged_files(
+            {
+                staged_executive: EXECUTIVE_PDF,
+                staged_methodology: METHODOLOGY_PDF,
+                staged_html: OUTPUT_HTML,
+                staged_legacy: OUTPUT_PDF,
+            },
+            root=ROOT,
+            manifest_path=PUBLICATION_MANIFEST,
+            run_identity=run_identity,
+            publication_type="quantverse_v2_pdf_html_research_package",
+        )
     print(f"QuantVerse v2 research PDF written: {OUTPUT_PDF}")
+    print(f"QuantVerse v2 executive PDF written: {EXECUTIVE_PDF}")
+    print(f"QuantVerse v2 methodology PDF written: {METHODOLOGY_PDF}")
     print(f"QuantVerse v2 research HTML written: {OUTPUT_HTML}")
+    print(f"QuantVerse v2 report publication manifest: {PUBLICATION_MANIFEST}")
+    print(f"QuantVerse v2 publication chart count: {result['chart_count']}")
     return 0
 
 
@@ -52,19 +99,56 @@ def _sections() -> list[dict[str, object]]:
     robustness = _read_csv(PROCESSED / "global_robustness_sensitivity.csv")
     model_stability = _read_csv(PROCESSED / "global_model_stability_report.csv")
     exposure_region = _read_csv(PROCESSED / "global_region_exposure.csv")
+    exposure_listing_country = _read_csv(
+        PROCESSED / "global_listing_country_exposure.csv"
+    )
+    exposure_issuer_country = _read_csv(
+        PROCESSED / "global_issuer_country_exposure.csv"
+    )
+    exposure_economic_country = _read_csv(
+        PROCESSED / "global_economic_country_exposure.csv"
+    )
     exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
+    exposure_metadata = _read_csv(PROCESSED / "global_exposure_metadata_quality.csv")
     top_holdings = _read_csv(PROCESSED / "global_top_holdings_explanation.csv")
+    universe = _read_csv(
+        ROOT / "data" / "universe" / "current_global_equity_universe.csv"
+    )
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
+    visual_summary = _read_csv(PROCESSED / "quantverse_v2_visual_analytics_summary.csv")
+    visual_equity = _read_csv(PROCESSED / "quantverse_v2_visual_equity_curve.csv")
+    visual_drawdown = _read_csv(PROCESSED / "quantverse_v2_visual_drawdown_curve.csv")
+    visual_risk_return = _read_csv(
+        PROCESSED / "quantverse_v2_visual_model_risk_return.csv"
+    )
+    visual_forecast = _read_csv(PROCESSED / "quantverse_v2_visual_forecast_error.csv")
+    visual_random = _read_csv(PROCESSED / "quantverse_v2_visual_random_benchmark.csv")
+    visual_exposure = _read_csv(PROCESSED / "quantverse_v2_visual_exposure.csv")
+    if not visual_exposure.empty and "exposure_type" in visual_exposure:
+        visual_exposure = visual_exposure.copy()
+        visual_exposure["exposure_type"] = visual_exposure["exposure_type"].replace(
+            {"currency": "listing_currency"}
+        )
+    visual_top_holdings = _read_csv(PROCESSED / "quantverse_v2_visual_top_holdings.csv")
+    visual_validation = _read_csv(PROCESSED / "quantverse_v2_visual_validation.csv")
     integrity = validate_v2_numerical_integrity(ROOT)
     integrity_checks = pd.DataFrame(integrity["checks"])
-    selected = (
-        scores.loc[scores["selection_flag"].astype(bool)]
-        if not scores.empty and "selection_flag" in scores
-        else scores.head(0)
+    selected, selected_quality = write_selected_stock_report_artifacts(
+        scores,
+        top_holdings,
+        PROCESSED,
+        universe,
     )
-    final_model = str(summary.get("final_selected_model", "Policy Constrained"))
+    security_identity = _read_csv(PROCESSED / "global_security_identity_audit.csv")
+    feature_eligibility = _read_csv(
+        PROCESSED / "global_feature_history_eligibility.csv"
+    )
+    count_reconciliation = _read_csv(
+        PROCESSED / "global_cross_artifact_count_reconciliation.csv"
+    )
+    final_model = str(summary.get("final_selected_model", "not_available"))
     final_weights = (
         weights.loc[weights["model_name"].astype(str).eq(final_model)]
         if not weights.empty and "model_name" in weights
@@ -75,8 +159,14 @@ def _sections() -> list[dict[str, object]]:
             "title": "Executive Summary",
             "bullets": [
                 "QuantVerse v2 is a public-data global equity research platform, not investment advice.",
+                f"Final public-data research model: {summary.get('final_public_data_research_model', summary.get('final_selected_model', 'not available'))}.",
+                f"Institutional/global master promotion: {summary.get('institutional_global_master_promotion', summary.get('promotion_decision', 'not available'))}.",
                 f"Promotion decision: {summary.get('promotion_decision', decision.get('promotion_decision', 'not available'))}.",
+                f"Numerical integrity: {summary.get('numerical_integrity_status', 'not available')}; failed checks: {summary.get('numerical_integrity_failed_checks', 'not available')}.",
+                f"Exposure metadata: {summary.get('exposure_metadata_status', 'not available')}; sector coverage: {summary.get('sector_coverage_ratio', 'not available')}; industry coverage: {summary.get('industry_coverage_ratio', 'not available')}; issuer-country coverage: {summary.get('issuer_country_coverage_ratio', 'not available')}; economic-country coverage: {summary.get('economic_country_coverage_ratio', 'not available')}.",
                 f"Universe rows: {summary.get('universe_rows', 'not available')}; assets with returns: {summary.get('assets_with_returns', 'not available')}.",
+                f"Security identity status: {summary.get('security_identity_status', 'not available')}; short-history diagnostics: {summary.get('short_history_diagnostic_count', 'not available')}.",
+                f"Cross-artifact reconciliation: {summary.get('cross_artifact_reconciliation_status', 'not available')}; run_id: {summary.get('run_id', 'not available')}.",
                 "Exact official top-100 and institutional point-in-time claims remain unsupported.",
             ],
             "chart": {
@@ -88,14 +178,61 @@ def _sections() -> list[dict[str, object]]:
                 ],
             },
         },
+        _stock_scoring_section(selected, selected_quality),
         {
-            "title": "Stock Scoring Methodology",
+            "title": "Security Identity and History Eligibility",
             "bullets": [
-                "Scores combine coverage, market-cap liquidity proxy, momentum, risk-adjusted return, drawdown penalty and diversification.",
-                "Simple returns are used for portfolio aggregation; log returns remain diagnostic.",
-                "Scores are deterministic public-data research signals and are not buy recommendations.",
+                "A ticker is a routing label, not a permanent security identifier; known symbol reuse requires an official listing boundary.",
+                "Standard composite scoring requires 252 valid daily returns so 12-month momentum and volatility are not computed from a shorter sample.",
+                "Short-history securities remain visible as diagnostic_short_history but are excluded from standard selection, forecasts and portfolio inputs.",
+                "SPCX is a verified ticker-reuse case: the current SpaceX security starts on 2026-06-12 and prior SPCX data must not be linked to it.",
+                "Cross-artifact counts and run IDs must reconcile before the report package is considered valid.",
             ],
-            "table": selected.head(12),
+            "table": (
+                security_identity.loc[
+                    security_identity["ticker"].astype(str).eq("SPCX")
+                ].head(5)
+                if not security_identity.empty and "ticker" in security_identity
+                else feature_eligibility.head(10)
+            ),
+            "pdf_columns": [
+                "ticker",
+                "current_listing_start_date",
+                "first_valid_return_date",
+                "observed_return_count",
+                "history_contamination_status",
+                "eligibility_status",
+            ],
+            "chart": {
+                "labels": ["Standard eligible", "Short-history diagnostic"],
+                "values": [
+                    float(
+                        feature_eligibility.get(
+                            "standard_composite_score_eligible",
+                            pd.Series(dtype=bool),
+                        )
+                        .map(_as_bool)
+                        .sum()
+                    ),
+                    float(
+                        feature_eligibility.get(
+                            "eligibility_status", pd.Series(dtype=str)
+                        )
+                        .astype(str)
+                        .eq("diagnostic_short_history")
+                        .sum()
+                    ),
+                ],
+            },
+        },
+        {
+            "title": "Cross-Artifact Count Reconciliation",
+            "bullets": [
+                "Selected-stock, forecast, portfolio-holding and walk-forward counts are different analytical stages and are reconciled under one run identity.",
+                "An unexplained same-run count mismatch invalidates the report package; a configured holding cap is accepted only when the relationship is explicit.",
+                "The run_id, data as-of date and universe snapshot prevent stale artifacts from being compared as if they came from one execution.",
+            ],
+            "table": count_reconciliation.head(12),
         },
         {
             "title": "Expected Return Forecasts",
@@ -140,7 +277,10 @@ def _sections() -> list[dict[str, object]]:
                 f"Selection method: {summary.get('final_model_selection_method', 'not available')}.",
                 f"Selection score: {summary.get('final_model_selection_score', 'not available')}.",
                 f"Selection decision: {summary.get('final_model_selection_decision', 'not promoted')}.",
-                f"Selection reason: {summary.get('final_model_selection_reason', 'not available')}.",
+                (
+                    "Selection reason: "
+                    f"{str(summary.get('final_model_selection_reason', 'not available')).rstrip().rstrip('.')}."
+                ),
                 "Diagnostic, blocked and future-candidate models are excluded from final selection.",
             ],
             "table": (
@@ -183,19 +323,138 @@ def _sections() -> list[dict[str, object]]:
             "table": forecast_validation.head(12),
         },
         {
+            "title": "Visual Portfolio Analytics",
+            "bullets": [
+                "This section is chart-led evidence for the existing v2 final model; it does not add a new portfolio model.",
+                "Each chart-ready output includes formula/method, source basis, limitation and invalidation condition.",
+                "Output status remains diagnostic public-data research unless promotion gates and public-data limitations are resolved.",
+                "Validator file: data/processed/quantverse_v2_visual_validation.csv.",
+            ],
+            "table": (
+                visual_summary.head(12)
+                if not visual_summary.empty
+                else visual_validation.head(12)
+            ),
+        },
+        {
+            "title": "Equity Curve and Drawdown",
+            "bullets": [
+                "Formula: equity_t = product(1 + daily simple portfolio return), normalized so the first point equals 1.0.",
+                "Drawdown formula: equity_t / running peak equity_t - 1; valid drawdown values must be less than or equal to zero.",
+                "Interpretation: the chart shows realized path dependence and peak-to-trough loss risk for the final model.",
+                "Invalidation: a non-1.0 starting equity curve, positive drawdown, non-simple returns or silent missing-return treatment invalidates the chart.",
+            ],
+            "table": (
+                visual_equity.tail(8)
+                if not visual_equity.empty
+                else visual_drawdown.tail(8)
+            ),
+        },
+        {
+            "title": "Model Risk-Return Map",
+            "bullets": [
+                "Formula: x-axis is annualized volatility and y-axis is annualized return.",
+                "Interpretation: the model set is compared by return per unit risk, not by return alone.",
+                "Limitation: these are public-data research metrics, not institutional point-in-time proof.",
+                "Invalidation: reversed axes, in-sample-only evidence or unflagged extreme metrics invalidate the chart.",
+            ],
+            "table": visual_risk_return.head(12),
+        },
+        {
+            "title": "Forecast Error Versus Random Walk",
+            "bullets": [
+                "Formula: model MAE is compared against random-walk MAE for each horizon.",
+                "Interpretation: forecasts remain diagnostic unless they beat a naive benchmark and improve net portfolio decisions.",
+                "Limitation: low forecast error alone is not a portfolio promotion gate.",
+                "Invalidation: missing random-walk comparator, horizon mismatch or wrong target scale invalidates the chart.",
+            ],
+            "table": visual_forecast.head(12),
+        },
+        {
+            "title": "Random Benchmark Distribution",
+            "bullets": [
+                "Formula: histogram of random portfolio Sharpe values under the same selected universe and constraint family.",
+                "Interpretation: the final model percentile is benchmark context and not a future performance guarantee.",
+                "Limitation: the benchmark is only meaningful if the random distribution is not degenerate.",
+                "Invalidation: zero variance random outcomes or different constraints invalidate comparison.",
+            ],
+            "chart": (
+                {
+                    "labels": visual_random["bucket_left"]
+                    .head(8)
+                    .round(3)
+                    .astype(str)
+                    .tolist(),
+                    "values": visual_random["portfolio_count"]
+                    .head(8)
+                    .astype(float)
+                    .tolist(),
+                }
+                if not visual_random.empty
+                and {"bucket_left", "portfolio_count"}.issubset(visual_random)
+                else None
+            ),
+            "table": visual_random.head(12),
+        },
+        {
+            "title": "Exposure and Concentration",
+            "bullets": [
+                "Formula: grouped final model weights by region, listing country, issuer country, economic country, listing currency, exchange, sector, industry and sleeve; each exposure type must sum to 1.0.",
+                "Listing exposure means where the ticker is traded/listed.",
+                "Issuer exposure means where the company/entity is domiciled.",
+                "Economic exposure means where business risk is economically concentrated when explicit metadata is available.",
+                "Interpretation: concentration risk is an economic and governance issue, not only a visual issue.",
+                "Limitation: public-source listing, issuer, economic, listing-currency, sector and industry mappings may be incomplete; listing currency is not necessarily economic currency risk.",
+                "Invalidation: exposure totals that do not reconcile to one invalidate the chart.",
+            ],
+            "table": (
+                visual_exposure.head(12)
+                if not visual_exposure.empty
+                else visual_top_holdings.head(12)
+            ),
+        },
+        {
             "title": "Economic Exposure Interpretation",
             "bullets": [
                 "A final model must be economically interpretable, not only mathematically optimized.",
                 f"Exposure warnings: {summary.get('exposure_warnings', 'not available')}.",
-                "Region, country, currency, sleeve and sector exposure reports are generated separately.",
+                f"Exposure metadata status: {summary.get('exposure_metadata_status', 'not available')}.",
+                f"Sector coverage ratio: {summary.get('sector_coverage_ratio', 'not available')}.",
+                f"Industry coverage ratio: {summary.get('industry_coverage_ratio', 'not available')}.",
+                f"Listing-country coverage ratio: {summary.get('listing_country_coverage_ratio', 'not available')}.",
+                f"Issuer-country coverage ratio: {summary.get('issuer_country_coverage_ratio', 'not available')}.",
+                f"Economic-country coverage ratio: {summary.get('economic_country_coverage_ratio', 'not available')}.",
+                "If issuer-country metadata is missing, only listing-country exposure is available and it remains diagnostic.",
+                "If economic-country metadata is unavailable, economic exposure is unavailable; it is not inferred from listing venue, listing currency or issuer domicile.",
+                "ADR/foreign issuer cases are flagged so US-listed/USD tickers are not treated as pure United States issuer exposure by default.",
+                "Region, listing-country, issuer-country, economic-country, listing-currency, exchange, sleeve, sector and industry exposure reports are generated separately.",
             ],
             "table": (
-                top_holdings.head(12)
-                if not top_holdings.empty
+                exposure_metadata.head(12)
+                if not exposure_metadata.empty
                 else (
-                    exposure_region.head(12)
-                    if not exposure_region.empty
-                    else exposure_warnings.head(12)
+                    pd.concat(
+                        [
+                            _tag_exposure(exposure_listing_country, "listing_country"),
+                            _tag_exposure(exposure_issuer_country, "issuer_country"),
+                            _tag_exposure(
+                                exposure_economic_country, "economic_country"
+                            ),
+                        ],
+                        ignore_index=True,
+                    ).head(12)
+                    if not exposure_listing_country.empty
+                    or not exposure_issuer_country.empty
+                    or not exposure_economic_country.empty
+                    else (
+                        top_holdings.head(12)
+                        if not top_holdings.empty
+                        else (
+                            exposure_region.head(12)
+                            if not exposure_region.empty
+                            else exposure_warnings.head(12)
+                        )
+                    )
                 )
             ),
         },
@@ -247,11 +506,13 @@ def _sections() -> list[dict[str, object]]:
 
 
 def _write_pdf(sections: list[dict[str, object]]) -> None:
+    from xml.sax.saxutils import escape
+
     from reportlab.graphics.charts.barcharts import VerticalBarChart
     from reportlab.graphics.shapes import Drawing, String
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.platypus import (
         Paragraph,
         SimpleDocTemplate,
@@ -261,6 +522,20 @@ def _write_pdf(sections: list[dict[str, object]]) -> None:
     )
 
     styles = getSampleStyleSheet()
+    table_header_style = ParagraphStyle(
+        "QuantVerseTableHeader",
+        parent=styles["BodyText"],
+        fontSize=5.5,
+        leading=6.5,
+        textColor=colors.white,
+    )
+    table_cell_style = ParagraphStyle(
+        "QuantVerseTableCell",
+        parent=styles["BodyText"],
+        fontSize=5.5,
+        leading=6.5,
+    )
+    available_width = A4[0] - 144
     story = [Paragraph("QuantVerse v2 Public-Data Research Report", styles["Title"])]
     for section in sections:
         story.append(Spacer(1, 10))
@@ -272,16 +547,38 @@ def _write_pdf(sections: list[dict[str, object]]) -> None:
             story.append(_chart(chart, VerticalBarChart, Drawing, String, colors))
         table = section.get("table")
         if isinstance(table, pd.DataFrame) and not table.empty:
-            small = table.head(12).iloc[:, :8].astype(str)
-            data = [small.columns.tolist()] + small.values.tolist()
-            rendered = Table(data, repeatRows=1)
+            requested_columns = [
+                column
+                for column in section.get("pdf_columns", [])
+                if column in table.columns
+            ]
+            selected_table = table[requested_columns] if requested_columns else table
+            small = selected_table.head(12).iloc[:, :8].astype(str)
+            data = [
+                [
+                    Paragraph(escape(str(column)), table_header_style)
+                    for column in small.columns
+                ]
+            ]
+            data.extend(
+                [
+                    [Paragraph(escape(str(value)), table_cell_style) for value in row]
+                    for row in small.values.tolist()
+                ]
+            )
+            column_width = available_width / max(len(small.columns), 1)
+            rendered = Table(
+                data,
+                repeatRows=1,
+                colWidths=[column_width] * len(small.columns),
+            )
             rendered.setStyle(
                 TableStyle(
                     [
                         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
                         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                         ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                        ("FONTSIZE", (0, 0), (-1, -1), 6),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ]
                 )
             )
@@ -305,12 +602,67 @@ def _chart(config: dict, chart_cls, drawing_cls, string_cls, colors):
     chart.categoryAxis.labels.fontSize = 7
     chart.categoryAxis.labels.angle = 25
     chart.valueAxis.valueMin = 0
-    chart.valueAxis.valueMax = max(values or [1]) * 1.25
+    chart.valueAxis.valueMax = max(max(values or [1.0]), 1.0) * 1.25
     chart.bars[0].fillColor = colors.HexColor("#1f77b4")
     drawing.add(chart)
     for idx, value in enumerate(values):
         drawing.add(string_cls(55 + idx * 110, 138, f"{value:g}", fontSize=8))
     return drawing
+
+
+def _tag_exposure(frame: pd.DataFrame, exposure_type: str) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame()
+    tagged = frame.copy()
+    tagged.insert(0, "exposure_type", exposure_type)
+    return tagged
+
+
+def _stock_scoring_section(
+    selected: pd.DataFrame,
+    selected_quality: pd.DataFrame,
+) -> dict[str, object]:
+    display = selected.copy()
+    if "selection_rank" in display:
+        display["selection_rank"] = pd.to_numeric(
+            display["selection_rank"], errors="coerce"
+        ).astype("Int64")
+    if "composite_quant_score" in display:
+        display["composite_quant_score"] = pd.to_numeric(
+            display["composite_quant_score"], errors="coerce"
+        ).round(4)
+    bullets = [
+        "Scores combine coverage, market-cap liquidity proxy, momentum, risk-adjusted return, drawdown penalty and diversification.",
+        "Simple returns are used for portfolio aggregation; log returns remain diagnostic.",
+        "Scores are deterministic public-data research signals and are not buy recommendations.",
+        "Listing country identifies where the security is traded. Issuer country identifies the company's domicile. Economic-country exposure is unavailable unless explicit supported business-exposure metadata exists.",
+    ]
+    economic_coverage = (
+        _float(selected_quality["economic_country_coverage_ratio"].iloc[0])
+        if not selected_quality.empty
+        and "economic_country_coverage_ratio" in selected_quality
+        else 0.0
+    )
+    if economic_coverage == 0.0:
+        bullets.append(
+            "Economic-country exposure is unavailable and is not inferred from listing venue, trading currency or issuer domicile."
+        )
+    return {
+        "title": "Stock Scoring Methodology",
+        "bullets": bullets,
+        "table": display,
+        "table_id": "selected-stock-semantic-view",
+        "pdf_columns": [
+            "ticker",
+            "selection_rank",
+            "composite_quant_score",
+            "listing_country",
+            "issuer_country",
+            "economic_country",
+            "listing_currency",
+            "metadata_confidence",
+        ],
+    }
 
 
 def _write_html(sections: list[dict[str, object]]) -> None:
@@ -325,7 +677,12 @@ def _write_html(sections: list[dict[str, object]]) -> None:
             parts.append(f"<p>{bullet}</p>")
         table = section.get("table")
         if isinstance(table, pd.DataFrame) and not table.empty:
-            parts.append(table.head(20).to_html(index=False))
+            parts.append(
+                table.head(20).to_html(
+                    index=False,
+                    table_id=str(section.get("table_id", "")) or None,
+                )
+            )
     parts.append("</body></html>")
     OUTPUT_HTML.write_text("\n".join(parts), encoding="utf-8")
 
@@ -338,6 +695,19 @@ def _read_json(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _float(value: object) -> float:
+    try:
+        if value is None or pd.isna(value):
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _as_bool(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 if __name__ == "__main__":

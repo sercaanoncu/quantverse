@@ -64,22 +64,31 @@ def portfolio_return_series(
     returns: pd.DataFrame,
     weights: pd.Series,
     *,
-    min_available_weight: float = 0.50,
+    min_available_weight: float = 1.00,
     min_assets: int = 1,
 ) -> pd.Series:
-    """Build portfolio returns with per-date available-weight normalization.
+    """Build portfolio returns under an explicit selected-weight coverage rule.
 
-    Public providers often have different listing histories across global
-    equities. A direct matrix product turns any row with one missing constituent
-    into NaN. This helper uses only constituents available on each date and
-    rescales by available selected weight, while dropping dates with too little
-    coverage.
+    The conservative default requires every selected portfolio weight to have a
+    return on that date. A lower ``min_available_weight`` explicitly opts into
+    available-weight renormalization for diagnostics; it must not be interpreted
+    as a historically implemented rebalance.
     """
     clean = clean_returns_matrix(returns)
     if clean.empty:
         return pd.Series(dtype=float, name="portfolio_return")
 
-    aligned = pd.Series(weights, dtype=float).reindex(clean.columns).fillna(0.0)
+    supplied = pd.Series(weights, dtype=float)
+    nonzero_supplied = supplied[supplied.abs() > 1e-12]
+    missing_weight_tickers = [
+        str(ticker) for ticker in nonzero_supplied.index if ticker not in clean.columns
+    ]
+    if missing_weight_tickers:
+        raise ValueError(
+            "Nonzero portfolio weights are missing from the returns matrix: "
+            + ", ".join(missing_weight_tickers)
+        )
+    aligned = supplied.reindex(clean.columns).fillna(0.0)
     aligned = aligned[aligned.abs() > 1e-12]
     if aligned.empty or float(aligned.abs().sum()) <= 0:
         return pd.Series(dtype=float, name="portfolio_return")
@@ -92,7 +101,7 @@ def portfolio_return_series(
     available_count = available.sum(axis=1)
     weighted_sum = selected.mul(aligned, axis=1).sum(axis=1, skipna=True)
     series = weighted_sum / available_weight.replace(0.0, np.nan)
-    valid = (available_weight >= float(min_available_weight)) & (
+    valid = (available_weight >= float(min_available_weight) - 1e-12) & (
         available_count >= int(min_assets)
     )
     series = series.loc[valid].replace([np.inf, -np.inf], np.nan).dropna()
@@ -124,13 +133,21 @@ def return_series_diagnostics(series: pd.Series) -> dict[str, object]:
     }
 
 
-def validate_v2_numerical_integrity(root: str | Path) -> dict[str, object]:
+def validate_v2_numerical_integrity(
+    root: str | Path,
+    *,
+    summary_override: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Validate generated QuantVerse v2 outputs for numerical plausibility."""
     root_path = Path(root)
     processed = root_path / "data" / "processed"
     checks: list[dict[str, object]] = []
 
-    summary = _read_json(processed / "quantverse_v2_demo_summary.json")
+    summary = (
+        dict(summary_override)
+        if summary_override is not None
+        else _read_json(processed / "quantverse_v2_demo_summary.json")
+    )
     final_model = str(summary.get("final_selected_model", "")).strip()
     final_holdings = _float(summary.get("final_selected_holdings"), default=0.0)
     returns = _read_returns(processed / "global_security_simple_returns_usd.csv")
@@ -213,12 +230,22 @@ def _check_final_return_series(
     checks: list[dict[str, object]],
 ) -> None:
     model_weights = _weights_for_model(weights, final_model)
-    series = portfolio_return_series(returns, model_weights)
+    try:
+        series = portfolio_return_series(returns, model_weights)
+    except ValueError as exc:
+        checks.append(
+            _check(
+                "final_portfolio_return_series_non_empty_nonzero",
+                False,
+                f"final_model={final_model}; error={type(exc).__name__}: {exc}",
+            )
+        )
+        return
     diagnostics = return_series_diagnostics(series)
     passed = bool(
-        diagnostics["observations"] > 0
-        and diagnostics["nonzero_count"] > 0
-        and float(diagnostics["standard_deviation"]) > 0
+        _float(diagnostics["observations"]) > 0
+        and _float(diagnostics["nonzero_count"]) > 0
+        and _float(diagnostics["standard_deviation"]) > 0
     )
     checks.append(
         _check(
@@ -260,7 +287,16 @@ def _check_random_percentiles_not_degenerate(
     if numeric.empty:
         passed = False
     else:
-        all_one = numeric.notna().all(axis=1) & np.isclose(numeric, 1.0).all(axis=1)
+        close_values = np.asarray(
+            np.isclose(numeric.to_numpy(dtype=float), 1.0),
+            dtype=bool,
+        ).all(axis=1)
+        close_to_one = pd.Series(
+            close_values.tolist(),
+            index=numeric.index,
+            dtype=bool,
+        )
+        all_one = numeric.notna().all(axis=1) & close_to_one
         passed = bool(not all_one.all() and numeric.nunique(dropna=True).sum() > 1)
     checks.append(
         _check(
@@ -280,7 +316,12 @@ def _check_forecast_scale(
         return
     frame = forecasts.copy()
     for column in ["mean_mae", "mean_rmse", "mean_random_walk_mae"]:
-        frame[column] = pd.to_numeric(frame.get(column), errors="coerce")
+        source = (
+            frame[column]
+            if column in frame
+            else pd.Series(np.nan, index=frame.index, dtype=float)
+        )
+        frame[column] = pd.to_numeric(source, errors="coerce")
     model_error = frame[["mean_mae", "mean_rmse"]].max(axis=1)
     random_error = frame["mean_random_walk_mae"]
     absurd_absolute = model_error > 2.0
@@ -383,7 +424,7 @@ def _check_equity_scope(
     frames = []
     if not scores.empty and {"ticker", "sleeve", "selection_flag"}.issubset(scores):
         frames.append(
-            scores.loc[scores["selection_flag"].astype(bool), ["ticker", "sleeve"]]
+            scores.loc[scores["selection_flag"].map(_truthy), ["ticker", "sleeve"]]
         )
     if not weights.empty and {"ticker", "model_name"}.issubset(weights):
         final = weights.loc[
@@ -484,9 +525,11 @@ def _read_returns(path: Path) -> pd.DataFrame:
 
 def _float(value: object, *, default: float = np.nan) -> float:
     try:
-        if value is None or pd.isna(value):
+        if value is None or value is pd.NA or value is pd.NaT:
             return float(default)
-        return float(value)
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            return float(value)
+        return float(str(value))
     except (TypeError, ValueError):
         return float(default)
 
@@ -498,3 +541,7 @@ def _safe_max(series: pd.Series) -> float | None:
 
 def _check(name: str, passed: bool, details: str) -> dict[str, object]:
     return {"check": name, "passed": bool(passed), "details": str(details)}
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}

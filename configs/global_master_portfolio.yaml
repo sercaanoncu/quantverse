@@ -1,5 +1,6 @@
 returns_path: data/processed/global_security_returns.csv
 fx_report_path: data/processed/global_fx_normalization_report.csv
+feature_history_eligibility_path: data/processed/global_feature_history_eligibility.csv
 universe_paths:
   - data/universe/current_global_equity_universe.csv
 output_dir: data/processed

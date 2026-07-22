@@ -11,6 +11,8 @@ This taxonomy defines what counts as an error before the project is audited.
 - missing market-cap coverage,
 - insufficient price coverage,
 - duplicate ticker,
+- cross-provider symbol inferred without a verified identifier map,
+- source eligibility flags overwritten by a downstream canonical builder,
 - stablecoin entering risk allocation.
 
 ## B. FX and Currency Errors
@@ -28,7 +30,8 @@ This taxonomy defines what counts as an error before the project is audited.
 - CAGR/volatility/Sharpe unit mismatch,
 - VaR/CVaR sign confusion,
 - drawdown inconsistency,
-- covariance instability hidden.
+- covariance instability hidden,
+- missing market observations silently imputed as zero return.
 
 ## D. Portfolio Construction Errors
 
@@ -41,6 +44,8 @@ This taxonomy defines what counts as an error before the project is audited.
 - excessive dust weights,
 - too many max-cap weights,
 - economic concentration despite formal constraints.
+- infeasible optimizer silently replaced by another portfolio and reported as
+  computed.
 
 ## E. Model Validity Errors
 
@@ -59,7 +64,8 @@ This taxonomy defines what counts as an error before the project is audited.
 - no point-in-time universe membership,
 - no transaction-cost or turnover treatment,
 - benchmark and candidate using different dates or universes,
-- full-sample statistics used for out-of-sample decisions.
+- full-sample statistics used for out-of-sample decisions,
+- a new run manifest paired with stale feature-eligibility or model artifacts.
 
 ## G. ML / Forecasting Validation Errors
 

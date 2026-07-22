@@ -15,6 +15,11 @@ from project.research.global_forecast_validation import (
     build_forecast_validation,
     write_forecast_validation_outputs,
 )  # noqa: E402
+from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 
@@ -26,7 +31,22 @@ def main() -> int:
     del args
     forecasts = _read_csv(PROCESSED / "global_stock_return_forecasts.csv")
     validation = build_forecast_validation(forecasts)
+    run_metadata = read_run_manifest(PROCESSED)
+    validation = {
+        key: attach_run_metadata(frame, run_metadata)
+        for key, frame in validation.items()
+    }
     write_forecast_validation_outputs(validation, PROCESSED)
+    register_artifacts(
+        PROCESSED,
+        [
+            PROCESSED / "global_forecast_validation_by_horizon.csv",
+            PROCESSED / "global_forecast_calibration_report.csv",
+            PROCESSED / "global_forecast_random_walk_comparison.csv",
+            PROCESSED / "global_forecast_warning_report.csv",
+        ],
+        run_metadata,
+    )
     status = (
         validation["by_horizon"]["forecast_validation_status"]
         .astype(str)

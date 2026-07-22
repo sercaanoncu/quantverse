@@ -2,6 +2,10 @@ equity_universe_path: data/universe/current_global_equity_universe.csv
 additional_universe_paths: []
 local_price_csv:
 output_dir: data/processed
+security_identity_overrides_path: data/reference/security_identity_overrides.csv
+minimum_standard_history_observations: 252
+minimum_forecast_history_observations: 252
+minimum_walk_forward_history_observations: 252
 base_currency: USD
 min_price_observations: 20
 start_date: "2021-01-01"

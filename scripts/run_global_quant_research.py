@@ -55,6 +55,7 @@ def main() -> int:
             config.get("master_portfolio_config"),
         ),
         ("scripts/build_global_returns_matrix.py", config.get("returns_matrix_config")),
+        ("scripts/build_global_stock_scores.py", str(config_path)),
         (
             "scripts/run_global_master_portfolio.py",
             config.get("master_portfolio_config"),

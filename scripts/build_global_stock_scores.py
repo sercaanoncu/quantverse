@@ -16,6 +16,14 @@ from project.research.global_stock_scoring import (
     build_global_stock_scores,
     write_global_stock_scores,
 )  # noqa: E402
+from project.data_pipeline.security_identity import (  # noqa: E402
+    attach_run_metadata,
+    build_feature_history_eligibility,
+)
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 
 def main() -> int:
@@ -28,15 +36,39 @@ def main() -> int:
         print("Missing universe or returns; global stock scores not built.")
         return 0
     v2 = config.get("v2", {})
+    run_metadata = read_run_manifest(paths["output"])
+    returns = _read_returns(paths["returns"])
+    identity_audit = _read_optional_csv(paths["identity_audit"])
+    minimum_history = int(v2.get("minimum_standard_history_observations", 252))
+    feature_eligibility = build_feature_history_eligibility(
+        returns,
+        identity_audit,
+        minimum_standard_observations=minimum_history,
+    )
+    feature_eligibility = attach_run_metadata(feature_eligibility, run_metadata)
     scores = build_global_stock_scores(
-        _read_returns(paths["returns"]),
+        returns,
         pd.read_csv(paths["universe"]),
         _read_optional_csv(paths["coverage"]),
         max_selected=int(v2.get("max_selected_stocks", 40)),
         default_scope=str(v2.get("default_scope", "equity_only")),
         include_crypto=bool(v2.get("include_crypto", False)),
+        feature_history_eligibility=feature_eligibility,
+        minimum_standard_observations=minimum_history,
+        run_metadata=run_metadata,
+    )
+    feature_eligibility.to_csv(
+        paths["output"] / "global_feature_history_eligibility.csv", index=False
     )
     write_global_stock_scores(scores, paths["output"] / "global_stock_scores.csv")
+    register_artifacts(
+        paths["output"],
+        [
+            paths["output"] / "global_feature_history_eligibility.csv",
+            paths["output"] / "global_stock_scores.csv",
+        ],
+        run_metadata,
+    )
     print(f"Global stock scores written: {len(scores)} rows")
     return 0
 
@@ -57,6 +89,7 @@ def _paths(config: dict) -> dict[str, Path]:
         "universe": Path("data/universe/current_global_equity_universe.csv"),
         "returns": output / "global_security_simple_returns_usd.csv",
         "coverage": output / "global_returns_coverage_report.csv",
+        "identity_audit": output / "global_security_identity_audit.csv",
     }
 
 

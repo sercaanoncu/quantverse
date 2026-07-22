@@ -10,13 +10,48 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from project.data_pipeline.global_returns import load_global_universe
 from project.data_pipeline.market_cap_rank_evidence import (
     write_market_cap_rank_outputs,
 )
+from project.data_pipeline.security_identity import (
+    filter_standard_history_eligible_inputs,
+)
 from project.research.global_master_portfolio import (
     run_master_portfolio_research,
     write_master_portfolio_outputs,
+)
+from project.research.run_identity import read_run_manifest, register_artifacts
+
+MASTER_PORTFOLIO_ARTIFACTS = (
+    "global_market_cap_rank_evidence_report.csv",
+    "global_exact_proxy_classification_report.csv",
+    "global_market_cap_rank_blockers.csv",
+    "global_black_litterman_prerequisite_report.csv",
+    "global_master_selected_assets.csv",
+    "global_master_candidate_weights.csv",
+    "global_master_model_comparison.csv",
+    "global_master_equal_weight_comparison.csv",
+    "global_master_random_portfolio_benchmark.csv",
+    "global_master_promotion_gate.csv",
+    "global_master_constraint_audit.csv",
+    "global_master_asset_class_weights.csv",
+    "global_master_region_weights.csv",
+    "global_master_cluster_weights.csv",
+    "global_master_risk_report.csv",
+    "global_master_projection_summary.csv",
+    "global_master_stress_test_results.csv",
+    "global_correlation_matrix.csv",
+    "global_high_correlation_pairs.csv",
+    "global_cluster_diagnostics.csv",
+    "global_estimator_comparison.csv",
+    "global_master_exact_proxy_classification.csv",
+    "global_master_black_litterman_prerequisites.csv",
+    "global_master_monte_carlo_projection.csv",
+    "global_master_decision_summary.json",
 )
 
 
@@ -59,6 +94,47 @@ def main() -> int:
         return 0
     write_market_cap_rank_outputs(metadata, output_dir)
     returns = _load_returns(returns_path)
+    eligibility_path = Path(
+        config.get(
+            "feature_history_eligibility_path",
+            "data/processed/global_feature_history_eligibility.csv",
+        )
+    )
+    if not eligibility_path.exists():
+        _write_status(
+            output_dir,
+            "missing_history_eligibility",
+            "Current feature-history eligibility audit is required.",
+        )
+        print(
+            "Global master portfolio not run: feature-history eligibility audit is missing."
+        )
+        return 0
+    feature_eligibility = _load_optional_csv(eligibility_path)
+    run_metadata = read_run_manifest(output_dir)
+    if feature_eligibility is None or not _eligibility_matches_run(
+        feature_eligibility, run_metadata
+    ):
+        _write_status(
+            output_dir,
+            "stale_history_eligibility",
+            "Feature-history eligibility does not match the current run identity.",
+        )
+        print(
+            "Global master portfolio not run: feature-history eligibility is stale "
+            "or invalid."
+        )
+        return 0
+    try:
+        returns, metadata, excluded = filter_standard_history_eligible_inputs(
+            returns,
+            metadata,
+            feature_eligibility,
+        )
+    except ValueError as exc:
+        _write_status(output_dir, "invalid_history_eligibility", str(exc))
+        print(f"Global master portfolio not run: {exc}")
+        return 0
     fx_report = _load_optional_csv(
         Path(
             config.get(
@@ -69,19 +145,52 @@ def main() -> int:
     selection = config.get("selection", {}) or {}
     random_cfg = config.get("random_portfolios", {}) or {}
     constraints = config.get("portfolio_constraints", {}) or {}
+    promotion_gate = config.get("promotion_gate", {}) or {}
+    minimum_holdings = int(selection.get("min_holdings", 10))
+    if returns.shape[1] < minimum_holdings:
+        message = (
+            f"Only {returns.shape[1]} standard-history-eligible assets remain; "
+            f"{minimum_holdings} are required."
+        )
+        _write_status(output_dir, "insufficient_history_eligible_assets", message)
+        print(f"Global master portfolio not run: {message}")
+        return 0
     result = run_master_portfolio_research(
         returns,
         metadata,
-        min_holdings=int(selection.get("min_holdings", 10)),
+        min_holdings=minimum_holdings,
         max_holdings=int(selection.get("max_holdings", 40)),
         max_weight=float(selection.get("max_weight", 0.10)),
         n_random_portfolios=int(random_cfg.get("n_portfolios", 10000)),
         random_state=int(selection.get("random_state", 42)),
         portfolio_constraints=constraints,
+        promotion_gate_config=promotion_gate,
         fx_report=fx_report,
     )
+    result["decision_summary"].update(
+        {
+            **run_metadata,
+            "history_eligibility_gate": "passed",
+            "history_ineligible_assets_excluded": excluded,
+        }
+    )
     write_master_portfolio_outputs(result, output_dir)
-    print(result["decision_summary"]["promotion_decision"])
+    register_artifacts(
+        output_dir,
+        [output_dir / name for name in MASTER_PORTFOLIO_ARTIFACTS],
+        run_metadata,
+        root=ROOT,
+    )
+    if excluded:
+        print(
+            "Excluded from global master portfolio inputs by history gate: "
+            + ", ".join(excluded)
+        )
+    decision = result["decision_summary"]
+    print(
+        "Global master portfolio "
+        f"{decision['promotion_decision']}: {decision['reason']}"
+    )
     return 0
 
 
@@ -102,9 +211,28 @@ def _load_optional_csv(path: Path) -> pd.DataFrame | None:
         return None
 
 
+def _eligibility_matches_run(
+    feature_eligibility: pd.DataFrame,
+    run_metadata: dict[str, str],
+) -> bool:
+    required = {"ticker", "standard_composite_score_eligible", "run_id"}
+    if feature_eligibility.empty or not required.issubset(feature_eligibility):
+        return False
+    expected = str(run_metadata.get("run_id", "")).strip()
+    observed = set(feature_eligibility["run_id"].dropna().astype(str))
+    return bool(expected and observed == {expected})
+
+
 def _write_status(output_dir: Path, status: str, message: str) -> None:
     (output_dir / "global_master_decision_summary.json").write_text(
-        json.dumps({"status": status, "message": message}, indent=2),
+        json.dumps(
+            {
+                "status": status,
+                "promotion_decision": "not promoted",
+                "message": message,
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
 

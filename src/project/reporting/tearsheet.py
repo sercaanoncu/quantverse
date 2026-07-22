@@ -40,11 +40,11 @@ class TearsheetGenerator:
 
         # Precompute
         self.cum = (1 + self.returns).cumprod()
-        self.dd = self.cum / self.cum.cummax() - 1
+        self.dd = self.cum / self.cum.cummax().clip(lower=1.0) - 1
 
         if benchmark is not None:
-            bench_common = benchmark.reindex(self.returns.index)
-            self.bench_cum = (1 + bench_common.fillna(0)).cumprod()
+            bench_common = benchmark.reindex(self.returns.index).dropna()
+            self.bench_cum = (1 + bench_common).cumprod()
 
     def _compute_metrics(self) -> Dict:
         """Compute all summary metrics."""
@@ -55,13 +55,15 @@ class TearsheetGenerator:
         total_ret = (1 + r).prod() - 1
         cagr = (1 + total_ret) ** (1 / years) - 1 if years > 0 else 0
         ann_vol = r.std() * np.sqrt(252)
-        sharpe = (cagr - self.rf) / ann_vol if ann_vol > 0 else 0
+        rf_daily = (1 + self.rf) ** (1 / 252) - 1
+        excess = r - rf_daily
+        annualized_excess_return = excess.mean() * 252
+        sharpe = annualized_excess_return / ann_vol if ann_vol > 0 else 0
 
-        # Downside (semi-deviation over all observations)
-        excess = r - 0
+        # Lower partial moment of order two around the daily risk-free hurdle.
         squared_neg = np.minimum(excess, 0) ** 2
         down_vol = np.sqrt(squared_neg.mean() * 252)
-        sortino = (cagr - self.rf) / down_vol if down_vol > 0 else 0
+        sortino = annualized_excess_return / down_vol if down_vol > 0 else 0
 
         max_dd = self.dd.min()
         calmar = cagr / abs(max_dd) if max_dd != 0 else np.inf
@@ -85,8 +87,8 @@ class TearsheetGenerator:
             "Sortino Ratio": f"{sortino:.2f}",
             "Calmar Ratio": f"{calmar:.2f}",
             "Max Drawdown": f"{max_dd:.2%}",
-            "VaR (5%)": f"{var5:.2%}",
-            "CVaR (5%)": f"{cvar5:.2%}",
+            "VaR Loss (5%)": f"{var5:.2%}",
+            "CVaR Loss (5%)": f"{cvar5:.2%}",
             "Skewness": f"{stats.skew(r):.2f}",
             "Kurtosis": f"{stats.kurtosis(r):.2f}",
             "Win Rate": f"{(r > 0).mean():.1%}",
@@ -97,24 +99,29 @@ class TearsheetGenerator:
         }
 
         if self.benchmark is not None:
-            common_idx = r.index.intersection(self.benchmark.index)
-            if len(common_idx) > 1:
-                r_common = r.loc[common_idx]
-                bench_common = self.benchmark.loc[common_idx]
+            aligned = pd.DataFrame(
+                {"portfolio": r, "benchmark": self.benchmark}
+            ).dropna()
+            if len(aligned) > 1:
+                r_common = aligned["portfolio"]
+                bench_common = aligned["benchmark"]
+                active = r_common - bench_common
+                te = active.std() * np.sqrt(252)
+                ir = active.mean() * 252 / te if te > 0 else 0
+                cov_mat = np.cov(r_common, bench_common)
+                beta = cov_mat[0, 1] / cov_mat[1, 1] if cov_mat[1, 1] > 0 else 0
+                alpha_daily = (r_common - rf_daily) - beta * (bench_common - rf_daily)
+                alpha = alpha_daily.mean() * 252
+                metrics["Beta"] = f"{beta:.2f}"
+                metrics["Jensen Alpha (ann.)"] = f"{alpha:.2%}"
+                metrics["Tracking Error"] = f"{te:.2%}"
+                metrics["Information Ratio"] = f"{ir:.2f}"
             else:
-                r_common = r
-                bench_common = self.benchmark.reindex(r.index).fillna(0)
-            active = r_common - bench_common
-            te = active.std() * np.sqrt(252)
-            ir = active.mean() * 252 / te if te > 0 else 0
-            cov_mat = np.cov(r_common, bench_common)
-            beta = cov_mat[0, 1] / cov_mat[1, 1] if cov_mat[1, 1] > 0 else 0
-            bench_cagr = (1 + bench_common).prod() ** (252 / len(bench_common)) - 1
-            alpha = cagr - (self.rf + beta * (bench_cagr - self.rf))
-            metrics["Beta"] = f"{beta:.2f}"
-            metrics["Alpha (ann)"] = f"{alpha:.2%}"
-            metrics["Tracking Error"] = f"{te:.2%}"
-            metrics["Information Ratio"] = f"{ir:.2f}"
+                unavailable = "N/A (insufficient overlap)"
+                metrics["Beta"] = unavailable
+                metrics["Jensen Alpha (ann.)"] = unavailable
+                metrics["Tracking Error"] = unavailable
+                metrics["Information Ratio"] = unavailable
 
         return metrics
 

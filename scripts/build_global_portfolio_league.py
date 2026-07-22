@@ -16,6 +16,11 @@ from project.research.global_portfolio_league import (
     build_portfolio_league,
     write_portfolio_league_outputs,
 )  # noqa: E402
+from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 
 def main() -> int:
@@ -38,8 +43,30 @@ def main() -> int:
         pd.read_csv(universe_path) if universe_path.exists() else None,
         max_assets=int(config.get("v2", {}).get("max_selected_stocks", 40)),
         max_weight=float(config.get("v2", {}).get("max_weight", 0.10)),
+        risk_free_rate_annual=float(
+            config.get("v2", {}).get("risk_free_rate_annual", 0.0)
+        ),
+        risk_free_policy=str(
+            config.get("v2", {}).get(
+                "risk_free_policy",
+                "zero_rate_labeled_research_assumption",
+            )
+        ),
     )
+    run_metadata = read_run_manifest(output)
+    league = attach_run_metadata(league, run_metadata)
+    weights = attach_run_metadata(weights, run_metadata)
+    status = attach_run_metadata(status, run_metadata)
     write_portfolio_league_outputs(league, weights, status, output)
+    register_artifacts(
+        output,
+        [
+            output / "global_portfolio_league.csv",
+            output / "global_portfolio_league_weights.csv",
+            output / "global_portfolio_model_status.csv",
+        ],
+        run_metadata,
+    )
     print(f"Global portfolio league written: {len(league)} models")
     return 0
 

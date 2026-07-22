@@ -1,0 +1,4 @@
+path,line,function,callsite_fingerprint,approved_meaning
+scripts/qa/verify_quantverse_reference_math.py,516,_append_fx_conversion_checks,4b4ea80d6f396aaaf37e,Independent FX replay forward-fills only within the configured positive finite calendar-gap limit after the verifier rejects nonpositive or nonfinite limits.
+src/project/data_pipeline/global_returns.py,488,_fx_return_to_base,f999d6b91da390c6cdb8,FX prices may bridge only a configured positive integer calendar-gap limit; normalization rejects noninteger boolean or negative limits and zero skips forward filling before this call.
+src/project/data_pipeline/processor.py,129,clean,22853622917ceffc2285,Price cleaning may bridge only the caller-supplied positive integer gap limit; runtime validation rejects missing noninteger boolean zero or negative limits before this call.

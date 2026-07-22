@@ -1,0 +1,6 @@
+path,line,function,callsite_fingerprint,approved_meaning
+scripts/audit_quantverse_portfolio_logic.py,225,_audit_returns_and_risk,6b33c2b3de4a890d0cd5,NaN correlation diagonal entries are set to one only for the self-correlation integrity check; no covariance portfolio or return estimate is imputed.
+src/project/research/global_stock_scoring.py,135,build_global_stock_scores,e59febd2a23bdf8c53f3,Missing provider coverage ratios are deterministically recomputed as observed returns divided by the available sample length; the fallback is bounded to the same historical window.
+src/project/research/global_stock_scoring.py,499,_market_cap_percentile,3fc62dcd8275a90eca3b,Missing market-cap evidence receives a neutral percentile of 0.5 as an explicit policy assumption and never supports an exact market-cap top-100 claim.
+src/project/research/global_stock_scoring.py,500,_market_cap_percentile,41e4f98209de9f89d2a7,A ticker without mapped market-cap evidence receives the same neutral 0.5 liquidity proxy and remains subject to source and market-cap limitations.
+src/project/research/global_stock_selection.py,111,score_assets_for_selection,75da56b17725af963432,An undefined selection ratio caused by missing or zero volatility is assigned negative infinity so the asset is rejected from ranking rather than rewarded or treated as an observed return.

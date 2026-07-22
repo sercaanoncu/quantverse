@@ -177,7 +177,7 @@ class HMMRegimeDetector:
         if len(returns) < 2:
             return 0
         cum = (1 + returns).cumprod()
-        return (cum / cum.cummax() - 1).min()
+        return (cum / cum.cummax().clip(lower=1.0) - 1).min()
 
     # ------------------------------------------------------------------
     # Outputs

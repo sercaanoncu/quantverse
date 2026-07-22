@@ -37,15 +37,19 @@ def forecast_asset_returns(
     random_state: int = 42,
 ) -> pd.DataFrame:
     """Forecast asset-level future returns with deterministic baseline models."""
-    clean = returns.apply(pd.to_numeric, errors="coerce").dropna(how="all").fillna(0.0)
+    clean = (
+        returns.apply(pd.to_numeric, errors="coerce")
+        .dropna(how="all")
+        .dropna(axis=1, how="all")
+    )
     horizons = horizons_months or [1, 3, 6, 12]
     rows = []
     for asset in clean.columns:
-        series = clean[asset].astype(float)
+        series = clean[asset].dropna().astype(float)
         features = _lag_features(series)
         for horizon in horizons:
             days = HORIZON_TO_DAYS[int(horizon)]
-            target = series.shift(-days).rolling(days).sum().shift(-(days - 1))
+            target = _forward_compound_return(series, days)
             dataset = features.join(target.rename("target")).dropna()
             baseline = _baseline_forecasts(series, days)
             rows.extend(
@@ -54,7 +58,7 @@ def forecast_asset_returns(
                     "Horizon_Months": int(horizon),
                     "Model": model,
                     "Forecast_Return": float(value),
-                    "Status": "completed",
+                    "Status": "diagnostic_only_unvalidated",
                     "Task_Type": "regression",
                 }
                 for model, value in baseline.items()
@@ -64,6 +68,7 @@ def forecast_asset_returns(
                     asset,
                     int(horizon),
                     dataset,
+                    features.dropna().tail(1),
                     random_state=random_state,
                 )
             )
@@ -96,22 +101,21 @@ def forecast_model_league(forecasts: pd.DataFrame) -> pd.DataFrame:
 
 def downside_roc(returns: pd.DataFrame, horizon_days: int = 21) -> pd.DataFrame:
     """Build ROC points for a downside classification task only."""
-    clean = returns.apply(pd.to_numeric, errors="coerce").dropna(how="all").fillna(0.0)
+    clean = returns.apply(pd.to_numeric, errors="coerce").dropna(how="any")
+    if clean.empty:
+        return pd.DataFrame(columns=["fpr", "tpr", "threshold", "Task_Type"])
     portfolio = clean.mean(axis=1)
-    realized = (
-        portfolio.shift(-horizon_days)
-        .rolling(horizon_days)
-        .sum()
-        .shift(-(horizon_days - 1))
-    )
-    score = -portfolio.rolling(horizon_days).sum()
+    realized = _forward_compound_return(portfolio, horizon_days)
+    score = -_trailing_compound_return(portfolio, horizon_days)
     dataset = pd.concat(
         [realized.rename("target"), score.rename("score")], axis=1
     ).dropna()
-    if dataset.empty or dataset["target"].lt(0).nunique() < 2:
+    split = int(len(dataset) * 0.70)
+    holdout = dataset.iloc[split:]
+    if holdout.empty or holdout["target"].lt(0).nunique() < 2:
         return pd.DataFrame(columns=["fpr", "tpr", "threshold", "Task_Type"])
     fpr, tpr, thresholds = roc_curve(
-        dataset["target"].lt(0).astype(int), dataset["score"]
+        holdout["target"].lt(0).astype(int), holdout["score"]
     )
     return pd.DataFrame(
         {
@@ -124,6 +128,8 @@ def downside_roc(returns: pd.DataFrame, horizon_days: int = 21) -> pd.DataFrame:
 
 
 def _baseline_forecasts(series: pd.Series, horizon_days: int) -> dict[str, float]:
+    if len(series) < max(21, int(horizon_days)):
+        return {"historical_mean": np.nan, "ewma_mean": np.nan}
     annual_mean = float(series.mean() * TRADING_DAYS_PER_YEAR)
     ewma_daily = float(
         series.ewm(span=min(63, max(5, len(series))), adjust=False).mean().iloc[-1]
@@ -149,6 +155,7 @@ def _sklearn_forecast_rows(
     asset: str,
     horizon: int,
     dataset: pd.DataFrame,
+    latest_features: pd.DataFrame,
     random_state: int,
 ) -> list[dict[str, object]]:
     models = {
@@ -166,7 +173,7 @@ def _sklearn_forecast_rows(
         ),
     }
     rows = []
-    if len(dataset) < 30:
+    if len(dataset) < 30 or latest_features.empty:
         return [
             {
                 "Ticker": asset,
@@ -180,17 +187,30 @@ def _sklearn_forecast_rows(
         ]
     x = dataset.drop(columns=["target"]).to_numpy(dtype=float)
     y = dataset["target"].to_numpy(dtype=float)
-    latest = x[[-1]]
+    latest = latest_features.to_numpy(dtype=float)
     for name, model in models.items():
-        model.fit(x[:-1], y[:-1])
+        model.fit(x, y)
         rows.append(
             {
                 "Ticker": asset,
                 "Horizon_Months": horizon,
                 "Model": name,
                 "Forecast_Return": float(model.predict(latest)[0]),
-                "Status": "completed",
+                "Status": "diagnostic_only_unvalidated",
                 "Task_Type": "regression",
             }
         )
     return rows
+
+
+def _forward_compound_return(series: pd.Series, horizon_days: int) -> pd.Series:
+    """Return the simple return from t+1 through t+h at each decision date t."""
+    horizon = max(int(horizon_days), 1)
+    return (1.0 + series).rolling(horizon).apply(np.prod, raw=True).shift(
+        -horizon
+    ) - 1.0
+
+
+def _trailing_compound_return(series: pd.Series, horizon_days: int) -> pd.Series:
+    horizon = max(int(horizon_days), 1)
+    return (1.0 + series).rolling(horizon).apply(np.prod, raw=True) - 1.0

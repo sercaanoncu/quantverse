@@ -10,6 +10,8 @@ import numpy as np
 import logging
 from typing import Dict, Optional, List
 
+from project.portfolio_contract import align_portfolio_weights
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,7 +23,11 @@ class DrawdownAnalyzer:
         self.tickers = list(returns.columns)
 
         if weights is not None:
-            w = weights.reindex(self.tickers).fillna(0).values
+            w = align_portfolio_weights(
+                weights,
+                self.tickers,
+                context="Drawdown portfolio",
+            ).to_numpy(dtype=float)
             self.portfolio_returns = pd.Series(
                 self.asset_returns.values @ w,
                 index=self.asset_returns.index,
@@ -38,7 +44,7 @@ class DrawdownAnalyzer:
     def _drawdown_series(self, returns: pd.Series) -> pd.Series:
         """Compute drawdown time series from returns."""
         cumulative = (1 + returns).cumprod()
-        running_max = cumulative.cummax()
+        running_max = cumulative.cummax().clip(lower=1.0)
         drawdown = cumulative / running_max - 1
         return drawdown
 
@@ -189,7 +195,7 @@ class DrawdownAnalyzer:
     def underwater_data(self) -> pd.DataFrame:
         """Return data for underwater equity curve plot."""
         cumulative = (1 + self.portfolio_returns).cumprod()
-        running_max = cumulative.cummax()
+        running_max = cumulative.cummax().clip(lower=1.0)
         underwater = cumulative / running_max - 1
 
         return pd.DataFrame(

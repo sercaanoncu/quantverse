@@ -6,7 +6,7 @@ Walk-forward backtesting engine with periodic re-optimization.
 Design Principles:
 - Transaction costs deducted from returns on rebalance days (net-of-cost P&L)
 - t+1 execution: train on data[:i], apply weights on day i (no look-ahead)
-- Optimizer failure fallback: keeps previous weights if optimizer fails
+- Optimizer failure carry-forward is recorded explicitly
 - result.success validated on all scipy.optimize calls
 """
 
@@ -18,6 +18,7 @@ import logging
 from typing import Dict, Optional, Callable
 
 from project.constants import DEFAULT_RISK_FREE_RATE
+from project.portfolio_contract import align_portfolio_weights
 
 from .metrics import PerformanceMetrics
 from .rebalancing import TransactionCosts
@@ -72,6 +73,7 @@ class PortfolioBacktester:
         total_cost = 0.0
         n_rebalances = 0
         days_since_rebal = rebal_frequency
+        optimizer_failures = []
 
         for i in range(train_window, n):
             date = dates[i]
@@ -88,13 +90,25 @@ class PortfolioBacktester:
                 try:
                     new_weights = optimizer_fn(train)
                     if isinstance(new_weights, pd.Series):
-                        new_weights = new_weights.reindex(self.tickers).fillna(0).values
+                        new_weights = align_portfolio_weights(
+                            new_weights,
+                            self.tickers,
+                            context=f"Optimizer at {date}",
+                        ).to_numpy(dtype=float)
+                    new_weights = np.asarray(new_weights, dtype=float)
 
-                    if (
-                        np.any(np.isnan(new_weights))
-                        or abs(new_weights.sum() - 1.0) > 0.05
+                    if not self._valid_long_only_weights(
+                        new_weights, self.max_position_weight
                     ):
-                        logger.warning(f"Invalid weights at {date}, keeping previous")
+                        reason = (
+                            "optimizer returned non-finite, non-long-only, "
+                            "non-fully-invested, or cap-breaching weights"
+                        )
+                        optimizer_failures.append({"date": str(date), "reason": reason})
+                        logger.warning(
+                            "Invalid weights at %s; previous weights carried forward",
+                            date,
+                        )
                     else:
                         turnover = np.sum(np.abs(new_weights - current_weights))
                         rebal_cost_today = self.costs.cost(turnover)
@@ -104,7 +118,14 @@ class PortfolioBacktester:
                         rebal_dates.append(date)
                         current_weights = new_weights
                 except Exception as e:
-                    logger.warning(f"Optimization failed at {date}: {e}")
+                    optimizer_failures.append(
+                        {"date": str(date), "reason": f"{type(e).__name__}: {e}"}
+                    )
+                    logger.warning(
+                        "Optimization failed at %s; previous weights carried forward: %s",
+                        date,
+                        e,
+                    )
 
                 days_since_rebal = 0
 
@@ -139,6 +160,13 @@ class PortfolioBacktester:
             "total_turnover": total_turnover,
             "total_cost": total_cost,
             "annualized_cost_drag_%": total_cost / oos_years * 100,
+            "optimizer_failure_count": len(optimizer_failures),
+            "optimizer_failures": optimizer_failures,
+            "optimization_status": (
+                "completed_without_optimizer_failures"
+                if not optimizer_failures
+                else "diagnostic_previous_weights_carried_forward"
+            ),
             "metrics": report,
         }
 
@@ -213,11 +241,9 @@ class PortfolioBacktester:
             options={"maxiter": 1000, "ftol": 1e-12},
         )
         if not result.success:
-            logger.warning(f"Min Variance did not converge: {result.message}")
-            vols = np.sqrt(np.diag(cov))
-            inv_var = 1.0 / np.maximum(vols**2, 1e-8)
-            weights = self._project_to_capped_simplex(inv_var, cap)
-            return pd.Series(weights, index=returns.columns)
+            raise RuntimeError(f"Min Variance did not converge: {result.message}")
+        if not self._valid_long_only_weights(result.x, cap):
+            raise RuntimeError("Min Variance returned infeasible weights")
         return pd.Series(result.x, index=returns.columns)
 
     def max_sharpe_optimizer(self, returns: pd.DataFrame) -> pd.Series:
@@ -274,10 +300,7 @@ class PortfolioBacktester:
             logger.info("Max Sharpe used best feasible candidate after SLSQP warning")
             return pd.Series(best_candidate[1], index=returns.columns)
 
-        logger.warning(
-            "Max Sharpe did not produce feasible weights; fallback to inverse volatility"
-        )
-        return pd.Series(inv_vol, index=returns.columns)
+        raise RuntimeError("Max Sharpe did not produce a feasible converged solution")
 
     def inverse_vol_optimizer(self, returns: pd.DataFrame) -> pd.Series:
         vols = returns.std().values * np.sqrt(252)
@@ -288,17 +311,11 @@ class PortfolioBacktester:
     @staticmethod
     def hrp_optimizer(returns: pd.DataFrame) -> pd.Series:
         """HRP optimizer using the package import path."""
-        try:
-            from project.optimization.hierarchical import HRPOptimizer
+        from project.optimization.hierarchical import HRPOptimizer
 
-            hrp = HRPOptimizer(returns)
-            result = hrp.optimize(method="single")
-            return result["weights"]
-        except (ImportError, Exception) as e:
-            logger.warning(f"HRP unavailable ({e}), fallback to inverse vol")
-            vols = returns.std().values * np.sqrt(252)
-            inv_vol = 1.0 / np.maximum(vols, 1e-8)
-            return pd.Series(inv_vol / inv_vol.sum(), index=returns.columns)
+        hrp = HRPOptimizer(returns)
+        result = hrp.optimize(method="single")
+        return result["weights"]
 
     def run_all_strategies(
         self, train_window: int = 504, rebal_frequency: int = 63

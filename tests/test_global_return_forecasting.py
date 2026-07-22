@@ -3,6 +3,7 @@ import pandas as pd
 
 from project.research.global_return_forecasting import (
     FORECAST_COLUMNS,
+    _ridge_forecast_and_errors,
     build_return_forecasts,
 )
 
@@ -62,3 +63,46 @@ def test_return_forecast_as_of_date_excludes_future_data():
             "ensemble_expected_return"
         ].sort_index(),
     )
+
+
+def test_short_history_does_not_masquerade_as_twelve_month_momentum():
+    forecasts = build_return_forecasts(_returns()[["SHORT"]], horizons={"12M": 252})
+    row = forecasts.iloc[0]
+
+    assert pd.isna(row["momentum_expected_return"])
+    assert row["model_status"] == "low_data_diagnostic"
+
+
+def test_one_month_mean_reversion_is_not_relabelled_as_long_horizon_forecast():
+    forecasts = build_return_forecasts(_returns()[["LONG"]], horizons={"12M": 252})
+    row = forecasts.iloc[0]
+
+    assert pd.isna(row["mean_reversion_expected_return"])
+    assert (
+        "mean_reversion_component_not_applicable_beyond_1m" in row["diagnostic_warning"]
+    )
+
+
+def test_insufficient_variance_history_does_not_create_false_narrow_interval():
+    returns = pd.DataFrame(
+        {"NEW": [0.01]},
+        index=pd.to_datetime(["2026-01-02"]),
+    )
+
+    row = build_return_forecasts(returns, horizons={"1M": 21}).iloc[0]
+
+    assert pd.isna(row["prediction_interval_low"])
+    assert pd.isna(row["prediction_interval_high"])
+    assert row["model_status"] == "low_data_diagnostic"
+
+
+def test_ridge_validation_purges_overlapping_training_labels_and_predicts_latest():
+    rng = np.random.default_rng(41)
+    index = pd.date_range("2020-01-01", periods=700, freq="B")
+    series = pd.Series(rng.normal(0.0003, 0.01, len(index)), index=index)
+
+    prediction, diagnostics = _ridge_forecast_and_errors(series, 63)
+
+    assert np.isfinite(prediction)
+    assert diagnostics["purge_observations"] == 63
+    assert diagnostics["prediction_as_of"] == index[-1].date().isoformat()

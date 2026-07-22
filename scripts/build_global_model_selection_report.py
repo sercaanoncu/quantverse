@@ -19,6 +19,11 @@ from project.research.global_model_selection import (
     simulate_constrained_random_distribution,
     write_model_selection_outputs,
 )  # noqa: E402
+from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 
@@ -33,29 +38,50 @@ def main() -> int:
     weights = _read_csv(PROCESSED / "global_portfolio_league_weights.csv")
     risk = _read_csv(PROCESSED / "global_portfolio_risk_report.csv")
     walk = _read_csv(PROCESSED / "global_walk_forward_model_comparison.csv")
+    leakage_audit = _read_csv(PROCESSED / "global_walk_forward_leakage_audit.csv")
     turnover = _read_csv(PROCESSED / "global_walk_forward_turnover.csv")
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
     robustness = _read_json(PROCESSED / "global_parameter_sensitivity_summary.json")
+    random_provenance = _read_json(
+        PROCESSED / "global_walk_forward_random_benchmark_provenance.json"
+    )
+    run_metadata = read_run_manifest(PROCESSED)
     if league.empty or returns.empty:
         print("Missing league or returns; model selection report not built.")
         return 0
-    selected_tickers = _selected_tickers_from_weights(weights, returns)
-    selected_returns = returns[selected_tickers] if selected_tickers else returns
-    random_distribution = simulate_constrained_random_distribution(
-        selected_returns,
-        n_portfolios=int(config.get("random_portfolio_samples", 1000)),
-        max_weight=float(config.get("max_weight", 0.10)),
-        random_state=int(config.get("random_state", 42)),
+    oos_random = _read_csv(PROCESSED / "global_walk_forward_random_distribution.csv")
+    if (
+        not oos_random.empty
+        and "benchmark_scope" in oos_random
+        and oos_random["benchmark_scope"].astype(str).eq("walk_forward_oos_net").all()
+    ):
+        random_distribution = oos_random
+        benchmark_model_metrics = _oos_model_metrics(league, walk)
+    else:
+        selected_tickers = _selected_tickers_from_weights(weights, returns)
+        selected_returns = returns[selected_tickers] if selected_tickers else returns
+        random_distribution = simulate_constrained_random_distribution(
+            selected_returns,
+            n_portfolios=int(config.get("random_portfolio_samples", 1000)),
+            max_weight=float(config.get("max_weight", 0.10)),
+            random_state=int(config.get("random_state", 42)),
+        )
+        random_distribution["benchmark_scope"] = "full_sample_static_weights_diagnostic"
+        benchmark_model_metrics = league
+    random_percentiles = build_random_percentile_report(
+        benchmark_model_metrics,
+        random_distribution,
     )
-    random_percentiles = build_random_percentile_report(league, random_distribution)
     selection = build_model_selection_report(
         league,
         walk_forward=walk,
         risk_report=risk,
         turnover=turnover,
         random_percentiles=random_percentiles,
+        random_distribution=random_distribution,
+        walk_forward_leakage_audit=leakage_audit,
         drawdown_tolerance=float(
             config.get("max_drawdown_worsening_vs_equal_weight", 0.05)
         ),
@@ -68,15 +94,33 @@ def main() -> int:
         ),
         max_turnover=float(config.get("max_turnover", 2.0)),
         forecast_validation_status=_forecast_validation_status(forecast_validation),
-        robustness_status=str(robustness.get("robustness_status", "stable")),
+        robustness_evidence=robustness,
+        random_benchmark_provenance=random_provenance,
+        expected_run_identity=run_metadata,
     )
     decision = build_final_model_decision(selection)
+    selection = attach_run_metadata(selection, run_metadata)
+    random_distribution = attach_run_metadata(random_distribution, run_metadata)
+    random_percentiles = attach_run_metadata(random_percentiles, run_metadata)
+    decision.update(run_metadata)
     write_model_selection_outputs(
         selection,
         decision,
         random_distribution,
         random_percentiles,
         PROCESSED,
+    )
+    register_artifacts(
+        PROCESSED,
+        [
+            PROCESSED / "global_model_selection_report.csv",
+            PROCESSED / "global_model_selection_diagnostics.csv",
+            PROCESSED / "global_final_model_decision.csv",
+            PROCESSED / "global_final_model_decision.json",
+            PROCESSED / "global_random_portfolio_distribution.csv",
+            PROCESSED / "global_random_portfolio_percentile_report.csv",
+        ],
+        run_metadata,
     )
     print(
         "Global model selection report written: "
@@ -93,6 +137,37 @@ def _selected_tickers_from_weights(
     tickers = weights["ticker"].dropna().astype(str).drop_duplicates().tolist()
     selected = [ticker for ticker in tickers if ticker in returns.columns]
     return selected or list(returns.columns)
+
+
+def _oos_model_metrics(
+    league: pd.DataFrame,
+    walk: pd.DataFrame,
+) -> pd.DataFrame:
+    if walk.empty or "model_name" not in walk:
+        return league.iloc[0:0].copy()
+    aliases = {
+        "annualized_return": ["oos_annualized_return", "avg_annualized_return"],
+        "volatility": ["oos_volatility", "avg_volatility"],
+        "sharpe": ["oos_sharpe", "avg_sharpe"],
+        "max_drawdown": ["oos_max_drawdown", "avg_max_drawdown"],
+        "cvar_95": ["oos_cvar_95", "avg_cvar_95"],
+    }
+    output = pd.DataFrame({"model_name": walk["model_name"].astype(str)})
+    for target, candidates in aliases.items():
+        source = next((column for column in candidates if column in walk), None)
+        output[target] = (
+            pd.to_numeric(walk[source], errors="coerce") if source else float("nan")
+        )
+    return output.dropna(
+        subset=[
+            "annualized_return",
+            "volatility",
+            "sharpe",
+            "max_drawdown",
+            "cvar_95",
+        ],
+        how="any",
+    )
 
 
 def _config(path: str) -> dict:

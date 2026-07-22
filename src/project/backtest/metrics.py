@@ -50,8 +50,8 @@ class PerformanceMetrics:
         return self.returns.std() * np.sqrt(self.ppy)
 
     def downside_volatility(self, threshold: float = 0.0) -> float:
-        downside = self.returns[self.returns < threshold]
-        return downside.std() * np.sqrt(self.ppy) if len(downside) > 0 else 0
+        shortfall = np.minimum(self.returns - threshold, 0.0)
+        return float(np.sqrt(np.mean(shortfall**2)) * np.sqrt(self.ppy))
 
     # --- Risk-Adjusted Returns ---
     def sharpe_ratio(self) -> float:
@@ -66,8 +66,8 @@ class PerformanceMetrics:
 
     def sortino_ratio(self) -> float:
         excess_daily = self.returns - self.rf_daily
-        downside = excess_daily[excess_daily < 0]
-        down_vol = downside.std() * np.sqrt(self.ppy) if len(downside) > 0 else 0
+        shortfall = np.minimum(excess_daily, 0.0)
+        down_vol = float(np.sqrt(np.mean(shortfall**2)) * np.sqrt(self.ppy))
         return excess_daily.mean() * self.ppy / down_vol if down_vol > 0 else 0
 
     def calmar_ratio(self) -> float:
@@ -83,25 +83,29 @@ class PerformanceMetrics:
 
     def information_ratio(self, benchmark: pd.Series) -> float:
         # Use common dates only (no fillna(0) which biases active returns)
-        common = self.returns.index.intersection(benchmark.index)
-        active = self.returns.loc[common] - benchmark.loc[common]
+        aligned = pd.DataFrame(
+            {"portfolio": self.returns, "benchmark": benchmark}
+        ).dropna()
+        if len(aligned) < 2:
+            return 0
+        active = aligned["portfolio"] - aligned["benchmark"]
         te = active.std() * np.sqrt(self.ppy)
         return active.mean() * self.ppy / te if te > 0 else 0
 
     def treynor_ratio(self, benchmark: pd.Series) -> float:
         beta = self.beta(benchmark)
-        ann_ret = self.annualized_return()
-        return (ann_ret - self.rf) / beta if abs(beta) > 1e-6 else 0
+        annualized_excess_return = (self.returns - self.rf_daily).mean() * self.ppy
+        return annualized_excess_return / beta if abs(beta) > 1e-6 else 0
 
     # --- Drawdown Metrics ---
     def max_drawdown(self) -> float:
         cum = (1 + self.returns).cumprod()
-        dd = cum / cum.cummax() - 1
+        dd = cum / cum.cummax().clip(lower=1.0) - 1
         return dd.min()
 
     def max_drawdown_duration(self) -> int:
         cum = (1 + self.returns).cumprod()
-        peak = cum.cummax()
+        peak = cum.cummax().clip(lower=1.0)
         in_dd = cum < peak
         if not in_dd.any():
             return 0
@@ -111,12 +115,12 @@ class PerformanceMetrics:
 
     def average_drawdown(self) -> float:
         cum = (1 + self.returns).cumprod()
-        dd = cum / cum.cummax() - 1
+        dd = cum / cum.cummax().clip(lower=1.0) - 1
         return dd[dd < 0].mean() if (dd < 0).any() else 0
 
     def ulcer_index(self) -> float:
         cum = (1 + self.returns).cumprod()
-        dd = cum / cum.cummax() - 1
+        dd = cum / cum.cummax().clip(lower=1.0) - 1
         return np.sqrt((dd**2).mean())
 
     # --- Tail Risk ---
@@ -147,10 +151,20 @@ class PerformanceMetrics:
         return cov[0, 1] / cov[1, 1] if cov[1, 1] > 0 else 0
 
     def alpha_jensen(self, benchmark: pd.Series) -> float:
-        b = self.beta(benchmark)
-        ann_ret = self.annualized_return()
-        bench_ret = (1 + benchmark).prod() ** (self.ppy / len(benchmark)) - 1
-        return ann_ret - (self.rf + b * (bench_ret - self.rf))
+        aligned = pd.DataFrame(
+            {"portfolio": self.returns, "benchmark": benchmark}
+        ).dropna()
+        if len(aligned) < 2:
+            return 0
+        covariance = np.cov(aligned["portfolio"], aligned["benchmark"])
+        benchmark_variance = covariance[1, 1]
+        if benchmark_variance <= 0:
+            return 0
+        beta = covariance[0, 1] / benchmark_variance
+        alpha_daily = (aligned["portfolio"] - self.rf_daily) - beta * (
+            aligned["benchmark"] - self.rf_daily
+        )
+        return float(alpha_daily.mean() * self.ppy)
 
     def win_rate(self) -> float:
         return (self.returns > 0).mean()

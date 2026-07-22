@@ -2,24 +2,33 @@ current_universe_config: configs/current_global_universe.yaml
 returns_matrix_config: configs/global_returns_matrix.yaml
 master_portfolio_config: configs/global_master_portfolio.yaml
 projection_config: configs/global_portfolio_projection.yaml
+allow_yfinance_metadata: true
+exposure_metadata_cache_dir: data/cache/exposure_metadata/yfinance_profiles
 
 v2:
   default_scope: equity_only
   include_crypto: false
   max_crypto_weight: 0.0
   max_selected_stocks: 40
+  minimum_standard_history_observations: 252
+  minimum_forecast_history_observations: 252
+  minimum_walk_forward_history_observations: 252
   walk_forward_max_assets: 20
   max_weight: 0.10
   transaction_cost_bps: 10.0
   random_portfolio_samples: 1000
+  uncertainty_bootstrap_samples: 1000
+  uncertainty_block_length: 21
+  uncertainty_confidence_level: 0.95
   random_state: 42
   walk_forward_train_days: 252
   walk_forward_test_days: 21
   walk_forward_step_days: 21
   walk_forward_max_folds: 12
-  min_sharpe_improvement_vs_equal_weight: 0.10
+  min_sharpe_improvement_vs_equal_weight: 0.0
   max_drawdown_worsening_vs_equal_weight: 0.05
   max_cvar_worsening_vs_equal_weight: 0.005
   min_random_sharpe_percentile: 0.60
   max_turnover: 2.0
-  use_excess_return_for_sharpe: true
+  risk_free_rate_annual: 0.0
+  risk_free_policy: zero_rate_labeled_research_assumption

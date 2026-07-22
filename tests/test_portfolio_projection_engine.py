@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from project.projection.portfolio_projection import (
     correlation_diagnostics,
@@ -8,11 +9,13 @@ from project.projection.portfolio_projection import (
     stress_test_portfolio,
 )
 from project.projection.return_forecasting import (
+    _forward_compound_return,
     downside_roc,
     forecast_asset_returns,
     forecast_model_league,
     optional_model_status,
 )
+from project.projection.global_forecast_engine import _portfolio_return_series
 
 
 def _returns() -> pd.DataFrame:
@@ -71,6 +74,41 @@ def test_roc_is_classification_only_and_quant_outputs_have_stable_schema():
         {"classification_downside_event"}
     )
     assert {"VaR_95", "CVaR_95", "Probability_Of_Loss"}.issubset(projection.columns)
+    assert projection["Covariance_Estimator"].eq("Ledoit-Wolf shrinkage").all()
+    assert projection["Simulation_Assumption"].str.contains("log-return").all()
     assert "correlation_matrix" in diagnostics
+    assert diagnostics["cluster_diagnostics"]["selected"].sum() == 1
     assert {"Estimator", "Status"}.issubset(estimators.columns)
     assert {"Scenario", "Portfolio_Impact"}.issubset(stress.columns)
+
+
+def test_monte_carlo_rejects_simple_returns_at_or_below_minus_one():
+    returns = _returns()
+    returns.iloc[0, 0] = -1.0
+
+    with pytest.raises(ValueError, match="at or below -100%"):
+        monte_carlo_projection(
+            returns,
+            pd.Series(0.25, index=returns.columns),
+            horizons_months=[1],
+            n_simulations=10,
+        )
+
+
+def test_legacy_forecast_helpers_preserve_missingness_and_forward_horizon():
+    returns = pd.DataFrame(
+        {
+            "A": [0.10, np.nan, 0.30],
+            "B": [0.20, 0.40, 0.50],
+        },
+        index=pd.date_range("2025-01-01", periods=3, freq="B"),
+    )
+    portfolio = _portfolio_return_series(returns)
+    forward = _forward_compound_return(
+        pd.Series([0.10, 0.20, 0.30], index=returns.index),
+        2,
+    )
+
+    assert list(portfolio.index) == [returns.index[0], returns.index[2]]
+    assert np.isclose(portfolio.iloc[0], 0.15)
+    assert np.isclose(forward.iloc[0], 0.56)

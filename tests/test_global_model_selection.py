@@ -73,8 +73,60 @@ def _league() -> pd.DataFrame:
     )
 
 
+def _walk_forward() -> pd.DataFrame:
+    league = _league()
+    return pd.DataFrame(
+        {
+            "model_name": league["model_name"],
+            "oos_annualized_return": league["annualized_return"],
+            "oos_volatility": league["volatility"],
+            "oos_sharpe": league["sharpe"],
+            "oos_sortino": league["sortino"],
+            "oos_max_drawdown": league["max_drawdown"],
+            "oos_cvar_95": league["cvar_95"],
+            "avg_turnover": league["turnover"],
+        }
+    )
+
+
+def _leakage_evidence() -> dict[str, object]:
+    identity = {
+        "run_id": "unit-run",
+        "config_hash": "config-unit",
+        "input_fingerprint": "input-unit",
+        "universe_snapshot_id": "universe-unit",
+        "data_snapshot_id": "data-unit",
+    }
+    audit = pd.DataFrame(
+        [
+            {
+                "fold": 1,
+                "check": check,
+                "passed": True,
+                "audit_status": (
+                    "passed_with_current_universe_survivorship_limitation"
+                ),
+                "evidence_scope": "current_universe_not_point_in_time",
+                **identity,
+            }
+            for check in [
+                "train_end_before_test_start",
+                "scores_as_of_not_after_train_end",
+                "selected_tickers_available_in_train",
+                "scores_recomputed_inside_fold",
+            ]
+        ]
+    )
+    return {
+        "walk_forward_leakage_audit": audit,
+        "expected_run_identity": identity,
+    }
+
+
 def test_final_model_cannot_be_blocked_or_diagnostic_only():
-    report = build_model_selection_report(_league())
+    report = build_model_selection_report(
+        _league(), _walk_forward(), **_leakage_evidence()
+    )
     decision = build_final_model_decision(report)
 
     assert decision["final_selected_model"] != "Diagnostic Forecast"
@@ -87,7 +139,9 @@ def test_final_model_cannot_be_blocked_or_diagnostic_only():
 
 
 def test_equal_weight_wins_when_active_fails_risk_and_cost_gates():
-    report = build_model_selection_report(_league())
+    report = build_model_selection_report(
+        _league(), _walk_forward(), **_leakage_evidence()
+    )
     decision = build_final_model_decision(report)
 
     assert decision["final_selected_model"] == "Equal Weight"
@@ -98,7 +152,9 @@ def test_equal_weight_wins_when_active_fails_risk_and_cost_gates():
 
 
 def test_selection_penalizes_drawdown_and_turnover():
-    report = build_model_selection_report(_league())
+    report = build_model_selection_report(
+        _league(), _walk_forward(), **_leakage_evidence()
+    )
     equal_weight_score = float(
         report.loc[report["model_name"].eq("Equal Weight"), "selection_score"].iloc[0]
     )
@@ -113,7 +169,9 @@ def test_selection_penalizes_drawdown_and_turnover():
 
 
 def test_model_decision_json_schema_fields_are_present():
-    decision = build_final_model_decision(build_model_selection_report(_league()))
+    decision = build_final_model_decision(
+        build_model_selection_report(_league(), _walk_forward(), **_leakage_evidence())
+    )
 
     assert {
         "final_selected_model",
@@ -125,3 +183,50 @@ def test_model_decision_json_schema_fields_are_present():
         "random_portfolio_percentile",
         "publish_readiness_status",
     }.issubset(decision)
+
+
+def test_missing_walk_forward_evidence_cannot_fall_back_to_full_sample_league():
+    report = build_model_selection_report(_league(), **_leakage_evidence())
+    decision = build_final_model_decision(report)
+
+    assert not report["walk_forward_supported"].astype(bool).any()
+    assert not report["eligible_final_model"].astype(bool).any()
+    assert report["walk_forward_sharpe"].isna().all()
+    assert decision["final_selected_model"] == "not_available"
+    assert "No eligible Equal Weight" in decision["final_decision_reason"]
+
+
+def test_missing_failed_and_stale_leakage_evidence_fail_closed():
+    identity = _leakage_evidence()["expected_run_identity"]
+
+    missing = build_model_selection_report(
+        _league(),
+        _walk_forward(),
+        expected_run_identity=identity,
+    )
+    assert not missing["eligible_final_model"].astype(bool).any()
+    assert set(missing["leakage_evidence_status"]) == {"missing"}
+
+    failed_evidence = _leakage_evidence()
+    failed_audit = failed_evidence["walk_forward_leakage_audit"].copy()
+    failed_audit.loc[0, "passed"] = False
+    failed = build_model_selection_report(
+        _league(),
+        _walk_forward(),
+        walk_forward_leakage_audit=failed_audit,
+        expected_run_identity=identity,
+    )
+    assert not failed["eligible_final_model"].astype(bool).any()
+    assert set(failed["leakage_evidence_status"]) == {"failed_leakage_checks"}
+
+    stale_evidence = _leakage_evidence()
+    stale_audit = stale_evidence["walk_forward_leakage_audit"].copy()
+    stale_audit["run_id"] = "stale-run"
+    stale = build_model_selection_report(
+        _league(),
+        _walk_forward(),
+        walk_forward_leakage_audit=stale_audit,
+        expected_run_identity=identity,
+    )
+    assert not stale["eligible_final_model"].astype(bool).any()
+    assert set(stale["leakage_evidence_status"]) == {"stale_or_mismatched_run_identity"}

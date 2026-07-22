@@ -191,6 +191,8 @@ def test_transaction_cost_sensitivity_schema_with_fake_backtester(
                     },
                     "total_cost": max(0, bps) / 10000,
                     "annualized_cost_drag_%": max(0, bps) / 100,
+                    "optimizer_failure_count": 0,
+                    "optimization_status": "completed_without_optimizer_failures",
                 }
             }
 
@@ -308,7 +310,44 @@ def test_ml_drift_report_handles_too_few_predictions():
     assert drift.loc[0, "Status"] == "inconclusive"
 
 
+def test_active_source_has_no_unbounded_forward_or_backward_fill():
+    root = Path(__file__).resolve().parents[1]
+    active_files = list((root / "src").rglob("*.py")) + list(
+        (root / "scripts").rglob("*.py")
+    )
+    violations = []
+    for path in active_files:
+        text = path.read_text(encoding="utf-8")
+        if ".ffill()" in text or ".bfill()" in text:
+            violations.append(path.relative_to(root).as_posix())
+
+    assert violations == []
+
+
 def test_population_stability_index_returns_nan_for_constant_expected():
     psi = _population_stability_index(pd.Series([0.5] * 10), pd.Series([0.5] * 10))
 
     assert np.isnan(psi)
+
+
+def test_full_red_team_documents_have_required_decision_contract():
+    root = Path(__file__).resolve().parents[1]
+    audit = (
+        root / "docs" / "audit" / "QUANTVERSE_V2_FULL_SCIENTIFIC_RED_TEAM_AUDIT.md"
+    ).read_text(encoding="utf-8")
+    impact = (
+        root / "docs" / "audit" / "QUANTVERSE_V2_FULL_AUDIT_REPAIR_IMPACT.md"
+    ).read_text(encoding="utf-8")
+
+    for section in [
+        "## 1. Executive Verdict",
+        "## 3. Methodology Sources",
+        "## 12. Risk",
+        "## 14. Model Selection",
+        "## 21. Findings By P0/P1/P2/P3",
+        "## 24. Merge-Readiness Verdict",
+    ]:
+        assert section in audit
+    assert "RESEARCH_READY_WITH_LIMITATIONS" in audit
+    assert "Equal Weight" in impact
+    assert "not promoted" in impact

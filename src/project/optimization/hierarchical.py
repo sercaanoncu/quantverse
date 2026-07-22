@@ -152,7 +152,10 @@ class HRPOptimizer:
         bounds = constraints.get_bounds(self.n)
         lb = np.array([b[0] for b in bounds], dtype=float)
         ub = np.array([b[1] for b in bounds], dtype=float)
-        raw = weights.reindex(self.tickers).fillna(0).to_numpy(dtype=float)
+        aligned = weights.reindex(self.tickers)
+        if aligned.isna().any():
+            raise ValueError("HRP produced missing or non-finite asset weights.")
+        raw = aligned.to_numpy(dtype=float)
         raw = np.maximum(raw, 0.0) if constraints.long_only else raw
         raw = raw / raw.sum() if abs(raw.sum()) > 1e-12 else np.ones(self.n) / self.n
 

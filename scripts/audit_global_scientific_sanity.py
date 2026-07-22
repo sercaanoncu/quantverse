@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from project.data_pipeline.security_universe import (
+    REQUIRED_UNIVERSE_COLUMNS,
+    stablecoin_like_mask,
+    unverified_crypto_price_mapping_mask,
+    validate_investable_vs_signal_flags,
+)
 
 PROCESSED = Path("data/processed")
 UNIVERSE = Path("data/universe/current_global_equity_universe.csv")
@@ -32,6 +43,7 @@ def run_audit(
     universe = Path(universe_path)
     issues: list[dict[str, Any]] = []
     issues.extend(_metric_sanity(processed))
+    issues.extend(_selection_evidence_sanity(processed))
     issues.extend(_source_data_sanity(processed, universe))
     issues.extend(_portfolio_sanity(processed))
     issues.extend(_model_sanity(processed))
@@ -51,6 +63,11 @@ def run_audit(
             "next_required_fix",
             "recommended_fix",
             "blocks_promotion",
+            "evidence_scope",
+            "decision_scope",
+            "blocks_v2_public_data_model",
+            "blocks_institutional_global_master",
+            "blocks_active_challenger_promotion",
         ],
     )
     summary = _summary(issue_frame)
@@ -163,16 +180,23 @@ def _metric_sanity(processed: Path) -> list[dict[str, Any]]:
             pd.to_numeric(covariance["condition_number"], errors="coerce") > 1e8
         ]
         for row in unstable.itertuples(index=False):
+            estimator = str(getattr(row, "estimator", "estimator"))
+            estimator_is_used = "ledoit" in estimator.lower()
             issues.append(
                 _issue(
-                    "high",
+                    "high" if estimator_is_used else "medium",
                     "return_risk_scale",
                     "data/processed/global_covariance_estimator_comparison.csv",
                     "condition_number",
-                    f"{getattr(row, 'estimator', 'estimator')}: covariance_condition_number_high",
+                    f"{estimator}: covariance_condition_number_high",
                     "Ill-conditioned covariance can make optimization unstable.",
-                    "Prefer shrinkage/robust covariance and keep optimizer outputs diagnostic.",
-                    True,
+                    (
+                        "Repair the covariance input before allocation."
+                        if estimator_is_used
+                        else "Keep this estimator diagnostic; allocation uses the "
+                        "labelled shrinkage estimator."
+                    ),
+                    estimator_is_used,
                 )
             )
     return issues
@@ -371,22 +395,92 @@ def _source_data_sanity(processed: Path, universe_path: Path) -> list[dict[str, 
             )
     universe = _read_csv(universe_path)
     if not universe.empty:
-        dupes = (
-            universe.loc[universe["ticker"].astype(str).duplicated(keep=False)]
-            if "ticker" in universe
-            else pd.DataFrame()
-        )
-        if not dupes.empty:
+        missing_schema = [
+            column for column in REQUIRED_UNIVERSE_COLUMNS if column not in universe
+        ]
+        if missing_schema:
             issues.append(
                 _issue(
-                    "medium",
+                    "critical",
+                    "source_data",
+                    str(universe_path),
+                    "schema",
+                    "universe_schema_incomplete: " + ", ".join(missing_schema),
+                    "Eligibility, source and security-identity gates cannot be audited against an incomplete universe schema.",
+                    "Regenerate the canonical universe with the required schema.",
+                    True,
+                )
+            )
+        else:
+            eligibility_issues = validate_investable_vs_signal_flags(universe)
+            if not eligibility_issues.empty:
+                issues.append(
+                    _issue(
+                        "critical",
+                        "source_data",
+                        str(universe_path),
+                        "investable/include/signal_only/price_ticker_verified",
+                        f"invalid_universe_eligibility_flags: {len(eligibility_issues)} rows",
+                        "Invalid eligibility combinations can admit stable-value or unverified-identity assets into portfolio research.",
+                        "Rebuild the canonical universe and require explicit provider-symbol evidence.",
+                        True,
+                    )
+                )
+        unverified_crypto = universe.loc[unverified_crypto_price_mapping_mask(universe)]
+        if not unverified_crypto.empty:
+            issues.append(
+                _issue(
+                    "high",
+                    "source_data",
+                    str(universe_path),
+                    "price_ticker_verified",
+                    f"unverified_crypto_price_mappings: {len(unverified_crypto)} rows",
+                    "CoinGecko market-cap metadata does not prove cross-provider price identity.",
+                    "Keep these rows diagnostic-only until a reviewed CoinGecko-ID-to-price-provider crosswalk exists.",
+                    True,
+                )
+            )
+        duplicate_scope_available = {
+            "investable",
+            "include",
+            "signal_only",
+        }.issubset(universe.columns)
+        if "ticker" not in universe:
+            dupes = pd.DataFrame()
+        elif duplicate_scope_available:
+            active = (
+                _truthy_series(universe["investable"])
+                & _truthy_series(universe["include"])
+                & ~_truthy_series(universe["signal_only"])
+            )
+            active_universe = universe.loc[active]
+            dupes = active_universe.loc[
+                active_universe["ticker"].astype(str).duplicated(keep=False)
+            ]
+        else:
+            dupes = universe.loc[universe["ticker"].astype(str).duplicated(keep=False)]
+        if not dupes.empty:
+            issue_name = (
+                "duplicate_investable_tickers"
+                if duplicate_scope_available
+                else "duplicate_tickers_in_universe"
+            )
+            issues.append(
+                _issue(
+                    "critical" if duplicate_scope_available else "medium",
                     "source_data",
                     str(universe_path),
                     "ticker",
-                    f"duplicate_tickers_in_universe: {dupes['ticker'].nunique()}",
-                    "Duplicates can distort weights and source counts.",
-                    "Deduplicate or separate share classes explicitly.",
-                    False,
+                    f"{issue_name}: {dupes['ticker'].nunique()}",
+                    (
+                        "Duplicate included investable rows can double count a "
+                        "security and distort selection or weights."
+                        if duplicate_scope_available
+                        else "Duplicates cannot be classified safely without "
+                        "complete eligibility flags."
+                    ),
+                    "Deduplicate active investable rows or separate share classes explicitly.",
+                    duplicate_scope_available,
                 )
             )
     weights = _read_csv(processed / "global_master_candidate_weights.csv")
@@ -399,13 +493,20 @@ def _source_data_sanity(processed: Path, universe_path: Path) -> list[dict[str, 
             else pd.DataFrame()
         )
         if not final_weights.empty and not meta.empty:
-            stable = (
-                meta.reindex(final_weights["Ticker"].astype(str))["notes"]
-                .fillna("")
-                .astype(str)
-                .str.contains("stable_like=True", case=False, na=False)
+            final_metadata = (
+                meta.reindex(final_weights["Ticker"].astype(str))
+                .reset_index(drop=False)
+                .rename(columns={"index": "ticker"})
             )
-            if stable.any():
+            stable_final = stablecoin_like_mask(final_metadata)
+            if "notes" in final_metadata:
+                stable_final |= (
+                    final_metadata["notes"]
+                    .fillna("")
+                    .astype(str)
+                    .str.contains("stable_like=True", case=False, na=False)
+                )
+            if stable_final.any():
                 issues.append(
                     _issue(
                         "critical",
@@ -418,6 +519,105 @@ def _source_data_sanity(processed: Path, universe_path: Path) -> list[dict[str, 
                         True,
                     )
                 )
+    return issues
+
+
+def _selection_evidence_sanity(processed: Path) -> list[dict[str, Any]]:
+    """Flag economically suspicious OOS metrics and incomplete promotion evidence."""
+    issues: list[dict[str, Any]] = []
+    comparison = _read_csv(processed / "global_walk_forward_model_comparison.csv")
+    for row in comparison.itertuples(index=False):
+        model = str(getattr(row, "model_name", "unknown"))
+        status = str(getattr(row, "model_status", "unknown"))
+        for column, threshold, label in [
+            ("oos_cagr", 1.0, "oos_cagr_above_100pct"),
+            ("oos_annualized_return", 1.0, "oos_annual_return_above_100pct"),
+            ("oos_volatility", 1.0, "oos_volatility_above_100pct"),
+            ("oos_sharpe", 3.0, "oos_sharpe_above_3"),
+            ("oos_sortino", 5.0, "oos_sortino_above_5"),
+        ]:
+            value = _num(getattr(row, column, np.nan))
+            if pd.notna(value) and value > threshold:
+                issues.append(
+                    _issue(
+                        "high" if status != "diagnostic_only" else "medium",
+                        "walk_forward_validation",
+                        "data/processed/global_walk_forward_model_comparison.csv",
+                        column,
+                        f"{model}: {label} ({value:.4f})",
+                        "A short current-universe OOS window can produce economically "
+                        "extreme estimates even when arithmetic is correct; the result "
+                        "is vulnerable to regime and survivorship bias.",
+                        "Retain as a warning, show the date range and uncertainty, and "
+                        "do not interpret it as expected future performance.",
+                        False,
+                    )
+                )
+    if not comparison.empty and "oos_observations" in comparison:
+        observation_values = pd.to_numeric(
+            comparison["oos_observations"], errors="coerce"
+        ).dropna()
+        observations = (
+            int(observation_values.max()) if not observation_values.empty else 0
+        )
+        if 0 < observations < 2 * 252:
+            issues.append(
+                _issue(
+                    "medium",
+                    "walk_forward_validation",
+                    "data/processed/global_walk_forward_model_comparison.csv",
+                    "oos_observations",
+                    f"short_oos_history_for_model_selection: {observations} observations",
+                    "One to two trading years cannot represent a broad set of market "
+                    "regimes and gives imprecise risk-adjusted comparisons.",
+                    "Extend point-in-time OOS history before making alpha or stability claims.",
+                    False,
+                )
+            )
+    robustness = _read_json(processed / "global_parameter_sensitivity_summary.json")
+    if "diagnostic" in str(robustness.get("robustness_status", "")).lower():
+        issues.append(
+            _issue(
+                "high",
+                "model_selection",
+                "data/processed/global_parameter_sensitivity_summary.json",
+                "robustness_status",
+                "nested_oos_robustness_not_implemented",
+                "Current-sample configuration sensitivity cannot establish that an "
+                "active model remains superior under nested chronological OOS testing.",
+                "Keep active challengers unpromoted until the robustness grid is rerun "
+                "inside a leakage-safe nested OOS protocol.",
+                True,
+            )
+        )
+    eligible_models = (
+        int(comparison["model_name"].astype(str).nunique())
+        if "model_name" in comparison
+        else 0
+    )
+    if eligible_models > 1 and not any(
+        (processed / filename).exists()
+        for filename in [
+            "global_white_reality_check.csv",
+            "global_spa_test.csv",
+            "global_deflated_sharpe.csv",
+            "global_pbo_diagnostics.csv",
+        ]
+    ):
+        issues.append(
+            _issue(
+                "high",
+                "model_selection",
+                "data/processed/global_walk_forward_model_comparison.csv",
+                "model_name",
+                f"multiple_testing_control_incomplete: {eligible_models} compared models",
+                "Selecting the best result from several models inflates apparent skill "
+                "and creates a winner's-curse risk.",
+                "Retain conservative language and no active promotion; add a justified "
+                "Reality Check, SPA, DSR/PBO method only when sample size supports it.",
+                True,
+            )
+        )
     return issues
 
 
@@ -441,7 +641,7 @@ def _portfolio_sanity(processed: Path) -> list[dict[str, Any]]:
                         True,
                     )
                 )
-            if numeric.isna().any() or np.isinf(numeric.fillna(0.0).to_numpy()).any():
+            if numeric.isna().any() or np.isinf(numeric.to_numpy(dtype=float)).any():
                 issues.append(
                     _issue(
                         "critical",
@@ -568,10 +768,17 @@ def _model_sanity(processed: Path) -> list[dict[str, Any]]:
     issues = []
     models = _read_csv(processed / "global_master_model_comparison.csv")
     if not models.empty:
-        for name in ["Black-Litterman", "HRP", "Risk Parity"]:
+        for name in ["Black-Litterman", "HRP", "Risk Parity", "Policy Constrained"]:
             row = models.loc[models["Model"].astype(str).eq(name)]
-            if not row.empty and not row["Status"].astype(str).eq("computed").any():
-                severity = "high" if name == "Black-Litterman" else "medium"
+            if (
+                not row.empty
+                and not row["Status"].astype(str).str.startswith("computed").any()
+            ):
+                severity = (
+                    "high"
+                    if name in {"Black-Litterman", "Policy Constrained"}
+                    else "medium"
+                )
                 issues.append(
                     _issue(
                         severity,
@@ -791,6 +998,9 @@ def _summary(issues: pd.DataFrame) -> pd.DataFrame:
                     "medium": 0,
                     "low": 0,
                     "promotion_blockers": 0,
+                    "v2_public_data_model_blockers": 0,
+                    "institutional_global_master_blockers": 0,
+                    "active_challenger_promotion_blockers": 0,
                     "status": "passed",
                 }
             ]
@@ -807,6 +1017,15 @@ def _summary(issues: pd.DataFrame) -> pd.DataFrame:
                 "promotion_blockers": int(
                     issues["blocks_promotion"].astype(bool).sum()
                 ),
+                "v2_public_data_model_blockers": int(
+                    issues["blocks_v2_public_data_model"].astype(bool).sum()
+                ),
+                "institutional_global_master_blockers": int(
+                    issues["blocks_institutional_global_master"].astype(bool).sum()
+                ),
+                "active_challenger_promotion_blockers": int(
+                    issues["blocks_active_challenger_promotion"].astype(bool).sum()
+                ),
                 "status": "red_flags_present",
             }
         ]
@@ -816,10 +1035,16 @@ def _summary(issues: pd.DataFrame) -> pd.DataFrame:
 def _dashboard(issues: pd.DataFrame) -> pd.DataFrame:
     if issues.empty:
         return pd.DataFrame(
-            columns=["category", "severity", "issue_count", "promotion_blockers"]
+            columns=[
+                "decision_scope",
+                "category",
+                "severity",
+                "issue_count",
+                "promotion_blockers",
+            ]
         )
     return (
-        issues.groupby(["category", "severity"], as_index=False)
+        issues.groupby(["decision_scope", "category", "severity"], as_index=False)
         .agg(
             issue_count=("issue", "count"),
             promotion_blockers=("blocks_promotion", "sum"),
@@ -834,11 +1059,15 @@ def _read_csv(path: Path) -> pd.DataFrame:
     return pd.read_csv(path).drop(columns=["Unnamed: 0"], errors="ignore")
 
 
-def _decision(processed: Path) -> dict[str, Any]:
-    path = processed / "global_master_decision_summary.json"
+def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _decision(processed: Path) -> dict[str, Any]:
+    path = processed / "global_master_decision_summary.json"
+    return _read_json(path)
 
 
 def _num(value: Any) -> float:
@@ -846,9 +1075,90 @@ def _num(value: Any) -> float:
 
 
 def _effective_holdings(weights: pd.Series) -> float:
-    numeric = pd.to_numeric(weights, errors="coerce").fillna(0.0)
+    numeric = pd.to_numeric(weights, errors="coerce")
+    if numeric.isna().any() or not np.isfinite(numeric.to_numpy(dtype=float)).all():
+        return float("nan")
     denom = float((numeric**2).sum())
     return float(1.0 / denom) if denom > 0 else 0.0
+
+
+def _truthy_series(series: pd.Series) -> pd.Series:
+    return series.map(
+        lambda value: value is True
+        or str(value).strip().lower() in {"1", "true", "yes", "y"}
+    ).astype(bool)
+
+
+def _issue_scope(
+    *,
+    category: str,
+    evidence_file: str,
+    issue: str,
+    blocks_promotion: bool,
+) -> tuple[str, str, bool, bool, bool]:
+    evidence = str(evidence_file).replace("\\", "/").lower()
+    issue_text = str(issue).lower()
+    if "global_master_" in evidence:
+        return (
+            "legacy_global_master_proxy_research",
+            "legacy_global_master_candidate",
+            False,
+            bool(blocks_promotion),
+            False,
+        )
+    institutional_tokens = {
+        "exact_top100",
+        "market_cap_coverage",
+        "market_cap_rank",
+        "black_litterman_priors",
+        "point_in_time",
+        "delisting_and_corporate_action",
+        "unverified_crypto_price",
+        "source_url_missing",
+    }
+    if any(token in issue_text for token in institutional_tokens):
+        return (
+            "global_universe_governance",
+            "institutional_global_master_promotion",
+            False,
+            bool(blocks_promotion),
+            False,
+        )
+    active_challenger_tokens = {
+        "nested_oos_robustness",
+        "multiple_testing_control",
+    }
+    if any(token in issue_text for token in active_challenger_tokens):
+        return (
+            "v2_public_data_equity_research",
+            "active_public_data_challenger_promotion",
+            False,
+            False,
+            bool(blocks_promotion),
+        )
+    if category == "fx_currency":
+        return (
+            "usd_return_construction",
+            "v2_and_institutional_portfolio_evidence",
+            bool(blocks_promotion),
+            bool(blocks_promotion),
+            bool(blocks_promotion),
+        )
+    if category == "reporting":
+        return (
+            "reporting_artifact",
+            "reporting_readiness",
+            False,
+            False,
+            False,
+        )
+    return (
+        "v2_public_data_equity_research",
+        "v2_public_data_research_model",
+        bool(blocks_promotion),
+        False,
+        bool(blocks_promotion),
+    )
 
 
 def _issue(
@@ -861,6 +1171,18 @@ def _issue(
     recommended_fix: str,
     blocks_promotion: bool,
 ) -> dict[str, object]:
+    (
+        evidence_scope,
+        decision_scope,
+        blocks_v2,
+        blocks_institutional,
+        blocks_active_challenger,
+    ) = _issue_scope(
+        category=category,
+        evidence_file=evidence_file,
+        issue=issue,
+        blocks_promotion=blocks_promotion,
+    )
     return {
         "severity": severity,
         "category": category,
@@ -873,6 +1195,11 @@ def _issue(
         "next_required_fix": recommended_fix,
         "recommended_fix": recommended_fix,
         "blocks_promotion": bool(blocks_promotion),
+        "evidence_scope": evidence_scope,
+        "decision_scope": decision_scope,
+        "blocks_v2_public_data_model": blocks_v2,
+        "blocks_institutional_global_master": blocks_institutional,
+        "blocks_active_challenger_promotion": blocks_active_challenger,
     }
 
 

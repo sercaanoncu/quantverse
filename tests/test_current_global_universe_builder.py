@@ -42,6 +42,37 @@ def test_current_universe_builder_ranks_market_caps_and_reports_missing(tmp_path
     assert set(missing["ticker"]) == {"CCC"}
 
 
+def test_current_universe_preserves_crypto_type_and_blocks_unverified_mapping(
+    tmp_path,
+):
+    source = tmp_path / "crypto_candidates.csv"
+    crypto = _source_frame()
+    crypto["ticker"] = ["BTC-USD", "CC-USD", "USDS-USD"]
+    crypto["name"] = ["Bitcoin", "Canton", "USDS"]
+    crypto["asset_type"] = "crypto"
+    crypto["investable"] = True
+    crypto["include"] = True
+    crypto["signal_only"] = False
+    crypto["benchmark_only"] = False
+    crypto["proxy_type"] = "crypto_yfinance_proxy"
+    crypto["price_ticker_verified"] = [True, False, False]
+    crypto.to_csv(source, index=False)
+
+    universe, _ = build_current_global_universe(
+        {"source_files": {"crypto_top100": str(source)}, "top_n_per_sleeve": 3}
+    )
+    rows = universe.set_index("ticker")
+
+    assert set(universe["asset_type"]) == {"crypto"}
+    assert bool(rows.loc["BTC-USD", "investable"])
+    assert not bool(rows.loc["BTC-USD", "signal_only"])
+    assert not bool(rows.loc["CC-USD", "investable"])
+    assert bool(rows.loc["CC-USD", "signal_only"])
+    assert bool(rows.loc["CC-USD", "include"])
+    assert not bool(rows.loc["USDS-USD", "investable"])
+    assert not bool(rows.loc["USDS-USD", "include"])
+
+
 def test_current_universe_cli_exits_zero_when_sources_missing(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(

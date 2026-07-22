@@ -288,7 +288,12 @@ def _walk_forward_strategy(
         if days_since_rebalance >= config.rebal_frequency:
             train = returns.iloc[max(0, i - config.train_window) : i]
             proposed = optimizer(train)
-            proposed = proposed.reindex(tickers).fillna(0.0).to_numpy(dtype=float)
+            proposed = proposed.reindex(tickers)
+            if proposed.isna().any():
+                raise ValueError(
+                    f"{label} optimizer omitted or returned non-finite asset weights."
+                )
+            proposed = proposed.to_numpy(dtype=float)
             proposed = _sanitize_weights(proposed, config.max_weight)
             turnover = float(np.abs(proposed - current).sum())
             cost_today = float(costs.cost(turnover))
@@ -354,7 +359,8 @@ def _momentum_tilt(train: pd.DataFrame, config: ChallengerConfig) -> pd.Series:
     raw = score.clip(lower=0.0) / vol
     if raw.replace([np.inf, -np.inf], np.nan).dropna().sum() <= 0:
         raw = pd.Series(1.0, index=train.columns)
-    raw = raw.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    raw = raw.replace([np.inf, -np.inf], np.nan)
+    _require_complete_signal(raw, "Momentum Tilt")
     momentum = _project_to_capped_simplex(raw.to_numpy(), config.max_weight)
     blended = 0.40 * np.ones(train.shape[1]) / train.shape[1] + 0.60 * momentum
     return pd.Series(
@@ -374,7 +380,7 @@ def _time_series_momentum(train: pd.DataFrame, config: ChallengerConfig) -> pd.S
     score = (trailing.where(eligible, 0.0).clip(lower=0.0) / vol).replace(
         [np.inf, -np.inf], np.nan
     )
-    score = score.fillna(0.0)
+    _require_complete_signal(score, "Time-Series Momentum")
     if score.sum() <= 0:
         score = eligible.astype(float)
     weights = _project_to_capped_simplex(score.to_numpy(), config.max_weight)
@@ -407,7 +413,8 @@ def _dual_momentum(train: pd.DataFrame, config: ChallengerConfig) -> pd.Series:
         score = trailing.where(eligible, 0.0).clip(lower=0.0)
     else:
         score = 1.0 / (train.tail(126).std().replace(0, np.nan))
-    score = score.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    score = score.replace([np.inf, -np.inf], np.nan)
+    _require_complete_signal(score, "Dual Momentum")
     return pd.Series(
         _project_to_capped_simplex(score.to_numpy(), config.max_weight),
         index=train.columns,
@@ -419,12 +426,14 @@ def _trend_following_ma(train: pd.DataFrame, config: ChallengerConfig) -> pd.Ser
     price_proxy = (1.0 + train).cumprod()
     ma = price_proxy.rolling(window).mean()
     trend_positive = price_proxy.iloc[-1] > ma.iloc[-1]
-    if trend_positive.isna().all() or not bool(trend_positive.fillna(False).any()):
+    if trend_positive.isna().any():
+        raise ValueError("Trend-Following requires a complete moving-average signal.")
+    if not bool(trend_positive.any()):
         return _equal_weight(train, config.max_weight)
 
     vol = train.tail(min(126, len(train))).std().replace(0, np.nan)
     score = (trend_positive.astype(float) / vol).replace([np.inf, -np.inf], np.nan)
-    score = score.fillna(0.0)
+    _require_complete_signal(score, "Trend-Following")
     return pd.Series(
         _project_to_capped_simplex(score.to_numpy(), config.max_weight),
         index=train.columns,
@@ -434,7 +443,8 @@ def _trend_following_ma(train: pd.DataFrame, config: ChallengerConfig) -> pd.Ser
 def _vol_scaled_momentum(train: pd.DataFrame, config: ChallengerConfig) -> pd.Series:
     momentum = _lookback_return(train, 252).clip(lower=0.0)
     vol = train.tail(126).std().replace(0, np.nan)
-    score = (momentum / vol).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    score = (momentum / vol).replace([np.inf, -np.inf], np.nan)
+    _require_complete_signal(score, "Volatility-Scaled Momentum")
     if score.sum() <= 0:
         score = pd.Series(1.0, index=train.columns)
     return pd.Series(
@@ -494,8 +504,9 @@ def _regime_aware_allocation(
     vol_threshold = (
         float(rolling_vol.quantile(0.75)) if len(rolling_vol) else current_vol
     )
+    recent_ew_curve = (1.0 + ew.tail(126)).cumprod()
     current_dd = float(
-        ((1 + ew.tail(126)).cumprod() / (1 + ew.tail(126)).cumprod().cummax() - 1).min()
+        (recent_ew_curve / recent_ew_curve.cummax().clip(lower=1.0) - 1.0).min()
     )
 
     growth = [
@@ -565,7 +576,8 @@ def _asset_class_rotation(
         if not members:
             continue
         vol = train[members].tail(126).std().replace(0, np.nan)
-        inv = (1.0 / vol).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        inv = (1.0 / vol).replace([np.inf, -np.inf], np.nan)
+        _require_complete_signal(inv, f"Asset-Class Rotation {asset_class}")
         if inv.sum() <= 0:
             inv = pd.Series(1.0, index=members)
         weights.loc[members] = budget * inv / inv.sum()
@@ -581,7 +593,8 @@ def _signal_aware_hrp_lite(
     config: ChallengerConfig,
 ) -> pd.Series:
     vol = train.tail(min(126, len(train))).std().replace(0, np.nan)
-    inv_vol = (1.0 / vol).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    inv_vol = (1.0 / vol).replace([np.inf, -np.inf], np.nan)
+    _require_complete_signal(inv_vol, "Signal-Aware HRP Lite")
     if inv_vol.sum() <= 0:
         inv_vol = pd.Series(1.0, index=train.columns)
 
@@ -589,7 +602,9 @@ def _signal_aware_hrp_lite(
     score = inv_vol * (1.0 + momentum.clip(lower=-0.50))
     broad_return = train.mean(axis=1)
     recent_curve = (1.0 + broad_return.tail(min(126, len(broad_return)))).cumprod()
-    broad_drawdown = float((recent_curve / recent_curve.cummax() - 1.0).min())
+    broad_drawdown = float(
+        (recent_curve / recent_curve.cummax().clip(lower=1.0) - 1.0).min()
+    )
     risky_classes = {"us_equity_sectors", "international_equity", "crypto", "reits"}
     if broad_drawdown < -0.12:
         risky = [
@@ -663,25 +678,35 @@ def _max_sharpe_weights(
         constraints=[{"type": "eq", "fun": lambda weights: weights.sum() - 1.0}],
         options={"maxiter": 500, "ftol": 1e-9},
     )
-    weights = result.x if result.success else start
+    if not result.success:
+        raise RuntimeError(
+            "Shrunk Max Sharpe optimization failed: " + str(result.message)
+        )
+    weights = result.x
     return pd.Series(_sanitize_weights(weights, cap), index=train.columns)
 
 
 def _lookback_return(train: pd.DataFrame, lookback: int) -> pd.Series:
     window = train.tail(min(lookback, len(train)))
-    return (1.0 + window).prod() - 1.0
+    return (1.0 + window).prod(min_count=len(window)) - 1.0
 
 
 def _lookback_drawdown(train: pd.DataFrame) -> pd.Series:
     curves = (1.0 + train).cumprod()
-    return (curves / curves.cummax() - 1.0).min()
+    return (curves / curves.cummax().clip(lower=1.0) - 1.0).min()
 
 
 def _sanitize_weights(weights: Iterable[float], cap: float) -> np.ndarray:
     values = np.asarray(list(weights), dtype=float)
-    values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+    if not np.isfinite(values).all():
+        raise ValueError("Portfolio weights must be finite before sanitization.")
     values = np.maximum(values, 0.0)
     return _project_to_capped_simplex(values, cap)
+
+
+def _require_complete_signal(signal: pd.Series, label: str) -> None:
+    if signal.isna().any() or not np.isfinite(signal.to_numpy(dtype=float)).all():
+        raise ValueError(f"{label} requires finite signals for every selected asset.")
 
 
 def _project_to_capped_simplex(raw_weights: Iterable[float], cap: float) -> np.ndarray:
@@ -689,7 +714,9 @@ def _project_to_capped_simplex(raw_weights: Iterable[float], cap: float) -> np.n
     n_assets = len(weights)
     if cap * n_assets < 1.0:
         raise ValueError("max weight cap is infeasible for the asset count")
-    weights = np.maximum(np.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0), 0.0)
+    if not np.isfinite(weights).all():
+        raise ValueError("Capped-simplex inputs must be finite.")
+    weights = np.maximum(weights, 0.0)
     if weights.sum() <= 1e-12:
         weights = np.ones(n_assets) / n_assets
     else:

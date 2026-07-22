@@ -20,6 +20,11 @@ import pandas as pd
 import requests
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from project.data_pipeline.security_universe import is_stablecoin_like
+
 SOURCE_COLUMNS = [
     "ticker",
     "name",
@@ -43,21 +48,13 @@ SOURCE_COLUMNS = [
     "include",
     "proxy_type",
     "source_method",
+    "source_asset_id",
+    "price_provider",
+    "price_ticker",
+    "price_ticker_verified",
+    "price_mapping_method",
     "notes",
 ]
-
-STABLECOIN_SYMBOLS = {
-    "USDT",
-    "USDC",
-    "DAI",
-    "FDUSD",
-    "TUSD",
-    "BUSD",
-    "PYUSD",
-    "USDP",
-    "GUSD",
-    "USDE",
-}
 
 COMMODITY_PROXIES = [
     ("GLD", "SPDR Gold Shares", "gold", "https://finance.yahoo.com/quote/GLD/"),
@@ -296,9 +293,17 @@ def _base_row(
     market_cap_usd: Any = "",
     market_cap_rank: Any = "",
     investable: bool = True,
+    benchmark_only: bool = False,
+    signal_only: bool = False,
     include: bool = True,
     proxy_type: str = "direct_listing",
     source_method: str = "index_proxy",
+    data_provider: str = "public_web_source",
+    source_asset_id: str = "",
+    price_provider: str = "",
+    price_ticker: str = "",
+    price_ticker_verified: bool | str = "",
+    price_mapping_method: str = "",
     as_of_date: str | None = None,
     notes: str = "",
 ) -> dict[str, Any]:
@@ -319,13 +324,18 @@ def _base_row(
         "as_of_date": as_of_date or date.today().isoformat(),
         "source": source,
         "source_url": source_url,
-        "data_provider": "public_web_source",
+        "data_provider": data_provider,
         "investable": bool(investable),
-        "benchmark_only": False,
-        "signal_only": False,
+        "benchmark_only": bool(benchmark_only),
+        "signal_only": bool(signal_only),
         "include": bool(include),
         "proxy_type": proxy_type,
         "source_method": source_method,
+        "source_asset_id": source_asset_id,
+        "price_provider": price_provider,
+        "price_ticker": price_ticker,
+        "price_ticker_verified": price_ticker_verified,
+        "price_mapping_method": price_mapping_method,
         "notes": notes,
     }
     return {column: row.get(column, "") for column in SOURCE_COLUMNS}
@@ -683,29 +693,41 @@ def _coingecko(
         rows = []
         for item in data:
             symbol = str(item.get("symbol", "")).upper()
-            stable = (
-                symbol in STABLECOIN_SYMBOLS
-                or "stable" in str(item.get("name", "")).lower()
-            )
+            name = str(item.get("name", symbol))
+            candidate_price_ticker = f"{symbol}-USD"
+            stable = is_stablecoin_like(candidate_price_ticker, name)
+            source_asset_id = str(item.get("id", "")).strip()
             rows.append(
                 _base_row(
-                    ticker=f"{symbol}-USD",
-                    name=str(item.get("name", symbol)),
+                    ticker=candidate_price_ticker,
+                    name=name,
                     sleeve="crypto_top100",
                     region="Global",
                     country="Global",
                     exchange="Crypto",
                     currency="USD",
+                    asset_type="crypto",
                     market_cap_usd=item.get("market_cap", ""),
                     market_cap_rank=item.get("market_cap_rank", ""),
-                    investable=not stable,
+                    investable=False,
+                    signal_only=True,
                     include=not stable,
-                    proxy_type="crypto_yfinance_proxy",
+                    proxy_type="unverified_yahoo_crypto_symbol_candidate",
                     source_method="api_market_cap_enriched",
                     source="CoinGecko coins markets API",
                     source_url=source_url,
+                    data_provider="CoinGecko",
+                    source_asset_id=source_asset_id,
+                    price_provider="Yahoo Finance",
+                    price_ticker=candidate_price_ticker,
+                    price_ticker_verified=False,
+                    price_mapping_method="unverified_symbol_concatenation",
                     as_of_date=as_of,
-                    notes=f"Crypto market-cap API row retrieved {as_of}; stable_like={stable}.",
+                    notes=(
+                        f"CoinGecko ID={source_asset_id or 'unavailable'}; market-cap "
+                        f"API row retrieved {as_of}; stable_like={stable}; Yahoo price "
+                        "mapping is unverified and therefore not investable."
+                    ),
                 )
             )
         return rows

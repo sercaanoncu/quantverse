@@ -8,7 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -16,6 +18,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from project.research.global_numerical_integrity import (
     validate_v2_numerical_integrity,
 )  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 PROCESSED = ROOT / "data" / "processed"
 SUMMARY_PATH = PROCESSED / "quantverse_v2_demo_summary.json"
@@ -26,7 +32,36 @@ def main() -> int:
     parser.add_argument("--config", default="configs/global_equity_research.yaml")
     args = parser.parse_args()
     config = args.config
-    steps = [
+    steps = _pipeline_steps(config)
+    for step in steps:
+        result = subprocess.run([sys.executable, *step], cwd=ROOT, check=False)
+        if result.returncode != 0:
+            _write_summary({"run_status": "failed", "failed_step": " ".join(step)})
+            return int(result.returncode)
+    summary = build_demo_summary()
+    _write_summary(summary)
+    for report_step in [
+        ["scripts/build_quantverse_v2_visual_analytics.py", "--config", config],
+        ["scripts/build_quantverse_v2_research_report.py"],
+        ["scripts/build_quantverse_v2_excel_output.py"],
+    ]:
+        result = subprocess.run([sys.executable, *report_step], cwd=ROOT, check=False)
+        if result.returncode != 0:
+            failed_summary = {
+                **summary,
+                "run_status": "failed",
+                "failed_step": " ".join(report_step),
+            }
+            _write_summary(failed_summary)
+            return int(result.returncode)
+    print(f"QuantVerse v2 demo summary written: {SUMMARY_PATH}")
+    return 0
+
+
+def _pipeline_steps(config: str) -> list[list[str]]:
+    """Return the dependency-ordered evidence build for one coherent run."""
+    master_config = _configured_master_portfolio_path(config)
+    return [
         [
             "scripts/validate_source_universe_inputs.py",
             "--config",
@@ -42,7 +77,16 @@ def main() -> int:
             "scripts/build_global_returns_matrix.py",
             "--config",
             "configs/global_returns_matrix.yaml",
+            "--analysis-config",
+            config,
+            "--master-config",
+            master_config,
+            "--source-config",
+            "configs/source_universe_validation.yaml",
+            "--universe-config",
+            "configs/current_global_universe.yaml",
         ],
+        ["scripts/run_global_statistical_diagnostics.py"],
         ["scripts/build_global_stock_scores.py", "--config", config],
         ["scripts/build_global_return_forecasts.py", "--config", config],
         ["scripts/build_global_portfolio_league.py", "--config", config],
@@ -51,32 +95,32 @@ def main() -> int:
         [
             "scripts/run_global_master_portfolio.py",
             "--config",
-            "configs/global_master_portfolio.yaml",
+            master_config,
         ],
-        ["scripts/build_global_model_selection_report.py", "--config", config],
         ["scripts/run_global_robustness_analysis.py", "--config", config],
+        ["scripts/build_global_model_selection_report.py", "--config", config],
         ["scripts/build_global_exposure_report.py", "--config", config],
+        ["scripts/build_security_history_reconciliation.py", "--config", config],
         ["scripts/validate_global_forecasts.py", "--config", config],
         ["scripts/audit_global_scientific_sanity.py"],
+        ["scripts/audit_quantverse_v2_missing_data_operations.py"],
+        ["scripts/qa/verify_quantverse_reference_math.py"],
         ["scripts/build_visual_scientific_audit_report.py"],
         ["scripts/build_explainable_excel_output.py"],
     ]
-    for step in steps:
-        result = subprocess.run([sys.executable, *step], cwd=ROOT, check=False)
-        if result.returncode != 0:
-            _write_summary({"run_status": "failed", "failed_step": " ".join(step)})
-            return int(result.returncode)
-    summary = build_demo_summary()
-    _write_summary(summary)
-    for report_step in [
-        ["scripts/build_quantverse_v2_research_report.py"],
-        ["scripts/build_quantverse_v2_excel_output.py"],
-    ]:
-        result = subprocess.run([sys.executable, *report_step], cwd=ROOT, check=False)
-        if result.returncode != 0:
-            return int(result.returncode)
-    print(f"QuantVerse v2 demo summary written: {SUMMARY_PATH}")
-    return 0
+
+
+def _configured_master_portfolio_path(config_path: str) -> str:
+    path = Path(config_path)
+    if not path.exists():
+        return "configs/global_master_portfolio.yaml"
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return str(
+        payload.get(
+            "master_portfolio_config",
+            "configs/global_master_portfolio.yaml",
+        )
+    )
 
 
 def build_demo_summary() -> dict[str, object]:
@@ -99,10 +143,16 @@ def build_demo_summary() -> dict[str, object]:
     forecast_validation = _read_csv(
         PROCESSED / "global_forecast_validation_by_horizon.csv"
     )
-    numerical_integrity = validate_v2_numerical_integrity(ROOT)
     exposure_warnings = _read_csv(PROCESSED / "global_exposure_warnings.csv")
+    exposure_metadata = _read_csv(PROCESSED / "global_exposure_metadata_quality.csv")
+    identity_audit = _read_csv(PROCESSED / "global_security_identity_audit.csv")
+    feature_history = _read_csv(PROCESSED / "global_feature_history_eligibility.csv")
+    reconciliation = _read_csv(
+        PROCESSED / "global_cross_artifact_count_reconciliation.csv"
+    )
+    run_metadata = read_run_manifest(PROCESSED)
     selected = (
-        scores.loc[scores["selection_flag"].astype(bool)]
+        scores.loc[scores["selection_flag"].map(_truthy)]
         if "selection_flag" in scores
         else scores.head(0)
     )
@@ -119,7 +169,7 @@ def build_demo_summary() -> dict[str, object]:
         and risk["model_name"].astype(str).eq(final_model).any()
         else {}
     )
-    return {
+    summary = {
         "run_status": "completed",
         "universe_rows": int(len(universe)),
         "assets_with_returns": (
@@ -144,6 +194,8 @@ def build_demo_summary() -> dict[str, object]:
             else 0
         ),
         "final_selected_model": final_model,
+        "final_public_data_research_model": final_model,
+        "institutional_global_master_promotion": "not_promoted",
         "final_selected_holdings": (
             int((final_weights["weight"].abs() > 1e-8).sum())
             if "weight" in final_weights
@@ -194,19 +246,38 @@ def build_demo_summary() -> dict[str, object]:
         "robustness_status": robustness.get("robustness_status", "missing"),
         "sensitivity_status": robustness.get("sensitivity_status", "missing"),
         "forecast_validation_status": _forecast_validation_status(forecast_validation),
-        "numerical_integrity_status": numerical_integrity["overall_status"],
-        "numerical_integrity_failed_checks": numerical_integrity["failed_check_count"],
+        "numerical_integrity_status": "pending",
+        "numerical_integrity_failed_checks": None,
         "exposure_warnings": _exposure_warnings(exposure_warnings),
+        "exposure_metadata_status": _exposure_metadata_status(exposure_metadata),
+        "sector_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "sector_coverage_ratio"
+        ),
+        "industry_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "industry_coverage_ratio"
+        ),
+        "issuer_country_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "issuer_country_coverage_ratio"
+        ),
+        "economic_country_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "economic_country_coverage_ratio"
+        ),
+        "listing_country_coverage_ratio": _exposure_metadata_float(
+            exposure_metadata, "listing_country_coverage_ratio"
+        ),
+        "metadata_confidence_distribution": _exposure_metadata_text(
+            exposure_metadata, "metadata_confidence_distribution"
+        ),
+        "listing_country_vs_issuer_country_warning": _exposure_metadata_bool(
+            exposure_metadata, "listing_country_vs_issuer_country_warning"
+        ),
         "publish_readiness_status": model_decision.get(
             "publish_readiness_status", "research_with_limitations"
         ),
         "risk_metric_sanity_passed": _all_checks_passed(risk_sanity),
         "transaction_cost_status": _transaction_cost_status(turnover),
         "promotion_decision": decision.get("promotion_decision", "not promoted"),
-        "promotion_reason": _promotion_reason(
-            decision.get("reason", "Public-data research output."),
-            final_model,
-        ),
+        "promotion_reason": _promotion_reason(final_model),
         "main_limitations": [
             "Official exact top-100 support remains unavailable.",
             "Point-in-time historical membership remains unavailable.",
@@ -214,12 +285,38 @@ def build_demo_summary() -> dict[str, object]:
             "Walk-forward is current-universe public-data research, not institutional PIT backtest.",
             "Model selection is publish-ready research evidence, not a promoted institutional allocation.",
         ],
+        "security_identity_status": _security_identity_status(identity_audit),
+        "short_history_diagnostic_count": (
+            int(
+                feature_history["eligibility_status"]
+                .astype(str)
+                .eq("diagnostic_short_history")
+                .sum()
+            )
+            if "eligibility_status" in feature_history
+            else 0
+        ),
+        "cross_artifact_reconciliation_status": (
+            "passed"
+            if not reconciliation.empty
+            and reconciliation["status"].astype(str).eq("passed").all()
+            else "failed_or_missing"
+        ),
         "report_paths": {
             "pdf": "output/pdf/quantverse_v2_research_report.pdf",
             "html": "output/html/quantverse_v2_research_report.html",
             "excel": "output/excel/quantverse_v2_research_output.xlsx",
         },
+        **run_metadata,
     }
+    numerical_integrity = validate_v2_numerical_integrity(
+        ROOT, summary_override=summary
+    )
+    summary["numerical_integrity_status"] = numerical_integrity["overall_status"]
+    summary["numerical_integrity_failed_checks"] = numerical_integrity[
+        "failed_check_count"
+    ]
+    return summary
 
 
 def _final_model(
@@ -230,7 +327,7 @@ def _final_model(
         if final:
             return final
     if league.empty:
-        return "Policy Constrained"
+        return "not_available"
     constraints_pass = league["constraints_pass"].map(
         lambda value: str(value).strip().lower() in {"1", "true", "yes"}
     )
@@ -239,7 +336,7 @@ def _final_model(
         & league["actual_status"].astype(str).isin(["actually_run", "benchmark_only"])
     ].copy()
     if candidates.empty:
-        return "Equal Weight"
+        return "not_available"
     candidates = candidates.sort_values(["sharpe", "cagr"], ascending=False)
     return str(candidates.iloc[0]["model_name"])
 
@@ -283,14 +380,13 @@ def _random_percentile(
     return float(model_sharpe >= random_sharpe)
 
 
-def _promotion_reason(reason: object, final_model: str) -> str:
-    base = str(reason or "Public-data research output.")
+def _promotion_reason(final_model: str) -> str:
     return (
-        "Existing global master promotion gate remains not promoted. "
-        f"Gate reason: {base} "
-        f"QuantVerse v2 model league selected {final_model} as the public-data "
-        "research final model; this is not a promoted institutional global USD "
-        "master portfolio."
+        f"Final public-data research model: {final_model}. "
+        "Institutional/global master promotion: not_promoted. "
+        "The current public-data evidence supports the research model label only; "
+        "it does not promote an institutional global USD master portfolio or "
+        "investment recommendation."
     )
 
 
@@ -303,9 +399,12 @@ def _all_checks_passed(frame: pd.DataFrame) -> bool:
 def _transaction_cost_status(turnover: pd.DataFrame) -> str:
     if turnover.empty or "transaction_cost_decimal" not in turnover:
         return "not_available"
-    total_cost = pd.to_numeric(
-        turnover["transaction_cost_decimal"], errors="coerce"
-    ).fillna(0.0)
+    total_cost = pd.to_numeric(turnover["transaction_cost_decimal"], errors="coerce")
+    if (
+        total_cost.isna().any()
+        or not np.isfinite(total_cost.to_numpy(dtype=float)).all()
+    ):
+        return "invalid_non_finite_transaction_cost"
     if float(total_cost.sum()) > 0:
         return "applied_in_walk_forward_net_returns"
     return "no_turnover_cost_observed"
@@ -330,11 +429,40 @@ def _exposure_warnings(frame: pd.DataFrame) -> list[str]:
     return frame["warning_type"].dropna().astype(str).head(10).tolist()
 
 
+def _exposure_metadata_status(frame: pd.DataFrame) -> str:
+    if frame.empty or "exposure_metadata_status" not in frame:
+        return "missing"
+    values = frame["exposure_metadata_status"].dropna().astype(str)
+    return str(values.iloc[0]) if not values.empty else "missing"
+
+
+def _exposure_metadata_float(frame: pd.DataFrame, column: str) -> float:
+    if frame.empty or column not in frame:
+        return 0.0
+    return _float(frame[column].iloc[0]) or 0.0
+
+
+def _exposure_metadata_bool(frame: pd.DataFrame, column: str) -> bool:
+    if frame.empty or column not in frame:
+        return True
+    return str(frame[column].iloc[0]).strip().lower() in {"1", "true", "yes"}
+
+
+def _exposure_metadata_text(frame: pd.DataFrame, column: str) -> str:
+    if frame.empty or column not in frame:
+        return "missing"
+    values = frame[column].dropna().astype(str)
+    return str(values.iloc[0]) if not values.empty else "missing"
+
+
 def _write_summary(summary: dict[str, object]) -> None:
     PROCESSED.mkdir(parents=True, exist_ok=True)
     SUMMARY_PATH.write_text(
         json.dumps(summary, indent=2, default=str), encoding="utf-8"
     )
+    run_metadata = read_run_manifest(PROCESSED)
+    if run_metadata:
+        register_artifacts(PROCESSED, [SUMMARY_PATH], run_metadata)
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
@@ -354,6 +482,29 @@ def _float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _security_identity_status(frame: pd.DataFrame) -> str:
+    if frame.empty:
+        return "missing"
+    blocked = (
+        frame.get("eligibility_status", pd.Series(dtype=str))
+        .astype(str)
+        .isin(
+            [
+                "blocked_identity_uncertain",
+                "blocked_ticker_reuse_contamination",
+                "manual_review_required",
+            ]
+        )
+    )
+    return (
+        "blocked_conflicts_present" if blocked.any() else "passed_with_provider_limits"
+    )
+
+
+def _truthy(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 if __name__ == "__main__":

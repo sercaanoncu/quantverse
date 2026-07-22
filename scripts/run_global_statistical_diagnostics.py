@@ -8,8 +8,19 @@ from pathlib import Path
 
 import pandas as pd
 
-from project.research.global_statistical_diagnostics import diagnostics_bundle
-from project.research.model_applicability import model_applicability_matrix
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from project.research.global_statistical_diagnostics import (  # noqa: E402
+    diagnostics_bundle,
+)
+from project.research.model_applicability import (  # noqa: E402
+    model_applicability_matrix,
+)
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,11 +45,11 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not returns_path.exists():
         print(f"Returns file not found: {returns_path}")
-        return 0
+        return 1
     returns = _load_returns(returns_path)
     if returns.empty:
         print("Returns file is empty; diagnostics skipped.")
-        return 0
+        return 1
     bundle = diagnostics_bundle(returns)
     file_map = {
         "summary_statistics": "global_summary_statistics.csv",
@@ -51,15 +62,22 @@ def main() -> int:
         "cluster_diagnostics": "global_cluster_diagnostics.csv",
         "cluster_membership": "global_cluster_membership.csv",
     }
+    artifact_paths = []
     for key, filename in file_map.items():
+        artifact_path = output_dir / filename
         bundle[key].to_csv(
-            output_dir / filename,
+            artifact_path,
             index=key != "correlation_matrix",
         )
-    model_applicability_matrix().to_csv(
-        output_dir / "model_applicability_matrix.csv",
-        index=False,
-    )
+        artifact_paths.append(artifact_path)
+    applicability_path = output_dir / "model_applicability_matrix.csv"
+    model_applicability_matrix().to_csv(applicability_path, index=False)
+    artifact_paths.append(applicability_path)
+    run_metadata = read_run_manifest(output_dir)
+    if not run_metadata:
+        print("QuantVerse v2 run manifest is missing; diagnostics not registered.")
+        return 1
+    register_artifacts(output_dir, artifact_paths, run_metadata)
     print(f"Global statistical diagnostics assets: {returns.shape[1]}")
     return 0
 

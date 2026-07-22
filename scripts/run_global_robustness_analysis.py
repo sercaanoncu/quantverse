@@ -9,12 +9,19 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
 from project.research.global_robustness import (
     run_robustness_sensitivity,
     write_robustness_outputs,
 )
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
-ROOT = Path(__file__).resolve().parents[1]
 PROCESSED = ROOT / "data" / "processed"
 
 
@@ -39,8 +46,29 @@ def main() -> int:
         metadata=universe,
         random_portfolios=int(config.get("robustness_random_portfolios", 150)),
         max_scenarios=int(config.get("robustness_max_scenarios", 48)),
+        risk_free_rate_annual=float(config.get("risk_free_rate_annual", 0.0)),
+        risk_free_policy=str(
+            config.get(
+                "risk_free_policy",
+                "zero_rate_labeled_research_assumption",
+            )
+        ),
     )
+    run_metadata = read_run_manifest(PROCESSED)
+    for key in ["sensitivity", "model_stability", "weight_stability"]:
+        result[key] = attach_run_metadata(result[key], run_metadata)
+    result["summary"].update(run_metadata)
     write_robustness_outputs(result, PROCESSED)
+    register_artifacts(
+        PROCESSED,
+        [
+            PROCESSED / "global_robustness_sensitivity.csv",
+            PROCESSED / "global_model_stability_report.csv",
+            PROCESSED / "global_weight_stability_report.csv",
+            PROCESSED / "global_parameter_sensitivity_summary.json",
+        ],
+        run_metadata,
+    )
     print(
         "Global robustness analysis written: "
         f"{result['summary'].get('robustness_status', 'missing')}"

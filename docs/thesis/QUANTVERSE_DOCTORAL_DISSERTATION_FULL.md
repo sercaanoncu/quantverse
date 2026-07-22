@@ -5,11 +5,11 @@ This full manuscript is generated from the committed QuantVerse v2 engine, local
 ## Current Engine Snapshot
 
 - Run status: `completed`
-- Universe rows: `600`
-- Assets with USD returns: `589`
-- Stocks scored: `589`
+- Universe rows: `890`
+- Assets with USD returns: `100`
+- Stocks scored: `100`
 - Stocks selected: `40`
-- Final selected model: `Policy Constrained`
+- Final selected model: `Equal Weight`
 - Walk-forward status: `completed_public_data_current_universe`
 - Promotion decision: `not promoted`
 
@@ -603,18 +603,18 @@ financial, legal, tax or institutional risk review.
 | model_name | model_family | objective | actual_status | prerequisites | prerequisites_satisfied | expected_return_source | covariance_source |
 |---|---|---|---|---|---|---|---|
 | Random Portfolios | benchmark_distribution | Random constrained portfolio benchmark. | benchmark_only | returns and max-weight constraint | True | none | not optimized |
-| Equal Weight | benchmark | Transparent diversification baseline. | benchmark_only | returns and selected universe | True | none or historical risk model | daily USD returns covariance |
-| Inverse Volatility | risk_allocation | Lower volatility concentration. | actually_run | returns and selected universe | True | none or historical risk model | daily USD returns covariance |
-| GMV | risk_allocation | Minimize variance. | actually_run | sufficient returns and feasible long-only cap constraints | True | none or historical risk model | daily USD returns covariance |
-| Max Sharpe | expected_return_optimization | Maximize in-sample expected return per unit risk. | diagnostic_only | sufficient returns and feasible long-only cap constraints | True | historical mean with shrinkage covariance | daily USD returns covariance |
-| Min CVaR | risk_allocation | Reduce empirical tail loss. | actually_run | sufficient returns and feasible long-only cap constraints | True | none or historical risk model | daily USD returns covariance |
-| HRP | risk_allocation | Allocate through correlation hierarchy. | actually_run | sufficient returns and feasible long-only cap constraints | True | none or historical risk model | daily USD returns covariance |
-| Risk Parity | risk_allocation | Equalize risk contribution. | actually_run | sufficient returns and feasible long-only cap constraints | True | none or historical risk model | daily USD returns covariance |
-| Black-Litterman | expected_return_optimization | Market-cap prior allocation diagnostic. | diagnostic_only | positive market caps, covariance, documented views for promotion | True | public-provider market-cap prior diagnostic | daily USD returns covariance |
-| ML Forecast | forecast_overlay | Forecast diagnostic, not direct allocation. | diagnostic_only | generated return forecasts and chronological validation | False | forecast engine ensemble | daily USD returns covariance |
-| Ensemble Forecast | forecast_overlay | Expected return diagnostic. | diagnostic_only | generated return forecasts and chronological validation | False | forecast engine ensemble | daily USD returns covariance |
-| Forecast-Enhanced Constrained Portfolio | forecast_overlay | Use forecast under strict caps. | diagnostic_only | generated return forecasts and chronological validation | True | forecast engine ensemble | daily USD returns covariance |
-| Policy Constrained | policy_constraint | Use composite score under caps. | actually_run | returns and selected universe | True | none or historical risk model | daily USD returns covariance |
+| Equal Weight | benchmark | Transparent diversification baseline. | benchmark_only | returns and selected universe | True | none or historical risk model | not used directly |
+| Inverse Volatility | risk_allocation | Lower volatility concentration. | actually_run | returns and selected universe | True | none or historical risk model | not used directly |
+| GMV | risk_allocation | Minimize variance. | actually_run | sufficient returns and feasible long-only cap constraints | True | none or historical risk model | Ledoit-Wolf shrinkage on complete-case daily USD simple returns |
+| Max Sharpe | expected_return_optimization | Maximize in-sample expected return per unit risk. | diagnostic_only | sufficient returns and feasible long-only cap constraints | True | historical mean with shrinkage covariance | Ledoit-Wolf shrinkage on complete-case daily USD simple returns |
+| Min CVaR | risk_allocation | Reduce empirical tail loss. | actually_run | sufficient returns and feasible long-only cap constraints | True | none or historical risk model | empirical complete-case daily USD simple-return scenarios |
+| HRP | risk_allocation | Allocate through correlation hierarchy. | actually_run | sufficient returns and feasible long-only cap constraints | True | none or historical risk model | sample covariance/correlation on complete-case daily USD simple returns |
+| Risk Parity | risk_allocation | Equalize risk contribution. | actually_run | sufficient returns and feasible long-only cap constraints | True | none or historical risk model | Ledoit-Wolf shrinkage on complete-case daily USD simple returns |
+| Black-Litterman | expected_return_optimization | Market-cap prior allocation diagnostic. | diagnostic_only | positive market caps, covariance, documented views for promotion | True | public-provider market-cap prior diagnostic | Ledoit-Wolf shrinkage on complete-case daily USD simple returns |
+| ML Forecast | forecast_overlay | Forecast diagnostic, not direct allocation. | diagnostic_only | generated return forecasts and chronological validation | False | forecast engine ensemble | not used directly |
+| Ensemble Forecast | forecast_overlay | Expected return diagnostic. | diagnostic_only | generated return forecasts and chronological validation | False | forecast engine ensemble | not used directly |
+| Forecast-Enhanced Constrained Portfolio | forecast_overlay | Use forecast under strict caps. | diagnostic_only | generated return forecasts and chronological validation | True | forecast engine ensemble | not used directly |
+| Policy Constrained | policy_constraint | Use composite score under caps. | diagnostic_only | returns and selected universe | True | none or historical risk model | not used directly |
 
 ## Robust Model Selection Evidence
 
@@ -622,19 +622,19 @@ The final public-data model is no longer selected by a simple in-sample Sharpe o
 
 | model_name | model_status | eligible_final_model | constraint_pass | walk_forward_supported | walk_forward_annualized_return | walk_forward_volatility | walk_forward_sharpe |
 |---|---|---|---|---|---|---|---|
-| Policy Constrained | actually_run | True | True | True | 0.6902484870688234 | 0.072115337472777 | 2.7322648279755115 |
-| Risk Parity | actually_run | True | True | True | 0.6968560574178227 | 0.0819299817816758 | 2.7098970048954696 |
-| GMV | actually_run | True | True | True | 0.4823590639539034 | 0.0517858440149857 | 2.278016880047272 |
-| Equal Weight | benchmark_only | True | True | True | 0.6092757046832314 | 0.0890991077073453 | 2.073119785122713 |
-| Inverse Volatility | actually_run | True | True | True | 0.5865272266873832 | 0.0815374934799282 | 2.047099591980376 |
-| HRP | actually_run | True | True | True | 0.4479618002227921 | 0.0626370961928234 | 1.8979708957161217 |
-| Min CVaR | actually_run | True | True | True | 0.283895051160752 | 0.0580972252439665 | 1.2109201460238623 |
-| Random Portfolios | benchmark_only | False | True | False | 2.5012907077053184 | 0.3600033916750189 | 6.952269895993722 |
-| Max Sharpe | diagnostic_only | False | True | True | 0.6602214290872263 | 0.0705590379554826 | 2.7853196837905347 |
-| Black-Litterman | diagnostic_only | False | True | True | 0.7225080475194483 | 0.1332693416981858 | 2.3712230546674413 |
+| Inverse Volatility | actually_run | True | True | True | 0.5816299231837442 | 0.217789336311362 | 2.670607905027169 |
+| Risk Parity | actually_run | True | True | True | 0.5250988351008178 | 0.1973032518953391 | 2.661379526473086 |
+| Equal Weight | benchmark_only | True | True | True | 0.7759013363478307 | 0.2991647383913888 | 2.593558788110719 |
+| HRP | actually_run | True | True | True | 0.4778037415044952 | 0.194849640051783 | 2.452166405734774 |
+| GMV | actually_run | True | True | True | 0.3421185211892238 | 0.1501146381155677 | 2.2790483691926124 |
+| Min CVaR | actually_run | True | True | True | 0.3415242084140204 | 0.1528523206141231 | 2.2343410099490795 |
+| Random Portfolios | benchmark_only | False | True | False | 0.6895366006540775 | 0.2397364138451085 | 2.877306836429291 |
+| Max Sharpe | diagnostic_only | False | True | True | 0.5633506131555706 | 0.2041863510549257 | 2.7590023047330443 |
+| Black-Litterman | diagnostic_only | False | True | True | 0.7239686923921969 | 0.2555846263158945 | 2.8325987475373204 |
 | ML Forecast | diagnostic_only | False | False | False | 0.0 | 0.0 | 0.0 |
 | Ensemble Forecast | diagnostic_only | False | False | False | 0.0 | 0.0 | 0.0 |
-| Forecast-Enhanced Constrained Portfolio | diagnostic_only | False | True | True | 0.6888281051229556 | 0.0842723908617595 | 2.585671061329047 |
+| Forecast-Enhanced Constrained Portfolio | diagnostic_only | False | True | True | 0.9503692921585556 | 0.3562073926417046 | 2.66802237064882 |
+| Policy Constrained | diagnostic_only | False | True | True | 1.011386561933287 | 0.3718516308514914 | 2.719865876659851 |
 
 ## Random Portfolio Percentile Evidence
 
@@ -642,19 +642,16 @@ Random portfolios are used as a benchmark distribution under the same selected u
 
 | model_name | return_percentile | volatility_percentile | sharpe_percentile | max_drawdown_percentile | cvar_percentile | better_than_random_median_sharpe | better_than_random_75th_sharpe |
 |---|---|---|---|---|---|---|---|
-| Random Portfolios | 0.517 | 0.509 | 0.514 | 0.505 | 0.491 | True | False |
-| Equal Weight | 0.507 | 0.586 | 0.565 | 0.51 | 0.549 | True | False |
-| Inverse Volatility | 0.873 | 0.24 | 0.584 | 0.217 | 0.198 | True | False |
-| GMV | 0.994 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
-| Max Sharpe | 0.017 | 0.97 | 0.67 | 0.978 | 0.974 | True | False |
-| Min CVaR | 0.825 | 0.99 | 0.999 | 0.999 | 1.0 | True | True |
-| HRP | 0.001 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
-| Risk Parity | 0.897 | 0.972 | 0.998 | 0.988 | 0.969 | True | True |
-| Black-Litterman | 0.749 | 1.0 | 1.0 | 1.0 | 1.0 | True | True |
-| ML Forecast |  |  |  |  |  | False | False |
-| Ensemble Forecast |  |  |  |  |  | False | False |
-| Forecast-Enhanced Constrained Portfolio | 0.999 | 0.487 | 0.996 | 0.878 | 0.615 | True | True |
-| Policy Constrained | 0.016 | 0.993 | 0.839 | 0.988 | 0.999 | True | True |
+| Black-Litterman | 0.172 | 1.0 | 0.956 | 0.862 | 1.0 | True | True |
+| Max Sharpe | 0.0 | 1.0 | 0.913 | 1.0 | 1.0 | True | True |
+| Policy Constrained | 1.0 | 0.0 | 0.874 | 0.037 | 0.0 | True | True |
+| Inverse Volatility | 0.0 | 1.0 | 0.797 | 0.999 | 1.0 | True | True |
+| Forecast-Enhanced Constrained Portfolio | 1.0 | 0.0 | 0.792 | 0.042 | 0.0 | True | True |
+| Risk Parity | 0.0 | 1.0 | 0.775 | 1.0 | 1.0 | True | True |
+| Equal Weight | 0.554 | 0.656 | 0.634 | 0.563 | 0.571 | True | False |
+| HRP | 0.0 | 1.0 | 0.307 | 1.0 | 1.0 | False | False |
+| GMV | 0.0 | 1.0 | 0.058 | 1.0 | 1.0 | False | False |
+| Min CVaR | 0.0 | 1.0 | 0.026 | 1.0 | 1.0 | False | False |
 
 ## Sensitivity and Robustness Evidence
 
@@ -662,29 +659,29 @@ The sensitivity layer varies max assets, max weight, transaction costs and rando
 
 | final_model | scenario_count | scenario_share | mean_selection_score | mean_net_annualized_return | mean_sharpe | mean_max_drawdown | mean_cvar_95 |
 |---|---|---|---|---|---|---|---|
-| Equal Weight | 48 | 1.0 | 23.663878956942103 | 2.3476760170812154 | 6.9444462180057505 | -0.04955617797824774 | -0.031131090221267876 |
+| Equal Weight | 48 | 1.0 | 3.893586562891245 | 1.0255666539543915 | 3.893586562891245 | -0.09540615378045068 | -0.03171369747905497 |
 
 ## Economic Exposure Interpretation
 
 The final model is interpreted by region, country, currency, sleeve, sector and top holding. This converts weights into an economic story that a reviewer can inspect before reading raw optimization tables.
 
-| model_name | ticker | name | weight | sleeve | region | country | currency |
+| model_name | ticker | name | weight | sleeve | region | listing_country | issuer_country |
 |---|---|---|---|---|---|---|---|
-| Policy Constrained | BRH.F | BERKSHIRE HATHAWAY INC.       R | 0.07785158970025594 | global_equity_europe | Europe | Europe exchange listing | EUR |
-| Policy Constrained | 1NVDA.MI | NVIDIA CORP | 0.06735896495945583 | global_equity_europe | Europe | Europe exchange listing | EUR |
-| Policy Constrained | TRHOL.IS | TERA FINANSAL YAT. HOL. | 0.06282553176956632 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Policy Constrained | MSFT.SW | MICROSOFT CORP | 0.0587483313757804 | global_equity_europe | Europe | Europe exchange listing | CHF |
-| Policy Constrained | INTC.SW | INTEL CORP | 0.0550934475185916 | global_equity_europe | Europe | Europe exchange listing | CHF |
-| Policy Constrained | 1AVGO.MI | BROADCOM | 0.05155932113154669 | global_equity_europe | Europe | Europe exchange listing | EUR |
-| Policy Constrained | DSTKF.IS | DESTEK FINANS FAKTORING | 0.04889203573202459 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Policy Constrained | GUNDG.IS | GUNDOGDU GIDA | 0.04532573912151908 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Policy Constrained | HY9H.F | SK Hynix Inc.                 R | 0.045313698232531584 | global_equity_europe | Europe | Europe exchange listing | EUR |
-| Policy Constrained | ODINE.IS | ODINE TEKNOLOJI | 0.04213022688470368 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Policy Constrained | SNDK | Sandisk Corporation | 0.041170408895424976 | global_equity_us | North America | United States | USD |
-| Policy Constrained | 3986.HK | GIGADEVICE | 0.03883913096187267 | global_equity_china | Asia | China/Hong Kong listing | HKD |
-| Policy Constrained | OZATD.IS | OZATA DENIZCILIK | 0.03727875715784017 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
-| Policy Constrained | 285A.T | KIOXIA HOLDINGS CORPORATION | 0.036764044443852964 | global_equity_japan | Asia | Japan | JPY |
-| Policy Constrained | ARMGD.IS | ARMADA GIDA | 0.03207996083465896 | global_equity_turkey | Europe / Middle East | Turkey | TRY |
+| Equal Weight | MU | Micron Technology, Inc. | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | SNDK | Sandisk Corporation | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | WDC | Western Digital Corporation | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | STX | Seagate Technology Holdings PLC | 0.025 | global_equity_us | North America | United States | Singapore |
+| Equal Weight | RY | Royal Bank Of Canada | 0.025 | global_equity_us | North America | United States | Canada |
+| Equal Weight | JNJ | Johnson & Johnson | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | TD | Toronto Dominion Bank (The) | 0.025 | global_equity_us | North America | United States | Canada |
+| Equal Weight | DELL | Dell Technologies Inc. | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | INTC | Intel Corporation | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | AMD | Advanced Micro Devices, Inc. | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | GOOG | Alphabet Inc. | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | GOOGL | Alphabet Inc. | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | CAT | Caterpillar, Inc. | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | PANW | Palo Alto Networks, Inc. | 0.025 | global_equity_us | North America | United States | United States |
+| Equal Weight | LRCX | Lam Research Corporation | 0.025 | global_equity_us | North America | United States | United States |
 
 ## Forecast Validation Evidence
 
@@ -692,25 +689,25 @@ Forecasts remain diagnostic unless they beat a random-walk baseline and prove be
 
 | horizon | horizon_days | forecast_count | mean_rmse | mean_mae | mean_random_walk_mae | mae_improvement_vs_random_walk | fraction_beating_random_walk |
 |---|---|---|---|---|---|---|---|
-| 12M | 252 | 589 | 1.0150916527161846 | 0.9454311966934937 | 0.9569678801178028 | 0.011536683424309024 | 0.6702127659574468 |
-| 1M | 21 | 589 | 0.1355948098285233 | 0.1122678141597502 | 0.11431728880532882 | 0.002049474645578614 | 0.5783132530120482 |
-| 3M | 63 | 589 | 0.247426968848533 | 0.21370607746073567 | 0.22819787252243495 | 0.014491795061699286 | 0.553448275862069 |
-| 6M | 126 | 589 | 0.3844768618134196 | 0.3499193668891391 | 0.37935940960031594 | 0.02944004271117684 | 0.6045296167247387 |
+| 12M | 252 | 40 | 1.4270128875614816 | 1.4000475818600486 | 1.5518254787354893 | 0.15177789687544063 | 0.9487179487179487 |
+| 1M | 21 | 40 | 0.17742749756640383 | 0.1462348144922935 | 0.16181924600324465 | 0.015584431510951152 | 0.775 |
+| 3M | 63 | 40 | 0.3948948740264627 | 0.3533588655804906 | 0.423835909378516 | 0.07047704379802538 | 0.85 |
+| 6M | 126 | 40 | 0.5971877372088192 | 0.5647732503660102 | 0.6241628523235624 | 0.05938960195755216 | 0.8717948717948718 |
 
 ## QuantVerse v2 Walk-Forward Evidence
 
-| model_name | folds | avg_cagr | avg_annualized_return | avg_volatility | avg_sharpe | avg_sortino | avg_max_drawdown |
+| model_name | model_status | risk_free_rate_annual | risk_free_policy | folds | mean_fold_cagr | mean_fold_annualized_return | mean_fold_volatility |
 |---|---|---|---|---|---|---|---|
-| Max Sharpe | 12 | 3.339250155423263 | 0.6602214290872263 | 0.07055903795548263 | 2.7853196837905347 | 3.979982031849199 | -0.003587228569195383 |
-| Policy Constrained | 12 | 3.772072485702133 | 0.6902484870688234 | 0.07211533747277703 | 2.7322648279755115 | 9.465351744826476 | -0.004714223994268037 |
-| Risk Parity | 10 | 2.855941714815176 | 0.6968560574178227 | 0.08192998178167586 | 2.7098970048954696 | 6.940059571606407 | -0.004537631077465021 |
-| Forecast-Enhanced Constrained Portfolio | 12 | 3.4546746076712354 | 0.6888281051229556 | 0.08427239086175958 | 2.585671061329047 | 1.0031966392117793 | -0.005390391254159382 |
-| Black-Litterman | 12 | 10.175073703804538 | 0.7225080475194483 | 0.1332693416981858 | 2.3712230546674413 | 0.2804153456173414 | -0.013155601977030093 |
-| GMV | 12 | 1.885372933218249 | 0.48235906395390343 | 0.051785844014985795 | 2.278016880047272 | 6.562231923423521 | -0.0024134364938768285 |
-| Equal Weight | 12 | 2.4689834218694977 | 0.6092757046832314 | 0.0890991077073453 | 2.073119785122713 | 273.03341898772055 | -0.006351739259590418 |
-| Inverse Volatility | 12 | 2.285051288087289 | 0.5865272266873832 | 0.08153749347992824 | 2.0470995919803756 | 15.03111920224316 | -0.005885620345926333 |
-| HRP | 12 | 1.6064866487507796 | 0.44796180022279214 | 0.06263709619282341 | 1.8979708957161219 | 3.3952355082362105 | -0.004017362495055503 |
-| Min CVaR | 12 | 1.5605674189168017 | 0.28389505116075203 | 0.058097225243966565 | 1.2109201460238623 | 7.904709714606649 | -0.003904079494478454 |
+| Black-Litterman | diagnostic_only | 0.0 | zero_rate_labeled_research_assumption | 12 | 1.2425773871806276 | 0.723968692392197 | 0.24835655582575833 |
+| Max Sharpe | diagnostic_only | 0.0 | zero_rate_labeled_research_assumption | 12 | 0.8176441850868849 | 0.5633506131555707 | 0.1959603324172429 |
+| Policy Constrained | diagnostic_only | 0.0 | zero_rate_labeled_research_assumption | 12 | 2.8090398902827416 | 1.0113865619332871 | 0.345499591239608 |
+| Inverse Volatility | actually_run | 0.0 | zero_rate_labeled_research_assumption | 12 | 0.8410435569496352 | 0.5816299231837442 | 0.20563185692861188 |
+| Forecast-Enhanced Constrained Portfolio | diagnostic_only | 0.0 | zero_rate_labeled_research_assumption | 12 | 2.1905915053926965 | 0.9503692921585557 | 0.32753878643812223 |
+| Risk Parity | actually_run | 0.0 | zero_rate_labeled_research_assumption | 12 | 0.7184330348764262 | 0.5250988351008178 | 0.18645853349473882 |
+| Equal Weight | benchmark_only | 0.0 | zero_rate_labeled_research_assumption | 12 | 1.3764285623382897 | 0.7759013363478307 | 0.2778501986421118 |
+| HRP | actually_run | 0.0 | zero_rate_labeled_research_assumption | 12 | 0.6359241545653432 | 0.47780374150449517 | 0.1800545053655559 |
+| GMV | actually_run | 0.0 | zero_rate_labeled_research_assumption | 12 | 0.42427937910514285 | 0.34211852118922387 | 0.14324559957507885 |
+| Min CVaR | actually_run | 0.0 | zero_rate_labeled_research_assumption | 12 | 0.4256723971004197 | 0.3415242084140204 | 0.14617844535624075 |
 
 ## Simple Return
 

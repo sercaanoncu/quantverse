@@ -10,6 +10,8 @@ import numpy as np
 import logging
 from typing import Dict, Optional, List
 
+from project.portfolio_contract import align_portfolio_weights
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,8 +33,16 @@ class PerformanceAttribution:
     ):
         self.returns = returns.dropna()
         self.tickers = list(returns.columns)
-        self.port_w = portfolio_weights.reindex(self.tickers).fillna(0)
-        self.bench_w = benchmark_weights.reindex(self.tickers).fillna(0)
+        self.port_w = align_portfolio_weights(
+            portfolio_weights,
+            self.tickers,
+            context="Attribution portfolio",
+        )
+        self.bench_w = align_portfolio_weights(
+            benchmark_weights,
+            self.tickers,
+            context="Attribution benchmark",
+        )
         self.class_map = asset_class_map
 
     # ------------------------------------------------------------------

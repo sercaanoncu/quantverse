@@ -1408,7 +1408,7 @@ class InvestmentPDFReport:
 
             fig, ax = plt.subplots(figsize=(8.5, 3.8))
             curves = (1 + bt_returns).cumprod()
-            drawdowns = curves / curves.cummax() - 1
+            drawdowns = curves / curves.cummax().clip(lower=1.0) - 1
             (drawdowns * 100).plot(ax=ax, linewidth=1.15)
             ax.set_ylabel("Düşüş (%)")
             ax.set_title("Walk-Forward Drawdown")

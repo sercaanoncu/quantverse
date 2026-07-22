@@ -18,6 +18,8 @@ from sklearn.covariance import LedoitWolf
 import logging
 from typing import Dict, Optional, Tuple, List
 
+from project.portfolio_contract import align_portfolio_weights
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,20 +53,33 @@ class MonteCarloSimulator:
             Number of simulation paths
         """
         self.returns = returns.dropna()
+        if self.returns.empty:
+            raise ValueError("Monte Carlo calibration returns are empty")
+        if (self.returns <= -1.0).any().any():
+            raise ValueError(
+                "Monte Carlo log-return calibration requires simple returns above -100%"
+            )
         self.tickers = list(returns.columns)
         self.n_assets = len(self.tickers)
-        self.weights = weights.reindex(self.tickers).fillna(0).values
+        aligned_weights = align_portfolio_weights(
+            weights,
+            self.tickers,
+            context="Monte Carlo portfolio",
+        )
+        self.weights = aligned_weights.to_numpy(dtype=float)
         self.horizon = horizon_days
         self.n_sims = n_sims
         self.seed = seed
+        if self.horizon <= 0 or self.n_sims <= 0:
+            raise ValueError("horizon_days and n_sims must be positive")
 
-        # Compute statistics
-        self.mu = self.returns.mean().values
-        self.cov = self.returns.cov().values
+        # Parametric methods are calibrated in log-return space so generated
+        # asset-level simple returns cannot fall below -100%.
+        self.log_returns = np.log1p(self.returns)
+        self.mu_log = self.log_returns.mean().to_numpy(dtype=float)
 
-        # Ledoit-Wolf for better covariance
-        lw = LedoitWolf().fit(self.returns.values)
-        self.cov_lw = lw.covariance_
+        lw = LedoitWolf().fit(self.log_returns.to_numpy(dtype=float))
+        self.cov_log_lw = lw.covariance_
 
         # Portfolio historical returns for calibration
         self.port_hist = self.returns.values @ self.weights
@@ -81,14 +96,12 @@ class MonteCarloSimulator:
         """
         rng = np.random.default_rng(seed=self.seed)
 
-        # Simulate asset-level returns
-        sims = rng.multivariate_normal(
-            self.mu, self.cov_lw, size=(self.n_sims, self.horizon)
+        simulated_log_returns = rng.multivariate_normal(
+            self.mu_log, self.cov_log_lw, size=(self.n_sims, self.horizon)
         )
-        # sims shape: (n_sims, horizon, n_assets)
+        simulated_simple_returns = np.expm1(simulated_log_returns)
 
-        # Portfolio returns per day
-        port_daily = sims @ self.weights  # (n_sims, horizon)
+        port_daily = simulated_simple_returns @ self.weights
 
         # Cumulative wealth paths
         wealth_paths = np.cumprod(1 + port_daily, axis=1)
@@ -109,7 +122,12 @@ class MonteCarloSimulator:
         rng = np.random.default_rng(seed=self.seed)
 
         # Generate multivariate t via: X = μ + Z * sqrt(df/chi2(df))
-        L = np.linalg.cholesky(self.cov_lw)
+        if df <= 2:
+            raise ValueError("Student-t degrees of freedom must exceed 2")
+        eigenvalues, eigenvectors = np.linalg.eigh(self.cov_log_lw)
+        covariance_root = eigenvectors @ np.diag(
+            np.sqrt(np.clip(eigenvalues, 0.0, None))
+        )
 
         port_daily = np.zeros((self.n_sims, self.horizon))
 
@@ -118,9 +136,11 @@ class MonteCarloSimulator:
             Z = rng.standard_normal((self.n_sims, self.n_assets))
             # Chi-squared scaling
             chi2 = rng.chisquare(df, self.n_sims)
-            scale = np.sqrt(df / chi2)[:, np.newaxis]
-            # Multivariate t
-            asset_returns = self.mu + (Z @ L.T) * scale
+            # Scale by df-2 so the simulated covariance matches the calibrated
+            # covariance while retaining Student-t tails.
+            scale = np.sqrt((df - 2) / chi2)[:, np.newaxis]
+            simulated_log_returns = self.mu_log + (Z @ covariance_root.T) * scale
+            asset_returns = np.expm1(simulated_log_returns)
             port_daily[:, t] = asset_returns @ self.weights
 
         wealth_paths = np.cumprod(1 + port_daily, axis=1)
@@ -145,6 +165,10 @@ class MonteCarloSimulator:
         """
         rng = np.random.default_rng(seed=self.seed)
         n_obs = len(self.returns)
+        if block_size <= 0 or block_size > n_obs:
+            raise ValueError(
+                "block_size must be positive and no greater than calibration history"
+            )
         n_blocks = self.horizon // block_size + 1
 
         port_daily = np.zeros((self.n_sims, self.horizon))
@@ -152,7 +176,7 @@ class MonteCarloSimulator:
         for sim in range(self.n_sims):
             path = []
             for _ in range(n_blocks):
-                start = rng.integers(0, n_obs - block_size)
+                start = rng.integers(0, n_obs - block_size + 1)
                 block = self.returns.values[start : start + block_size]
                 path.append(block @ self.weights)
             port_daily[sim, :] = np.concatenate(path)[: self.horizon]
@@ -222,6 +246,11 @@ class MonteCarloSimulator:
                 e = z * np.sqrt(s2)
                 port_daily[sim, t] = mu_p + e
 
+        if (port_daily <= -1.0).any():
+            raise ValueError(
+                "GARCH simulation generated a return at or below -100%; "
+                "the diagnostic is invalid under simple-return compounding"
+            )
         wealth_paths = np.cumprod(1 + port_daily, axis=1)
 
         return self._build_result(wealth_paths, port_daily, "GARCH Bootstrap")
@@ -256,17 +285,24 @@ class MonteCarloSimulator:
         self, wealth_paths: np.ndarray, port_daily: np.ndarray, method: str
     ) -> Dict:
         """Compute summary statistics from simulation paths."""
+        if not np.isfinite(wealth_paths).all() or (wealth_paths <= 0).any():
+            raise ValueError("Simulation produced non-finite or non-positive wealth")
         terminal = wealth_paths[:, -1]
         terminal_returns = terminal - 1  # simple return
 
         # Drawdowns per path
-        running_max = np.maximum.accumulate(wealth_paths, axis=1)
+        running_max = np.maximum(
+            np.maximum.accumulate(wealth_paths, axis=1),
+            1.0,
+        )
         drawdowns = wealth_paths / running_max - 1
         max_drawdowns = drawdowns.min(axis=1)
 
         # Percentiles
         pcts = [1, 5, 10, 25, 50, 75, 90, 95, 99]
         percentiles = {f"p{p}": np.percentile(terminal_returns, p) for p in pcts}
+        terminal_std = float(terminal_returns.std())
+        distribution_is_degenerate = terminal_std <= 1e-12
 
         return {
             "method": method,
@@ -278,9 +314,18 @@ class MonteCarloSimulator:
             # Summary stats
             "mean_return": terminal_returns.mean(),
             "median_return": np.median(terminal_returns),
-            "std_return": terminal_returns.std(),
-            "skewness": float(stats.skew(terminal_returns)),
-            "kurtosis": float(stats.kurtosis(terminal_returns)),
+            "std_return": terminal_std,
+            "skewness": (
+                np.nan
+                if distribution_is_degenerate
+                else float(stats.skew(terminal_returns))
+            ),
+            "kurtosis": (
+                np.nan
+                if distribution_is_degenerate
+                else float(stats.kurtosis(terminal_returns))
+            ),
+            "distribution_is_degenerate": distribution_is_degenerate,
             # Percentiles
             "percentiles": percentiles,
             # Probabilities
@@ -294,6 +339,12 @@ class MonteCarloSimulator:
             "cvar_5pct": -terminal_returns[
                 terminal_returns <= np.percentile(terminal_returns, 5)
             ].mean(),
+            "tail_risk_convention": "positive_terminal_loss_magnitude",
+            "calibration_space": (
+                "historical_simple_returns"
+                if method.startswith("Block Bootstrap")
+                else "log_returns_for_parametric_methods"
+            ),
             "avg_max_drawdown": max_drawdowns.mean(),
             "worst_max_drawdown": max_drawdowns.min(),
             # Paths

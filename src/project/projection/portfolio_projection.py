@@ -23,16 +23,24 @@ def monte_carlo_projection(
     """Simulate portfolio return distributions for configured horizons."""
     clean, aligned_weights = _align_returns_weights(returns, weights)
     rng = np.random.default_rng(random_state)
-    mu = clean.mean().to_numpy(dtype=float)
-    cov = clean.cov().to_numpy(dtype=float)
+    if (clean <= -1.0).any().any():
+        raise ValueError(
+            "Monte Carlo input contains simple returns at or below -100%, "
+            "which cannot be transformed into finite log returns."
+        )
+    log_returns = np.log1p(clean)
+    mu = log_returns.mean().to_numpy(dtype=float)
+    cov = LedoitWolf().fit(log_returns.to_numpy(dtype=float)).covariance_
     horizons = horizons_months or [1, 3, 6, 12]
     rows = []
     for horizon in horizons:
         days = HORIZON_TO_DAYS[int(horizon)]
-        simulated_daily = rng.multivariate_normal(mu, cov, size=(n_simulations, days))
-        path_returns = (1.0 + simulated_daily @ aligned_weights.to_numpy()).prod(
-            axis=1
-        ) - 1.0
+        simulated_log_returns = rng.multivariate_normal(
+            mu, cov, size=(n_simulations, days)
+        )
+        simulated_simple_returns = np.expm1(simulated_log_returns)
+        portfolio_daily_returns = simulated_simple_returns @ aligned_weights.to_numpy()
+        path_returns = (1.0 + portfolio_daily_returns).prod(axis=1) - 1.0
         var_5 = float(np.quantile(path_returns, 0.05))
         cvar_5 = float(path_returns[path_returns <= var_5].mean())
         rows.append(
@@ -46,6 +54,11 @@ def monte_carlo_projection(
                 "CVaR_95": cvar_5,
                 "Probability_Of_Loss": float((path_returns < 0).mean()),
                 "N_Simulations": int(n_simulations),
+                "Covariance_Estimator": "Ledoit-Wolf shrinkage",
+                "Simulation_Assumption": (
+                    "parametric multivariate-normal daily log-return diagnostic "
+                    "transformed to simple returns with daily fixed-weight rebalancing"
+                ),
             }
         )
     return pd.DataFrame(rows)
@@ -53,8 +66,31 @@ def monte_carlo_projection(
 
 def correlation_diagnostics(returns: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Produce correlation matrix, high-correlation pairs and cluster diagnostics."""
-    clean = returns.apply(pd.to_numeric, errors="coerce").dropna(how="all").fillna(0.0)
-    corr = clean.corr().fillna(0.0)
+    clean = _complete_case_returns(returns)
+    if clean.empty:
+        return {
+            "correlation_matrix": pd.DataFrame(),
+            "high_correlation_pairs": pd.DataFrame(
+                columns=["asset_1", "asset_2", "correlation"]
+            ),
+            "cluster_diagnostics": pd.DataFrame(
+                columns=["k", "within_cluster_distance", "silhouette_score", "selected"]
+            ),
+        }
+    corr = clean.corr()
+    finite_columns = corr.columns[corr.notna().all(axis=0)]
+    clean = clean.loc[:, finite_columns]
+    corr = clean.corr()
+    if clean.shape[1] < 2:
+        return {
+            "correlation_matrix": corr,
+            "high_correlation_pairs": pd.DataFrame(
+                columns=["asset_1", "asset_2", "correlation"]
+            ),
+            "cluster_diagnostics": pd.DataFrame(
+                columns=["k", "within_cluster_distance", "silhouette_score", "selected"]
+            ),
+        }
     pairs = []
     for idx, left in enumerate(corr.columns):
         for right in corr.columns[idx + 1 :]:
@@ -62,9 +98,9 @@ def correlation_diagnostics(returns: pd.DataFrame) -> dict[str, pd.DataFrame]:
             if abs(value) >= 0.80:
                 pairs.append({"asset_1": left, "asset_2": right, "correlation": value})
     diagnostics = []
-    max_k = min(8, max(2, clean.shape[1]))
+    max_k = min(8, clean.shape[1])
     corr_array = corr.to_numpy(dtype=float, copy=True)
-    distance = np.clip(1.0 - corr_array, 0.0, 2.0)
+    distance = np.sqrt(0.5 * np.clip(1.0 - corr_array, 0.0, 2.0))
     for k in range(2, max_k + 1):
         labels = cluster_assets_by_correlation(clean, max_clusters=k)
         within = _within_cluster_distance(distance, labels.to_numpy())
@@ -76,19 +112,35 @@ def correlation_diagnostics(returns: pd.DataFrame) -> dict[str, pd.DataFrame]:
                 "k": k,
                 "within_cluster_distance": within,
                 "silhouette_score": silhouette,
-                "selected": bool(k == labels.nunique()),
+                "selected": False,
             }
         )
+    diagnostics_frame = pd.DataFrame(diagnostics)
+    if not diagnostics_frame.empty:
+        valid = diagnostics_frame["silhouette_score"].replace([np.inf, -np.inf], np.nan)
+        selected_index = (
+            valid.idxmax() if valid.notna().any() else diagnostics_frame["k"].idxmin()
+        )
+        diagnostics_frame.loc[selected_index, "selected"] = True
     return {
         "correlation_matrix": corr,
         "high_correlation_pairs": pd.DataFrame(pairs),
-        "cluster_diagnostics": pd.DataFrame(diagnostics),
+        "cluster_diagnostics": diagnostics_frame,
     }
 
 
 def estimator_comparison(returns: pd.DataFrame) -> pd.DataFrame:
     """Compare covariance estimators without changing portfolio decisions."""
-    clean = returns.apply(pd.to_numeric, errors="coerce").dropna(how="all").fillna(0.0)
+    clean = _complete_case_returns(returns)
+    if clean.empty:
+        return pd.DataFrame(
+            columns=[
+                "Estimator",
+                "Average_Variance",
+                "Average_Correlation",
+                "Status",
+            ]
+        )
     sample = clean.cov() * TRADING_DAYS_PER_YEAR
     mle = clean.cov(ddof=0) * TRADING_DAYS_PER_YEAR
     lw = pd.DataFrame(
@@ -141,7 +193,7 @@ def stress_test_portfolio(weights: pd.Series, metadata: pd.DataFrame) -> pd.Data
             shock = 0.0
             if sleeve.startswith("global_equity"):
                 shock += shocks.get("global_equity", 0.0)
-            if sleeve == "crypto":
+            if "crypto" in sleeve.lower():
                 shock += shocks.get("crypto", 0.0)
             if sleeve == "commodity_real_assets":
                 shock += shocks.get("commodity", 0.0)
@@ -161,21 +213,31 @@ def _align_returns_weights(
     selected = [asset for asset in weights.index if asset in returns]
     if not selected:
         raise ValueError("No weight tickers overlap the returns matrix.")
-    clean = (
-        returns[selected]
-        .apply(pd.to_numeric, errors="coerce")
-        .dropna(how="all")
-        .fillna(0.0)
-    )
+    clean = returns[selected].apply(pd.to_numeric, errors="coerce").dropna(how="any")
+    if clean.shape[0] < 2:
+        raise ValueError(
+            "At least two complete common return observations are required; "
+            "missing returns are not imputed as zero."
+        )
     aligned = pd.Series(weights.loc[selected], dtype=float)
     aligned = aligned / aligned.sum()
     return clean, aligned
 
 
+def _complete_case_returns(returns: pd.DataFrame) -> pd.DataFrame:
+    clean = (
+        returns.apply(pd.to_numeric, errors="coerce")
+        .dropna(axis=1, how="all")
+        .dropna(how="any")
+    )
+    return clean if clean.shape[0] >= 2 else clean.iloc[0:0]
+
+
 def _within_cluster_distance(distance: np.ndarray, labels: np.ndarray) -> float:
-    total = 0.0
+    distances: list[float] = []
     for label in sorted(set(labels)):
         idx = np.where(labels == label)[0]
         if len(idx) > 1:
-            total += float(distance[np.ix_(idx, idx)].mean())
-    return total
+            subset = distance[np.ix_(idx, idx)]
+            distances.extend(subset[np.triu_indices(len(idx), k=1)].tolist())
+    return float(np.mean(distances)) if distances else 0.0

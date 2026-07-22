@@ -31,6 +31,8 @@ CALIBRATION_COLUMNS = [
     "mean_mae",
     "mean_interval_width",
     "confidence_error_ratio",
+    "confidence_method",
+    "calibration_status",
     "calibration_interpretation",
 ]
 
@@ -212,11 +214,6 @@ def _calibration(frame: pd.DataFrame) -> pd.DataFrame:
                 if bucket_frame["mae"].notna().any()
                 else np.nan
             )
-            ratio = (
-                mean_confidence / mean_mae
-                if np.isfinite(mean_mae) and mean_mae > 0
-                else np.nan
-            )
             rows.append(
                 {
                     "horizon": horizon,
@@ -229,10 +226,15 @@ def _calibration(frame: pd.DataFrame) -> pd.DataFrame:
                         if bucket_frame["interval_width"].notna().any()
                         else np.nan
                     ),
-                    "confidence_error_ratio": ratio,
+                    "confidence_error_ratio": np.nan,
+                    "confidence_method": (
+                        "heuristic_history_coverage_and_dispersion_score_not_probability"
+                    ),
+                    "calibration_status": "not_statistically_calibrated",
                     "calibration_interpretation": (
-                        "Higher confidence should eventually correspond to lower realized error; "
-                        "current public-data forecast output remains diagnostic."
+                        "The confidence score is a heuristic diagnostic, not a "
+                        "probability. A confidence/error ratio would be "
+                        "dimensionally invalid and is therefore not computed."
                     ),
                 }
             )

@@ -6,11 +6,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import project.research.global_stock_selection as stock_selection
 from project.data_pipeline.security_universe import (
     REQUIRED_UNIVERSE_COLUMNS,
     detect_missing_market_caps,
     detect_stablecoin_like_assets,
     detect_survivorship_bias_risk,
+    detect_unverified_crypto_price_mappings,
     filter_included_investable_assets,
     load_security_universe,
     split_universe_by_sleeve,
@@ -24,6 +26,7 @@ from project.research.global_stock_selection import (
     build_stock_selection_promotion_gate,
     cluster_assets_by_correlation,
     compare_candidate_to_equal_weight_and_random,
+    compute_asset_statistics,
     evaluate_portfolio_return_series,
     select_assets_by_cluster,
     simulate_random_portfolios,
@@ -113,16 +116,71 @@ def test_missing_market_cap_and_survivorship_warnings_trigger():
 
 def test_stablecoin_like_detection_works():
     universe = _valid_universe()
-    stable = universe.iloc[[0]].copy()
-    stable.loc[:, "ticker"] = "USDT-USD"
-    stable.loc[:, "name"] = "Tether USD"
-    stable.loc[:, "sleeve"] = "crypto"
-    stable.loc[:, "asset_type"] = "crypto"
-    universe = pd.concat([universe, stable], ignore_index=True)
+    crypto = pd.concat([universe.iloc[[0]].copy()] * 6, ignore_index=True)
+    crypto["ticker"] = [
+        "USDT-USD",
+        "USDS-USD",
+        "RLUSD-USD",
+        "U-USD",
+        "BTC-USD",
+        "XAUT-USD",
+    ]
+    crypto["name"] = [
+        "Tether USD",
+        "USDS",
+        "Ripple USD",
+        "United Stables",
+        "Bitcoin",
+        "Tether Gold",
+    ]
+    crypto["sleeve"] = "crypto"
+    crypto["asset_type"] = "crypto"
+    universe = pd.concat([universe, crypto], ignore_index=True)
 
     flagged = detect_stablecoin_like_assets(universe)
 
-    assert set(flagged["ticker"]) == {"USDT-USD"}
+    assert set(flagged["ticker"]) == {
+        "USDT-USD",
+        "USDS-USD",
+        "RLUSD-USD",
+        "U-USD",
+    }
+
+
+def test_unverified_crypto_price_mapping_is_not_investable():
+    universe = _valid_universe()
+    crypto = universe.iloc[[0]].copy()
+    crypto.loc[:, "ticker"] = "BTC-USD"
+    crypto.loc[:, "name"] = "Bitcoin"
+    crypto.loc[:, "sleeve"] = "crypto_top100"
+    crypto.loc[:, "asset_type"] = "crypto"
+    crypto.loc[:, "price_ticker_verified"] = False
+    universe = pd.concat([universe, crypto], ignore_index=True)
+
+    flagged = detect_unverified_crypto_price_mappings(universe)
+    filtered = filter_included_investable_assets(universe)
+
+    assert set(flagged["ticker"]) == {"BTC-USD"}
+    assert "BTC-USD" not in set(filtered["ticker"])
+
+    universe.loc[universe["ticker"].eq("BTC-USD"), "price_ticker_verified"] = True
+    filtered = filter_included_investable_assets(universe)
+    assert "BTC-USD" in set(filtered["ticker"])
+
+
+def test_asset_statistics_do_not_impute_missing_returns_as_zero():
+    returns = pd.DataFrame(
+        {
+            "A": [0.01, np.nan, 0.02],
+            "B": [0.01, 0.00, 0.02],
+        },
+        index=pd.date_range("2025-01-01", periods=3, freq="B"),
+    )
+
+    statistics = compute_asset_statistics(returns).set_index("Ticker")
+
+    assert statistics.loc["A", "Observations"] == 2
+    assert statistics.loc["B", "Observations"] == 3
 
 
 def test_asset_selection_count_and_cluster_diversification():
@@ -134,6 +192,39 @@ def test_asset_selection_count_and_cluster_diversification():
 
     assert 6 == len(selected)
     assert selected_cluster_count >= min(2, available_cluster_count)
+
+
+def test_correlation_clustering_does_not_impute_missing_pairs_as_zero():
+    returns = pd.DataFrame(
+        {
+            "A": [0.01, 0.02, np.nan],
+            "B": [np.nan, 0.01, 0.02],
+            "C": [0.02, np.nan, 0.01],
+        }
+    )
+
+    with pytest.raises(ValueError, match="common return observations"):
+        cluster_assets_by_correlation(returns)
+
+
+def test_correlation_clustering_keeps_constant_assets_as_singletons():
+    returns = pd.DataFrame(
+        {
+            "VARIABLE_A": [0.01, -0.01, 0.02, -0.02],
+            "VARIABLE_B": [0.02, -0.02, 0.01, -0.01],
+            "CASH_A": [0.0, 0.0, 0.0, 0.0],
+            "CASH_B": [0.001, 0.001, 0.001, 0.001],
+        }
+    )
+
+    clusters = cluster_assets_by_correlation(returns, max_clusters=2)
+
+    assert clusters.index.tolist() == returns.columns.tolist()
+    assert clusters["CASH_A"] != clusters["CASH_B"]
+    assert clusters["CASH_A"] not in {
+        clusters["VARIABLE_A"],
+        clusters["VARIABLE_B"],
+    }
 
 
 def test_portfolio_builders_return_long_only_weights_that_sum_to_one():
@@ -155,6 +246,107 @@ def test_portfolio_builders_return_long_only_weights_that_sum_to_one():
         assert weights.sum() == pytest.approx(1.0)
         assert (weights >= -1e-10).all()
         assert weights.max() <= 0.40 + 1e-8
+
+
+def test_portfolio_metric_evaluator_rejects_impossible_simple_return():
+    with pytest.raises(ValueError, match="below -100%"):
+        evaluate_portfolio_return_series(pd.Series([0.01, -1.01]))
+
+
+def test_max_sharpe_failure_is_not_silently_relabelled(monkeypatch):
+    class FailedResult:
+        success = False
+        message = "synthetic optimizer failure"
+
+    monkeypatch.setattr(
+        stock_selection,
+        "minimize",
+        lambda *args, **kwargs: FailedResult(),
+    )
+    returns = _returns(n_assets=8)
+
+    with pytest.raises(ValueError, match="synthetic optimizer failure"):
+        build_shrinkage_max_sharpe_portfolio(
+            returns, returns.columns[:5], max_weight=0.40
+        )
+
+
+def test_max_sharpe_objective_uses_nonzero_risk_free_hurdle(monkeypatch):
+    objective_values = []
+
+    class SuccessfulResult:
+        success = True
+        message = "ok"
+
+        def __init__(self, weights):
+            self.x = weights
+
+    def capture_objective(objective, *, x0, **_kwargs):
+        objective_values.append(float(objective(x0)))
+        return SuccessfulResult(x0)
+
+    monkeypatch.setattr(stock_selection, "minimize", capture_objective)
+    returns = _returns(n_assets=8)
+    tickers = returns.columns[:5]
+
+    build_shrinkage_max_sharpe_portfolio(
+        returns,
+        tickers,
+        max_weight=0.40,
+        risk_free_rate_annual=0.0,
+    )
+    build_shrinkage_max_sharpe_portfolio(
+        returns,
+        tickers,
+        max_weight=0.40,
+        risk_free_rate_annual=0.05,
+    )
+
+    assert len(objective_values) == 2
+    assert objective_values[1] > objective_values[0]
+
+
+def test_weight_cap_projection_rejects_nonfinite_inputs():
+    with pytest.raises(ValueError, match="finite"):
+        stock_selection.apply_max_weight_cap(
+            pd.Series({"A": 0.5, "B": np.nan}),
+            max_weight=0.60,
+        )
+
+
+def test_min_cvar_failure_is_not_silently_relabelled(monkeypatch):
+    class FailedResult:
+        success = False
+        message = "synthetic linear-program failure"
+
+    monkeypatch.setattr(
+        stock_selection,
+        "linprog",
+        lambda *args, **kwargs: FailedResult(),
+    )
+    returns = _returns(n_assets=8)
+
+    with pytest.raises(ValueError, match="synthetic linear-program failure"):
+        build_min_cvar_portfolio(returns, returns.columns[:5], max_weight=0.40)
+
+
+def test_min_cvar_linear_program_reduces_empirical_tail_loss():
+    returns = pd.DataFrame(
+        {
+            "TAIL": [0.01] * 19 + [-0.50],
+            "DEFENSIVE": [0.0] * 20,
+        }
+    )
+
+    weights = build_min_cvar_portfolio(
+        returns,
+        ["TAIL", "DEFENSIVE"],
+        max_weight=0.75,
+        confidence_level=0.95,
+    )
+
+    assert weights["DEFENSIVE"] == pytest.approx(0.75, abs=1e-8)
+    assert weights["TAIL"] == pytest.approx(0.25, abs=1e-8)
 
 
 def test_random_portfolio_simulation_is_reproducible_and_weights_sum_to_one():

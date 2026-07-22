@@ -23,6 +23,10 @@ def test_random_portfolios_sum_to_one_and_respect_max_weight():
 
     assert np.allclose(randoms["weight_sum"], 1.0)
     assert (randoms["max_weight_observed"] <= 0.30 + 1e-10).all()
+    assert set(randoms["sampling_method"]) == {
+        "iid_uniform_raw_scores_projected_to_capped_simplex"
+    }
+    assert set(randoms["benchmark_scope"]) == {"full_sample_static_weights_diagnostic"}
 
 
 def test_random_portfolio_simulation_is_reproducible():

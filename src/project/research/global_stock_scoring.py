@@ -14,20 +14,17 @@ import numpy as np
 import pandas as pd
 
 from project.constants import TRADING_DAYS_PER_YEAR
+from project.data_pipeline.security_identity import (
+    attach_run_metadata,
+    build_feature_history_eligibility,
+    resolve_security_master_rows,
+)
+from project.data_pipeline.security_universe import (
+    stablecoin_like_mask,
+    unverified_crypto_price_mapping_mask,
+)
 
 SCORE_FORMULA_VERSION = "quantverse_v2_score_v1_coverage_momentum_risk_diversification"
-STABLECOIN_TOKENS = {
-    "USDT",
-    "USDC",
-    "DAI",
-    "BUSD",
-    "TUSD",
-    "FDUSD",
-    "USDE",
-    "USDP",
-    "PYUSD",
-    "GUSD",
-}
 
 SCORE_COLUMNS = [
     "ticker",
@@ -59,6 +56,9 @@ SCORE_COLUMNS = [
     "composite_quant_score",
     "rank_global",
     "rank_within_sleeve",
+    "eligibility_status",
+    "standard_composite_score_eligible",
+    "history_eligibility_reason",
     "selection_flag",
     "selection_reason",
     "warning_flags",
@@ -68,6 +68,14 @@ SCORE_COLUMNS = [
     "scoring_as_of_date",
     "leakage_check_pass",
     "score_component_summary",
+    "run_id",
+    "execution_id",
+    "data_as_of_date",
+    "generated_at",
+    "universe_snapshot_id",
+    "data_snapshot_id",
+    "config_hash",
+    "input_fingerprint",
 ]
 
 
@@ -80,6 +88,9 @@ def build_global_stock_scores(
     max_selected: int = 40,
     default_scope: str = "equity_only",
     include_crypto: bool = False,
+    feature_history_eligibility: pd.DataFrame | None = None,
+    minimum_standard_observations: int = 252,
+    run_metadata: dict[str, object] | None = None,
 ) -> pd.DataFrame:
     """Build transparent stock-selection scores from past available returns."""
     clean = _clean_returns(returns, as_of_date=as_of_date)
@@ -92,10 +103,21 @@ def build_global_stock_scores(
     if not tickers:
         return pd.DataFrame(columns=SCORE_COLUMNS)
     clean = clean[tickers]
-    data_window_start = _date_label(clean.index.min())
-    data_window_end = _date_label(clean.index.max())
     scoring_as_of = _date_label(
         pd.Timestamp(as_of_date) if as_of_date is not None else clean.index.max()
+    )
+    eligibility = (
+        feature_history_eligibility.copy()
+        if feature_history_eligibility is not None
+        else build_feature_history_eligibility(
+            clean,
+            minimum_standard_observations=minimum_standard_observations,
+        )
+    )
+    eligibility_map = (
+        eligibility.drop_duplicates("ticker").set_index("ticker").to_dict("index")
+        if not eligibility.empty and "ticker" in eligibility
+        else {}
     )
     diversification_scores = _correlation_diversification_scores(clean)
     rows = [
@@ -103,7 +125,8 @@ def build_global_stock_scores(
             ticker,
             clean[ticker],
             metadata,
-            diversification_scores.get(ticker, 1.0),
+            diversification_scores.get(ticker, 0.0),
+            eligibility_map.get(ticker, {}),
         )
         for ticker in tickers
     ]
@@ -115,8 +138,13 @@ def build_global_stock_scores(
     scores["liquidity_proxy_score"] = _market_cap_percentile(metadata, scores["ticker"])
     scores = _add_composite_score(scores)
     scores = scores.sort_values(
-        ["composite_quant_score", "data_coverage_score", "liquidity_proxy_score"],
-        ascending=False,
+        [
+            "standard_composite_score_eligible",
+            "composite_quant_score",
+            "data_coverage_score",
+            "liquidity_proxy_score",
+        ],
+        ascending=[False, False, False, False],
     ).reset_index(drop=True)
     scores["rank_global"] = np.arange(1, len(scores) + 1)
     scores["rank_within_sleeve"] = (
@@ -124,19 +152,19 @@ def build_global_stock_scores(
         .rank(method="first", ascending=False)
         .astype(int)
     )
-    scores["selection_flag"] = scores["rank_global"] <= int(max_selected)
-    scores["selection_reason"] = np.where(
-        scores["selection_flag"],
-        "Selected by transparent composite score with coverage, momentum, risk and diversification checks.",
-        "Not selected because other assets ranked higher under the public-data score.",
+    scores["selection_flag"] = scores["standard_composite_score_eligible"] & (
+        scores["rank_global"] <= int(max_selected)
+    )
+    scores["selection_reason"] = scores.apply(
+        _selection_reason,
+        axis=1,
     )
     scores["warning_flags"] = scores.apply(_warning_flags, axis=1)
     scores["score_formula_version"] = SCORE_FORMULA_VERSION
-    scores["data_window_start"] = data_window_start
-    scores["data_window_end"] = data_window_end
     scores["scoring_as_of_date"] = scoring_as_of
     scores["leakage_check_pass"] = True
     scores["score_component_summary"] = scores.apply(_score_component_summary, axis=1)
+    scores = attach_run_metadata(scores, run_metadata)
     return scores[SCORE_COLUMNS]
 
 
@@ -152,32 +180,73 @@ def _score_one_asset(
     series: pd.Series,
     metadata: pd.DataFrame,
     diversification: float,
+    eligibility: dict[str, object],
 ) -> dict[str, object]:
     returns = pd.to_numeric(series, errors="coerce").dropna().astype(float)
     meta = metadata.loc[metadata["ticker"].astype(str).eq(str(ticker))].iloc[0]
     observations = int(returns.shape[0])
-    vol_3m = _annualized_vol(returns.tail(63))
-    vol_12m = _annualized_vol(returns.tail(252))
-    downside = _downside_volatility(returns)
-    annual_return = float(returns.mean() * TRADING_DAYS_PER_YEAR) if observations else 0
-    sharpe = annual_return / vol_12m if vol_12m > 0 else 0.0
-    sortino = annual_return / downside if downside > 0 else 0.0
-    momentum = {
-        "momentum_1m": _period_return(returns, 21),
-        "momentum_3m": _period_return(returns, 63),
-        "momentum_6m": _period_return(returns, 126),
-        "momentum_12m": _period_return(returns, 252),
-    }
-    trend_score = float(
-        np.nanmean(
-            [
-                momentum["momentum_3m"],
-                momentum["momentum_6m"],
-                momentum["momentum_12m"],
-            ]
-        )
+    vol_3m = _eligible_volatility(
+        returns,
+        63,
+        eligibility.get("volatility_3m_eligible", observations >= 63),
     )
-    mean_reversion = float(-0.50 * momentum["momentum_1m"])
+    vol_12m = _eligible_volatility(
+        returns,
+        252,
+        eligibility.get("volatility_12m_eligible", observations >= 252),
+    )
+    downside = (
+        _downside_volatility(returns.tail(252))
+        if _as_bool(eligibility.get("sortino_eligible", observations >= 252))
+        else np.nan
+    )
+    annual_return = (
+        float(returns.tail(252).mean() * TRADING_DAYS_PER_YEAR)
+        if observations >= 252
+        else np.nan
+    )
+    sharpe = (
+        annual_return / vol_12m
+        if np.isfinite(annual_return) and np.isfinite(vol_12m) and vol_12m > 0
+        else np.nan
+    )
+    sortino = (
+        annual_return / downside
+        if np.isfinite(annual_return) and np.isfinite(downside) and downside > 0
+        else np.nan
+    )
+    momentum = {
+        "momentum_1m": _eligible_period_return(
+            returns, 21, eligibility.get("1m_eligible", observations >= 21)
+        ),
+        "momentum_3m": _eligible_period_return(
+            returns, 63, eligibility.get("3m_eligible", observations >= 63)
+        ),
+        "momentum_6m": _eligible_period_return(
+            returns, 126, eligibility.get("6m_eligible", observations >= 126)
+        ),
+        "momentum_12m": _eligible_period_return(
+            returns, 252, eligibility.get("12m_eligible", observations >= 252)
+        ),
+    }
+    trend_values = [
+        momentum["momentum_3m"],
+        momentum["momentum_6m"],
+        momentum["momentum_12m"],
+    ]
+    trend_score = (
+        float(np.nanmean(trend_values))
+        if pd.Series(trend_values, dtype=float).notna().any()
+        else np.nan
+    )
+    mean_reversion = (
+        float(-0.50 * momentum["momentum_1m"])
+        if np.isfinite(momentum["momentum_1m"])
+        else np.nan
+    )
+    standard_eligible = _as_bool(
+        eligibility.get("standard_composite_score_eligible", observations >= 252)
+    )
     return {
         "ticker": ticker,
         "name": meta.get("name", ticker),
@@ -200,8 +269,27 @@ def _score_one_asset(
         "trend_score": trend_score,
         "mean_reversion_score": mean_reversion,
         "correlation_diversification_score": diversification,
-        "risk_penalty_score": float(vol_12m + abs(_max_drawdown(returns))),
-        "expected_return_signal_score": float(0.60 * trend_score + 0.25 * sharpe),
+        "risk_penalty_score": (
+            float(vol_12m + abs(_max_drawdown(returns)))
+            if np.isfinite(vol_12m)
+            else np.nan
+        ),
+        "expected_return_signal_score": (
+            float(0.60 * trend_score + 0.25 * sharpe)
+            if np.isfinite(trend_score) and np.isfinite(sharpe)
+            else np.nan
+        ),
+        "eligibility_status": eligibility.get(
+            "eligibility_status",
+            "eligible" if standard_eligible else "diagnostic_short_history",
+        ),
+        "standard_composite_score_eligible": standard_eligible,
+        "history_eligibility_reason": eligibility.get(
+            "eligibility_reason",
+            "" if standard_eligible else "Insufficient common 12-month history.",
+        ),
+        "data_window_start": _date_label(returns.index.min()),
+        "data_window_end": _date_label(returns.index.max()),
     }
 
 
@@ -268,11 +356,11 @@ def _merge_coverage(
 
 
 def _metadata(universe: pd.DataFrame) -> pd.DataFrame:
-    metadata = universe.copy()
+    metadata = resolve_security_master_rows(universe)
     if "ticker" not in metadata:
         raise ValueError("Universe must contain a ticker column.")
     metadata["ticker"] = metadata["ticker"].astype(str)
-    return metadata.drop_duplicates("ticker", keep="first")
+    return metadata
 
 
 def _filter_metadata_scope(
@@ -300,19 +388,14 @@ def _filter_metadata_scope(
         sleeve = frame.get("sleeve", pd.Series("", index=frame.index)).astype(str)
         frame = frame.loc[~sleeve.str.contains("crypto", case=False, na=False)].copy()
     else:
-        frame = frame.loc[~_stablecoin_like_mask(frame)].copy()
+        eligible_crypto = ~_stablecoin_like_mask(frame)
+        eligible_crypto &= ~unverified_crypto_price_mapping_mask(frame)
+        frame = frame.loc[eligible_crypto].copy()
     return frame
 
 
 def _stablecoin_like_mask(frame: pd.DataFrame) -> pd.Series:
-    ticker = (
-        frame.get("ticker", pd.Series("", index=frame.index)).astype(str).str.upper()
-    )
-    name = frame.get("name", pd.Series("", index=frame.index)).astype(str).str.upper()
-    text = ticker + " " + name
-    token_match = ticker.str.replace("-USD", "", regex=False).isin(STABLECOIN_TOKENS)
-    stable_word = text.str.contains("STABLECOIN|STABLE COIN", regex=True, na=False)
-    return token_match.astype(bool) | stable_word.astype(bool)
+    return stablecoin_like_mask(frame)
 
 
 def _truthy(value: object) -> bool:
@@ -345,6 +428,26 @@ def _period_return(series: pd.Series, window: int) -> float:
     return float((1.0 + clean).prod() - 1.0)
 
 
+def _eligible_period_return(
+    series: pd.Series,
+    window: int,
+    eligible: object,
+) -> float:
+    if not _as_bool(eligible) or series.dropna().shape[0] < int(window):
+        return np.nan
+    return _period_return(series, window)
+
+
+def _eligible_volatility(
+    series: pd.Series,
+    window: int,
+    eligible: object,
+) -> float:
+    if not _as_bool(eligible) or series.dropna().shape[0] < int(window):
+        return np.nan
+    return _annualized_vol(series.tail(window))
+
+
 def _annualized_vol(series: pd.Series) -> float:
     clean = series.dropna()
     if clean.shape[0] < 2:
@@ -353,11 +456,11 @@ def _annualized_vol(series: pd.Series) -> float:
 
 
 def _downside_volatility(series: pd.Series) -> float:
-    downside = series.dropna()
-    downside = downside[downside < 0]
-    if downside.shape[0] < 2:
+    clean = series.dropna().astype(float)
+    if clean.empty:
         return 0.0
-    return float(downside.std(ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR))
+    shortfall = np.minimum(clean.to_numpy(dtype=float), 0.0)
+    return float(np.sqrt(np.mean(shortfall**2)) * np.sqrt(TRADING_DAYS_PER_YEAR))
 
 
 def _max_drawdown(series: pd.Series) -> float:
@@ -365,18 +468,25 @@ def _max_drawdown(series: pd.Series) -> float:
     if clean.empty:
         return 0.0
     wealth = (1.0 + clean).cumprod()
-    drawdown = wealth / wealth.cummax() - 1.0
+    running_peak = wealth.cummax().clip(lower=1.0)
+    drawdown = wealth / running_peak - 1.0
     return float(drawdown.min())
 
 
 def _correlation_diversification_scores(matrix: pd.DataFrame) -> pd.Series:
     if matrix.shape[1] <= 1:
-        return pd.Series(1.0, index=matrix.columns)
+        return pd.Series(0.0, index=matrix.columns)
     corr = matrix.corr().abs().replace([np.inf, -np.inf], np.nan)
     corr_array = corr.to_numpy(dtype=float, copy=True)
     np.fill_diagonal(corr_array, np.nan)
-    corr = pd.DataFrame(corr_array, index=corr.index, columns=corr.columns)
-    return (1.0 - corr.mean(skipna=True)).fillna(1.0)
+    observed_credit = np.where(
+        np.isfinite(corr_array),
+        1.0 - np.clip(corr_array, 0.0, 1.0),
+        0.0,
+    )
+    np.fill_diagonal(observed_credit, 0.0)
+    scores = observed_credit.sum(axis=1) / float(matrix.shape[1] - 1)
+    return pd.Series(scores, index=matrix.columns, dtype=float).clip(0.0, 1.0)
 
 
 def _market_cap_percentile(metadata: pd.DataFrame, tickers: pd.Series) -> pd.Series:
@@ -392,6 +502,8 @@ def _market_cap_percentile(metadata: pd.DataFrame, tickers: pd.Series) -> pd.Ser
 
 def _robust_z(series: pd.Series) -> pd.Series:
     clean = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    if not clean.notna().any():
+        return pd.Series(0.0, index=series.index)
     median = clean.median()
     mad = (clean - median).abs().median()
     if not np.isfinite(mad) or mad <= 1e-12:
@@ -404,15 +516,34 @@ def _robust_z(series: pd.Series) -> pd.Series:
 
 def _warning_flags(row: pd.Series) -> str:
     flags: list[str] = []
+    if not _as_bool(row["standard_composite_score_eligible"]):
+        flags.append("diagnostic_short_history")
     if float(row["data_coverage_score"]) < 0.75:
         flags.append("low_coverage")
-    if float(row["volatility_12m"]) > 0.80:
+    if _finite_float(row["volatility_12m"]) > 0.80:
         flags.append("high_volatility")
     if float(row["max_drawdown"]) < -0.50:
         flags.append("deep_drawdown")
-    if abs(float(row["momentum_1m"])) > 0.75:
+    if abs(_finite_float(row["momentum_1m"])) > 0.75:
         flags.append("extreme_short_term_return")
     return "; ".join(flags) if flags else "none"
+
+
+def _selection_reason(row: pd.Series) -> str:
+    if _as_bool(row["selection_flag"]):
+        return (
+            "Selected by the standard 12-month composite score with coverage, "
+            "momentum, risk and diversification checks."
+        )
+    if not _as_bool(row["standard_composite_score_eligible"]):
+        return (
+            "Visible as diagnostic_short_history and excluded from standard "
+            "portfolio selection because common 12-month history is insufficient."
+        )
+    return (
+        "Not selected because other eligible assets ranked higher under the "
+        "public-data score."
+    )
 
 
 def _score_component_summary(row: pd.Series) -> str:
@@ -420,7 +551,7 @@ def _score_component_summary(row: pd.Series) -> str:
         "composite = 30% expected_return_signal + 20% Sharpe-like + "
         "15% Sortino-like + 10% diversification + 10% coverage + "
         "5% liquidity proxy - 10% risk penalty; "
-        f"warnings={row['warning_flags']}"
+        f"eligibility={row['eligibility_status']}; warnings={row['warning_flags']}"
     )
 
 
@@ -428,3 +559,19 @@ def _date_label(value: object) -> str:
     if pd.isna(value):
         return ""
     return pd.Timestamp(value).date().isoformat()
+
+
+def _as_bool(value: object) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if value is None or pd.isna(value):
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _finite_float(value: object) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return parsed if np.isfinite(parsed) else 0.0

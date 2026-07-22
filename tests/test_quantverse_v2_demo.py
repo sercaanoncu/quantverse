@@ -1,8 +1,23 @@
 import json
+from types import SimpleNamespace
 
 import pandas as pd
 
 import scripts.run_quantverse_v2_demo as demo
+
+
+def test_final_model_is_not_fabricated_when_league_is_empty_or_ineligible():
+    assert demo._final_model(pd.DataFrame()) == "not_available"
+    blocked = pd.DataFrame(
+        {
+            "model_name": ["Policy Constrained"],
+            "constraints_pass": [False],
+            "actual_status": ["blocked_by_implementation"],
+            "sharpe": [0.0],
+            "cagr": [0.0],
+        }
+    )
+    assert demo._final_model(blocked) == "not_available"
 
 
 def test_v2_demo_summary_schema_and_random_percentile(tmp_path, monkeypatch):
@@ -85,3 +100,64 @@ def test_v2_demo_summary_schema_and_random_percentile(tmp_path, monkeypatch):
     assert summary["final_selected_model"] == "Equal Weight"
     assert summary["promotion_decision"] == "not promoted"
     assert summary["random_portfolio_percentile"] == 0.5
+
+
+def test_v2_pipeline_builds_robustness_evidence_before_model_selection():
+    steps = demo._pipeline_steps("unit.yaml")
+    scripts = [step[0] for step in steps]
+
+    assert scripts.index("scripts/build_global_returns_matrix.py") < scripts.index(
+        "scripts/run_global_statistical_diagnostics.py"
+    )
+    assert scripts.index("scripts/run_global_statistical_diagnostics.py") < (
+        scripts.index("scripts/build_global_stock_scores.py")
+    )
+    assert scripts.index("scripts/run_global_walk_forward_validation.py") < (
+        scripts.index("scripts/run_global_robustness_analysis.py")
+    )
+    assert scripts.index("scripts/run_global_robustness_analysis.py") < (
+        scripts.index("scripts/build_global_model_selection_report.py")
+    )
+    returns_step = next(
+        step for step in steps if step[0] == "scripts/build_global_returns_matrix.py"
+    )
+    master_step = next(
+        step for step in steps if step[0] == "scripts/run_global_master_portfolio.py"
+    )
+    assert (
+        returns_step[returns_step.index("--master-config") + 1]
+        == master_step[master_step.index("--config") + 1]
+    )
+
+
+def test_v2_demo_rewrites_completed_summary_when_report_step_fails(
+    monkeypatch, tmp_path
+):
+    written = []
+    calls = iter(
+        [
+            SimpleNamespace(returncode=0),
+            SimpleNamespace(returncode=7),
+        ]
+    )
+    monkeypatch.setattr(demo, "ROOT", tmp_path)
+    monkeypatch.setattr(demo, "_pipeline_steps", lambda _config: [])
+    monkeypatch.setattr(
+        demo,
+        "build_demo_summary",
+        lambda: {"run_status": "completed", "run_id": "unit-run"},
+    )
+    monkeypatch.setattr(demo, "_write_summary", lambda payload: written.append(payload))
+    monkeypatch.setattr(demo.subprocess, "run", lambda *args, **kwargs: next(calls))
+    monkeypatch.setattr(
+        demo.sys,
+        "argv",
+        ["run_quantverse_v2_demo.py", "--config", "unit.yaml"],
+    )
+
+    assert demo.main() == 7
+    assert written[0]["run_status"] == "completed"
+    assert written[-1]["run_status"] == "failed"
+    assert (
+        written[-1]["failed_step"] == "scripts/build_quantverse_v2_research_report.py"
+    )

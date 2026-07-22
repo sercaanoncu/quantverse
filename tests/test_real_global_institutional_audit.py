@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from project.data_pipeline.security_universe import REQUIRED_UNIVERSE_COLUMNS
 from project.projection.global_forecast_engine import run_global_forecasts
@@ -98,6 +99,37 @@ def test_global_diagnostics_bundle_has_expected_output_schemas():
     assert bundle["cluster_membership"]["ticker"].nunique() == 5
 
 
+def test_statistical_diagnostics_do_not_impute_missing_returns_as_zero():
+    returns = pd.DataFrame(
+        {
+            "A": [0.10, np.nan, 0.20, 0.30],
+            "B": [0.05, 0.06, 0.07, 0.08],
+        },
+        index=pd.date_range("2025-01-01", periods=4, freq="B"),
+    )
+
+    bundle = diagnostics_bundle(returns)
+    summary = bundle["summary_statistics"].set_index("ticker")
+
+    assert summary.loc["A", "observations"] == 3
+    assert summary.loc["A", "mean_daily"] == pytest.approx(0.20)
+
+
+def test_constant_return_series_is_reported_not_crashed_by_stationarity_test():
+    returns = pd.DataFrame(
+        {"CONST": np.zeros(60)},
+        index=pd.date_range("2025-01-01", periods=60, freq="B"),
+    )
+
+    bundle = diagnostics_bundle(returns)
+    result = bundle["stationarity_tests"].iloc[0]
+
+    assert str(result["stationarity_result"]).startswith("not_computable_")
+    assert (
+        bundle["pca_summary"]["status"].iloc[0] == "not_computable_zero_total_variance"
+    )
+
+
 def test_model_applicability_keeps_deep_and_rl_models_out_of_production_allocation():
     matrix = model_applicability_matrix().set_index("model")
 
@@ -167,6 +199,7 @@ def test_global_forecasts_and_simulations_emit_required_artifacts():
 
     assert {"Model", "Status"}.issubset(forecasts["regression_metrics"].columns)
     assert {"Model", "ROC_AUC", "Status"}.issubset(forecasts["roc_auc"].columns)
+    assert not forecasts["regression_metrics"]["Status"].eq("computed").any()
     assert {"Horizon_Months", "P05_Return", "Median_Return", "P95_Return"}.issubset(
         simulations["monte_carlo"].columns
     )

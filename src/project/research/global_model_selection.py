@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 import pandas as pd
 
 from project.research.global_numerical_integrity import portfolio_return_series
 from project.research.global_portfolio_risk import evaluate_return_series
+from project.research.global_stock_selection import apply_max_weight_cap
 
 ELIGIBLE_FINAL_STATUSES = {"actually_run", "benchmark_only"}
 EXCLUDED_FINAL_STATUSES = {
@@ -26,6 +28,20 @@ EXCLUDED_FINAL_STATUSES = {
     "blocked_by_implementation",
     "future_candidate",
 }
+RUN_IDENTITY_FIELDS = (
+    "run_id",
+    "config_hash",
+    "input_fingerprint",
+    "universe_snapshot_id",
+    "data_snapshot_id",
+)
+PROMOTION_GRADE_ROBUSTNESS_STATUSES = {
+    "promotion_grade_nested_walk_forward_oos",
+}
+PROMOTION_GRADE_ROBUSTNESS_METHODS = {
+    "nested_chronological_walk_forward_oos",
+}
+VERIFIED_RANDOM_BENCHMARK_STATUS = "verified_same_protocol"
 
 MODEL_SELECTION_COLUMNS = [
     "model_name",
@@ -33,6 +49,9 @@ MODEL_SELECTION_COLUMNS = [
     "eligible_final_model",
     "constraint_pass",
     "walk_forward_supported",
+    "leakage_gate_pass",
+    "leakage_evidence_status",
+    "leakage_run_id",
     "walk_forward_annualized_return",
     "walk_forward_volatility",
     "walk_forward_sharpe",
@@ -49,6 +68,10 @@ MODEL_SELECTION_COLUMNS = [
     "league_sharpe",
     "league_max_drawdown",
     "league_cvar_95",
+    "random_benchmark_scope",
+    "random_benchmark_provenance_status",
+    "random_benchmark_protocol_hash",
+    "random_benchmark_run_id",
     "random_return_percentile",
     "random_volatility_percentile",
     "random_sharpe_percentile",
@@ -59,6 +82,13 @@ MODEL_SELECTION_COLUMNS = [
     "drawdown_not_materially_worse_than_equal_weight",
     "cvar_not_materially_worse_than_equal_weight",
     "sharpe_improvement_vs_equal_weight",
+    "uncertainty_status",
+    "uncertainty_method",
+    "paired_oos_observations",
+    "sharpe_diff_ci_lower",
+    "sharpe_diff_ci_upper",
+    "probability_sharpe_improvement",
+    "uncertainty_gate_pass",
     "turnover_within_limit",
     "random_sharpe_gate_pass",
     "robustness_gate_pass",
@@ -66,6 +96,8 @@ MODEL_SELECTION_COLUMNS = [
     "uses_forecast",
     "forecast_validation_status",
     "robustness_status",
+    "robustness_evidence_status",
+    "robustness_run_id",
     "extreme_metric_warning",
     "data_limitation_warning",
     "selection_score",
@@ -80,6 +112,8 @@ MODEL_SELECTION_DIAGNOSTIC_COLUMNS = [
     "model_name",
     "model_status",
     "eligible_final_model",
+    "leakage_gate_pass",
+    "leakage_evidence_status",
     "in_sample_annualized_return",
     "in_sample_volatility",
     "in_sample_sharpe",
@@ -91,14 +125,23 @@ MODEL_SELECTION_DIAGNOSTIC_COLUMNS = [
     "walk_forward_cvar_95",
     "transaction_cost_adjusted_return",
     "turnover",
+    "random_benchmark_scope",
+    "random_benchmark_provenance_status",
+    "random_benchmark_protocol_hash",
     "random_sharpe_percentile",
     "random_cvar_percentile",
     "equal_weight_return_delta",
     "equal_weight_sharpe_delta",
     "equal_weight_drawdown_delta",
     "equal_weight_cvar_delta",
+    "uncertainty_status",
+    "sharpe_diff_ci_lower",
+    "sharpe_diff_ci_upper",
+    "probability_sharpe_improvement",
+    "uncertainty_gate_pass",
     "constraint_pass",
     "robustness_status",
+    "robustness_evidence_status",
     "promotion_gate_failed_reasons",
     "book_grounded_final_score",
     "book_grounded_rank",
@@ -106,6 +149,8 @@ MODEL_SELECTION_DIAGNOSTIC_COLUMNS = [
 
 RANDOM_DISTRIBUTION_COLUMNS = [
     "portfolio_id",
+    "sampling_method",
+    "benchmark_scope",
     "weight_sum",
     "max_weight_observed",
     "cagr",
@@ -149,26 +194,30 @@ def simulate_constrained_random_distribution(
         raise ValueError("max_weight is infeasible for the selected universe.")
 
     rng = np.random.default_rng(int(random_state))
-    rows: list[dict[str, float | int]] = []
+    rows: list[dict[str, object]] = []
     for portfolio_id in range(int(n_portfolios)):
         raw = pd.Series(rng.random(clean.shape[1]), index=clean.columns)
-        weights = _cap_and_normalize(raw, float(max_weight))
+        weights = apply_max_weight_cap(raw, float(max_weight))
         metrics = evaluate_return_series(portfolio_return_series(clean, weights))
         rows.append(
             {
                 "portfolio_id": portfolio_id,
+                "sampling_method": (
+                    "iid_uniform_raw_scores_projected_to_capped_simplex"
+                ),
+                "benchmark_scope": "full_sample_static_weights_diagnostic",
                 "weight_sum": float(weights.sum()),
                 "max_weight_observed": float(weights.max()),
-                "cagr": float(metrics["cagr"]),
-                "annualized_return": float(metrics["annualized_return"]),
-                "volatility": float(metrics["annualized_volatility"]),
-                "sharpe": float(metrics["sharpe"]),
-                "sortino": float(metrics["sortino"]),
-                "max_drawdown": float(metrics["max_drawdown"]),
-                "var_95": float(metrics["var_95"]),
-                "cvar_95": float(metrics["cvar_95"]),
-                "calmar": float(metrics["calmar"]),
-                "total_return": float(metrics["total_return"]),
+                "cagr": _float(metrics["cagr"]),
+                "annualized_return": _float(metrics["annualized_return"]),
+                "volatility": _float(metrics["annualized_volatility"]),
+                "sharpe": _float(metrics["sharpe"]),
+                "sortino": _float(metrics["sortino"]),
+                "max_drawdown": _float(metrics["max_drawdown"]),
+                "var_95": _float(metrics["var_95"]),
+                "cvar_95": _float(metrics["cvar_95"]),
+                "calmar": _float(metrics["calmar"]),
+                "total_return": _float(metrics["total_return"]),
             }
         )
     return pd.DataFrame(rows, columns=RANDOM_DISTRIBUTION_COLUMNS)
@@ -224,14 +273,18 @@ def build_model_selection_report(
     risk_report: pd.DataFrame | None = None,
     turnover: pd.DataFrame | None = None,
     random_percentiles: pd.DataFrame | None = None,
+    random_distribution: pd.DataFrame | None = None,
+    walk_forward_leakage_audit: pd.DataFrame | None = None,
     *,
     drawdown_tolerance: float = 0.05,
     cvar_tolerance: float = 0.005,
-    min_sharpe_improvement_vs_equal_weight: float = 0.10,
+    min_sharpe_improvement_vs_equal_weight: float = 0.0,
     min_random_sharpe_percentile: float = 0.60,
     max_turnover: float = 2.0,
     forecast_validation_status: str = "diagnostic_only",
-    robustness_status: str = "stable",
+    robustness_evidence: Mapping[str, object] | None = None,
+    random_benchmark_provenance: Mapping[str, object] | None = None,
+    expected_run_identity: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     """Score final model candidates using risk, cost and validation evidence."""
     if league.empty:
@@ -241,6 +294,19 @@ def build_model_selection_report(
     risk_map = _index_by_model(risk_report)
     random_map = _index_by_model(random_percentiles)
     turnover_map = _turnover_by_model(turnover)
+    robustness_assessment = assess_robustness_evidence(
+        robustness_evidence,
+        expected_run_identity=expected_run_identity,
+    )
+    random_assessment = assess_random_benchmark_evidence(
+        random_distribution,
+        random_benchmark_provenance,
+        expected_run_identity=expected_run_identity,
+    )
+    leakage_assessment = assess_leakage_evidence(
+        walk_forward_leakage_audit,
+        expected_run_identity=expected_run_identity,
+    )
     equal_weight = _evidence_row(
         "Equal Weight",
         league,
@@ -254,7 +320,9 @@ def build_model_selection_report(
         min_random_sharpe_percentile=min_random_sharpe_percentile,
         max_turnover=max_turnover,
         forecast_validation_status=forecast_validation_status,
-        robustness_status=robustness_status,
+        robustness_assessment=robustness_assessment,
+        random_assessment=random_assessment,
+        leakage_assessment=leakage_assessment,
     )
     rows = []
     for _, _row in league.iterrows():
@@ -274,7 +342,9 @@ def build_model_selection_report(
                 min_random_sharpe_percentile=min_random_sharpe_percentile,
                 max_turnover=max_turnover,
                 forecast_validation_status=forecast_validation_status,
-                robustness_status=robustness_status,
+                robustness_assessment=robustness_assessment,
+                random_assessment=random_assessment,
+                leakage_assessment=leakage_assessment,
             )
         )
     frame = pd.DataFrame(rows, columns=MODEL_SELECTION_COLUMNS)
@@ -291,24 +361,22 @@ def build_model_selection_report(
 def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, object]:
     """Build a conservative final-model decision from a selection report."""
     if selection_report.empty:
-        return {
-            "final_selected_model": "Equal Weight",
-            "final_model_selection_method": "robust_public_data_evidence_gate",
-            "final_model_selection_score": 0.0,
-            "final_decision": "not promoted",
-            "final_decision_reason": "No model-selection evidence was available.",
-            "equal_weight_comparison": {},
-            "random_portfolio_percentile": None,
-            "publish_readiness_status": "not ready",
-        }
+        return _not_available_decision("No model-selection evidence was available.")
 
     candidates = selection_report.loc[
         selection_report["eligible_final_model"].astype(bool)
     ].copy()
+    equal_weight = candidates.loc[candidates["model_name"].eq("Equal Weight")]
+    if equal_weight.empty:
+        return _not_available_decision(
+            "No eligible Equal Weight benchmark evidence was available; active "
+            "models cannot be selected without a valid common benchmark."
+        )
+
     if candidates.empty:
-        final = _equal_weight_or_first(selection_report)
-        reason = "No eligible actually-run or benchmark model passed constraints."
-        promoted = False
+        return _not_available_decision(
+            "No eligible actually-run or benchmark model passed constraints."
+        )
     else:
         active = candidates.loc[~candidates["model_name"].eq("Equal Weight")].copy()
         active["active_gate_pass"] = (
@@ -318,56 +386,59 @@ def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, obje
             & active["cvar_not_materially_worse_than_equal_weight"].astype(bool)
             & active["turnover_within_limit"].astype(bool)
             & active["random_sharpe_gate_pass"].astype(bool)
+            & active["uncertainty_gate_pass"].astype(bool)
             & active["robustness_gate_pass"].astype(bool)
             & active["forecast_validation_gate_pass"].astype(bool)
-            & ~active["extreme_metric_warning"]
+            & active["extreme_metric_warning"]
             .astype(str)
-            .str.contains("severe", case=False, na=False)
+            .str.strip()
+            .str.lower()
+            .eq("none")
         )
         if active["active_gate_pass"].any():
             final = (
                 active.loc[active["active_gate_pass"]]
-                .sort_values("selection_score", ascending=False)
+                .sort_values(
+                    [
+                        "walk_forward_sharpe",
+                        "walk_forward_annualized_return",
+                        "walk_forward_max_drawdown",
+                        "walk_forward_cvar_95",
+                        "turnover",
+                        "model_name",
+                    ],
+                    ascending=[False, False, False, False, True, True],
+                )
                 .iloc[0]
             )
             reason = (
                 f"{final['model_name']} is selected as the book-grounded public-data "
-                "research final model because walk-forward return per unit risk, "
-                "drawdown, CVaR, turnover, robustness and random-benchmark gates "
-                "clear the configured thresholds. This is still not investment "
-                "advice or institutional PIT evidence."
+                "research final model because paired block-bootstrap uncertainty, "
+                "walk-forward return per unit risk, drawdown, CVaR, turnover, "
+                "robustness, random-benchmark and metric-review gates clear the "
+                "policy limits. This is still not investment advice or "
+                "institutional PIT evidence."
             )
             promoted = False
         else:
-            final = _equal_weight_or_first(candidates)
+            final = equal_weight.iloc[0]
             reason = (
                 "Equal Weight remains the defensible benchmark; no active model is "
                 "selected because active candidates did not clear the book-grounded "
-                "walk-forward Sharpe, drawdown, CVaR, turnover, robustness and "
-                "random-benchmark gates."
+                "walk-forward Sharpe, paired uncertainty, drawdown, CVaR, turnover, "
+                "robustness, random-benchmark and metric-review gates."
             )
             promoted = False
 
+    final_model = str(final["model_name"])
+    comparison = _final_equal_weight_comparison(final, final_model)
     return {
-        "final_selected_model": str(final["model_name"]),
-        "final_model_selection_method": "robust_public_data_evidence_gate",
+        "final_selected_model": final_model,
+        "final_model_selection_method": ("paired_block_bootstrap_gate_then_oos_sharpe"),
         "final_model_selection_score": float(final["selection_score"]),
         "final_decision": "not promoted" if not promoted else "promoted",
         "final_decision_reason": reason,
-        "equal_weight_comparison": {
-            "beats_equal_weight_return_after_costs": bool(
-                final.get("beats_equal_weight_return_after_costs", False)
-            ),
-            "beats_equal_weight_sharpe": bool(
-                final.get("beats_equal_weight_sharpe", False)
-            ),
-            "drawdown_not_materially_worse_than_equal_weight": bool(
-                final.get("drawdown_not_materially_worse_than_equal_weight", False)
-            ),
-            "cvar_not_materially_worse_than_equal_weight": bool(
-                final.get("cvar_not_materially_worse_than_equal_weight", False)
-            ),
-        },
+        "equal_weight_comparison": comparison,
         "random_portfolio_percentile": _none_if_nan(
             final.get("random_sharpe_percentile")
         ),
@@ -388,6 +459,59 @@ def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, obje
             "Delisting and corporate-action institutional evidence remains unavailable.",
             "Public-data walk-forward is not an institutional PIT backtest.",
         ],
+    }
+
+
+def _not_available_decision(reason: str) -> dict[str, object]:
+    return {
+        "final_selected_model": "not_available",
+        "final_model_selection_method": "paired_block_bootstrap_gate_then_oos_sharpe",
+        "final_model_selection_score": None,
+        "final_decision": "not promoted",
+        "final_decision_reason": str(reason),
+        "equal_weight_comparison": {
+            "comparison_status": "not_available",
+            "beats_equal_weight_return_after_costs": None,
+            "beats_equal_weight_sharpe": None,
+            "drawdown_not_materially_worse_than_equal_weight": None,
+            "cvar_not_materially_worse_than_equal_weight": None,
+        },
+        "random_portfolio_percentile": None,
+        "final_model_book_grounded_rank": 0,
+        "final_model_gate_reasons": str(reason),
+        "publish_readiness_status": "not ready",
+        "hard_limitations": [
+            "A valid Equal Weight benchmark and comparable model evidence are required."
+        ],
+    }
+
+
+def _final_equal_weight_comparison(
+    final: pd.Series, final_model: str
+) -> dict[str, object]:
+    """Describe a genuine challenger comparison without treating EW as its own win."""
+    if final_model == "Equal Weight":
+        return {
+            "comparison_status": "benchmark_self_comparison_not_applicable",
+            "beats_equal_weight_return_after_costs": None,
+            "beats_equal_weight_sharpe": None,
+            "drawdown_not_materially_worse_than_equal_weight": None,
+            "cvar_not_materially_worse_than_equal_weight": None,
+        }
+    return {
+        "comparison_status": "active_model_vs_equal_weight",
+        "beats_equal_weight_return_after_costs": bool(
+            final.get("beats_equal_weight_return_after_costs", False)
+        ),
+        "beats_equal_weight_sharpe": bool(
+            final.get("beats_equal_weight_sharpe", False)
+        ),
+        "drawdown_not_materially_worse_than_equal_weight": bool(
+            final.get("drawdown_not_materially_worse_than_equal_weight", False)
+        ),
+        "cvar_not_materially_worse_than_equal_weight": bool(
+            final.get("cvar_not_materially_worse_than_equal_weight", False)
+        ),
     }
 
 
@@ -429,6 +553,8 @@ def build_model_selection_diagnostics(selection_report: pd.DataFrame) -> pd.Data
             "model_name": frame["model_name"],
             "model_status": frame["model_status"],
             "eligible_final_model": frame["eligible_final_model"],
+            "leakage_gate_pass": frame["leakage_gate_pass"],
+            "leakage_evidence_status": frame["leakage_evidence_status"],
             "in_sample_annualized_return": frame["league_annualized_return"],
             "in_sample_volatility": frame.get("league_volatility", np.nan),
             "in_sample_sharpe": frame["league_sharpe"],
@@ -442,6 +568,11 @@ def build_model_selection_diagnostics(selection_report: pd.DataFrame) -> pd.Data
                 "transaction_cost_adjusted_return"
             ],
             "turnover": frame["turnover"],
+            "random_benchmark_scope": frame["random_benchmark_scope"],
+            "random_benchmark_provenance_status": frame[
+                "random_benchmark_provenance_status"
+            ],
+            "random_benchmark_protocol_hash": frame["random_benchmark_protocol_hash"],
             "random_sharpe_percentile": frame["random_sharpe_percentile"],
             "random_cvar_percentile": frame["random_cvar_percentile"],
             "equal_weight_return_delta": frame["walk_forward_annualized_return"]
@@ -452,8 +583,14 @@ def build_model_selection_diagnostics(selection_report: pd.DataFrame) -> pd.Data
             - float(ew["walk_forward_max_drawdown"]),
             "equal_weight_cvar_delta": frame["walk_forward_cvar_95"]
             - float(ew["walk_forward_cvar_95"]),
+            "uncertainty_status": frame["uncertainty_status"],
+            "sharpe_diff_ci_lower": frame["sharpe_diff_ci_lower"],
+            "sharpe_diff_ci_upper": frame["sharpe_diff_ci_upper"],
+            "probability_sharpe_improvement": frame["probability_sharpe_improvement"],
+            "uncertainty_gate_pass": frame["uncertainty_gate_pass"],
             "constraint_pass": frame["constraint_pass"],
             "robustness_status": frame["robustness_status"],
+            "robustness_evidence_status": frame["robustness_evidence_status"],
             "promotion_gate_failed_reasons": frame["promotion_gate_failed_reasons"],
             "book_grounded_final_score": frame["book_grounded_score"],
             "book_grounded_rank": frame["book_grounded_rank"],
@@ -477,7 +614,9 @@ def _evidence_row(
     min_random_sharpe_percentile: float,
     max_turnover: float,
     forecast_validation_status: str,
-    robustness_status: str,
+    robustness_assessment: Mapping[str, object],
+    random_assessment: Mapping[str, object],
+    leakage_assessment: Mapping[str, object],
 ) -> dict[str, object]:
     league_row = league.loc[league["model_name"].astype(str).eq(model)]
     league_row = league_row.iloc[0] if not league_row.empty else pd.Series(dtype=object)
@@ -487,28 +626,56 @@ def _evidence_row(
 
     status = str(league_row.get("actual_status", "blocked_by_implementation"))
     constraint_pass = _bool(league_row.get("constraints_pass", False))
+    wf_return = _coalesce_float(
+        walk.get("oos_annualized_return"),
+        walk.get("avg_annualized_return"),
+    )
+    wf_vol = _coalesce_float(
+        walk.get("oos_volatility"),
+        walk.get("avg_volatility"),
+    )
+    wf_sharpe = _coalesce_float(
+        walk.get("oos_sharpe"),
+        walk.get("avg_sharpe"),
+    )
+    wf_sortino = _coalesce_float(
+        walk.get("oos_sortino"),
+        walk.get("avg_sortino"),
+    )
+    wf_drawdown = _coalesce_float(
+        walk.get("oos_max_drawdown"),
+        walk.get("avg_max_drawdown"),
+    )
+    wf_cvar = _coalesce_float(
+        walk.get("oos_cvar_95"),
+        walk.get("avg_cvar_95"),
+    )
+    wf_supported = bool(
+        not walk.empty
+        and all(
+            np.isfinite(value)
+            for value in [
+                wf_return,
+                wf_vol,
+                wf_sharpe,
+                wf_sortino,
+                wf_drawdown,
+                wf_cvar,
+            ]
+        )
+    )
+    leakage_ok = bool(leakage_assessment["promotion_gate_pass"])
     eligible = bool(
         status in ELIGIBLE_FINAL_STATUSES
         and constraint_pass
+        and wf_supported
+        and leakage_ok
         and model != "Random Portfolios"
     )
-    wf_supported = not walk.empty
-    wf_return = _coalesce_float(
-        walk.get("avg_annualized_return"),
-        league_row.get("annualized_return"),
-    )
-    wf_vol = _coalesce_float(walk.get("avg_volatility"), league_row.get("volatility"))
-    wf_sharpe = _coalesce_float(walk.get("avg_sharpe"), league_row.get("sharpe"))
-    wf_sortino = _coalesce_float(walk.get("avg_sortino"), league_row.get("sortino"))
-    wf_drawdown = _coalesce_float(
-        walk.get("avg_max_drawdown"), league_row.get("max_drawdown")
-    )
-    wf_cvar = _coalesce_float(walk.get("avg_cvar_95"), league_row.get("cvar_95"))
     model_turnover = _coalesce_float(
         walk.get("avg_turnover"),
         turnover_map.get(model),
         league_row.get("turnover"),
-        0.0,
     )
     random_sharpe = _float(random_row.get("sharpe_percentile"))
     if np.isnan(random_sharpe):
@@ -526,15 +693,14 @@ def _evidence_row(
         ew_cvar = _float(equal_weight["walk_forward_cvar_95"])
 
     sharpe_improvement = wf_sharpe - ew_sharpe
-    beats_return = (
-        bool(wf_return > ew_return + 1e-12) if model != "Equal Weight" else True
-    )
+    is_equal_weight = model == "Equal Weight"
+    beats_return = bool(wf_return > ew_return + 1e-12) if not is_equal_weight else False
     beats_sharpe = (
         bool(
             sharpe_improvement >= float(min_sharpe_improvement_vs_equal_weight) - 1e-12
         )
-        if model != "Equal Weight"
-        else True
+        if not is_equal_weight
+        else False
     )
     drawdown_ok = (
         bool(wf_drawdown >= ew_drawdown - float(drawdown_tolerance))
@@ -546,9 +712,31 @@ def _evidence_row(
         if model != "Equal Weight"
         else True
     )
-    turnover_ok = bool(model_turnover <= float(max_turnover) + 1e-12)
-    random_ok = bool(random_sharpe >= float(min_random_sharpe_percentile) - 1e-12)
-    robust_ok = not _fragile_robustness(robustness_status)
+    turnover_ok = bool(
+        np.isfinite(model_turnover) and model_turnover <= float(max_turnover) + 1e-12
+    )
+    random_benchmark_scope = str(random_assessment["benchmark_scope"])
+    random_scope_valid = bool(random_assessment["promotion_gate_pass"])
+    random_ok = bool(
+        random_scope_valid
+        and random_sharpe >= float(min_random_sharpe_percentile) - 1e-12
+    )
+    robustness_status = str(robustness_assessment["robustness_status"])
+    robust_ok = bool(robustness_assessment["promotion_gate_pass"])
+    uncertainty_status = str(walk.get("uncertainty_status", "missing"))
+    uncertainty_method = str(walk.get("uncertainty_method", "not_available"))
+    paired_observations = _float(walk.get("paired_observations"))
+    sharpe_ci_lower = _float(walk.get("sharpe_diff_ci_lower"))
+    sharpe_ci_upper = _float(walk.get("sharpe_diff_ci_upper"))
+    probability_sharpe_improvement = _float(walk.get("probability_sharpe_improvement"))
+    uncertainty_ok = bool(
+        is_equal_weight
+        or (
+            uncertainty_status == "completed"
+            and np.isfinite(sharpe_ci_lower)
+            and sharpe_ci_lower > 0.0
+        )
+    )
     uses_forecast = _uses_forecast_model(model)
     forecast_ok = not (
         uses_forecast
@@ -562,27 +750,14 @@ def _evidence_row(
     )
     score = _selection_score(
         eligible=eligible,
-        walk_forward_supported=wf_supported,
-        wf_return=wf_return,
-        wf_vol=wf_vol,
         wf_sharpe=wf_sharpe,
-        wf_drawdown=wf_drawdown,
-        wf_cvar=wf_cvar,
-        turnover=model_turnover,
-        random_sharpe_percentile=random_sharpe,
-        concentration_warning=str(league_row.get("concentration_warning", "none")),
-        warning=warning,
-        turnover_ok=turnover_ok,
-        random_ok=random_ok,
-        robust_ok=robust_ok,
-        forecast_ok=forecast_ok,
     )
     rejection = _rejection_reason(
         model=model,
         status=status,
         eligible=eligible,
         constraint_pass=constraint_pass,
-        beats_return=beats_return,
+        walk_forward_supported=wf_supported,
         beats_sharpe=beats_sharpe,
         drawdown_ok=drawdown_ok,
         cvar_ok=cvar_ok,
@@ -591,10 +766,18 @@ def _evidence_row(
         turnover_ok=turnover_ok,
         max_turnover=max_turnover,
         robust_ok=robust_ok,
+        uncertainty_ok=uncertainty_ok,
+        uncertainty_status=uncertainty_status,
+        sharpe_ci_lower=sharpe_ci_lower,
+        sharpe_ci_upper=sharpe_ci_upper,
         forecast_ok=forecast_ok,
         min_sharpe_improvement_vs_equal_weight=min_sharpe_improvement_vs_equal_weight,
         sharpe_improvement=sharpe_improvement,
         warning=warning,
+        random_benchmark_scope=random_benchmark_scope,
+        random_benchmark_provenance_status=str(random_assessment["provenance_status"]),
+        leakage_ok=leakage_ok,
+        leakage_evidence_status=str(leakage_assessment["evidence_status"]),
     )
     return {
         "model_name": model,
@@ -602,6 +785,9 @@ def _evidence_row(
         "eligible_final_model": eligible,
         "constraint_pass": constraint_pass,
         "walk_forward_supported": wf_supported,
+        "leakage_gate_pass": leakage_ok,
+        "leakage_evidence_status": str(leakage_assessment["evidence_status"]),
+        "leakage_run_id": str(leakage_assessment["run_id"]),
         "walk_forward_annualized_return": wf_return,
         "walk_forward_volatility": wf_vol,
         "walk_forward_sharpe": wf_sharpe,
@@ -618,6 +804,12 @@ def _evidence_row(
         "league_sharpe": _float(league_row.get("sharpe")),
         "league_max_drawdown": _float(league_row.get("max_drawdown")),
         "league_cvar_95": _float(league_row.get("cvar_95")),
+        "random_benchmark_scope": str(random_benchmark_scope),
+        "random_benchmark_provenance_status": str(
+            random_assessment["provenance_status"]
+        ),
+        "random_benchmark_protocol_hash": str(random_assessment["protocol_hash"]),
+        "random_benchmark_run_id": str(random_assessment["run_id"]),
         "random_return_percentile": _float(random_row.get("return_percentile")),
         "random_volatility_percentile": _float(random_row.get("volatility_percentile")),
         "random_sharpe_percentile": random_sharpe,
@@ -630,6 +822,13 @@ def _evidence_row(
         "drawdown_not_materially_worse_than_equal_weight": drawdown_ok,
         "cvar_not_materially_worse_than_equal_weight": cvar_ok,
         "sharpe_improvement_vs_equal_weight": sharpe_improvement,
+        "uncertainty_status": uncertainty_status,
+        "uncertainty_method": uncertainty_method,
+        "paired_oos_observations": paired_observations,
+        "sharpe_diff_ci_lower": sharpe_ci_lower,
+        "sharpe_diff_ci_upper": sharpe_ci_upper,
+        "probability_sharpe_improvement": probability_sharpe_improvement,
+        "uncertainty_gate_pass": uncertainty_ok,
         "turnover_within_limit": turnover_ok,
         "random_sharpe_gate_pass": random_ok,
         "robustness_gate_pass": robust_ok,
@@ -637,6 +836,8 @@ def _evidence_row(
         "uses_forecast": uses_forecast,
         "forecast_validation_status": forecast_validation_status,
         "robustness_status": robustness_status,
+        "robustness_evidence_status": str(robustness_assessment["evidence_status"]),
+        "robustness_run_id": str(robustness_assessment["run_id"]),
         "extreme_metric_warning": warning,
         "data_limitation_warning": data_warning,
         "selection_score": score,
@@ -651,46 +852,12 @@ def _evidence_row(
 def _selection_score(
     *,
     eligible: bool,
-    walk_forward_supported: bool,
-    wf_return: float,
-    wf_vol: float,
     wf_sharpe: float,
-    wf_drawdown: float,
-    wf_cvar: float,
-    turnover: float,
-    random_sharpe_percentile: float,
-    concentration_warning: str,
-    warning: str,
-    turnover_ok: bool,
-    random_ok: bool,
-    robust_ok: bool,
-    forecast_ok: bool,
 ) -> float:
+    """Use OOS Sharpe as a transparent rank after all separate evidence gates."""
     if not eligible:
         return -1_000_000.0
-    score = 0.0
-    score += 3.0 * np.nan_to_num(wf_sharpe, nan=0.0)
-    score += 1.0 * np.nan_to_num(wf_return, nan=0.0)
-    score -= 0.75 * np.nan_to_num(wf_vol, nan=0.0)
-    score += 2.0 * np.nan_to_num(wf_drawdown, nan=0.0)
-    score += 1.5 * np.nan_to_num(wf_cvar, nan=0.0)
-    score -= 0.50 * np.nan_to_num(turnover, nan=0.0)
-    score += 1.0 * np.nan_to_num(random_sharpe_percentile, nan=0.0)
-    if turnover_ok:
-        score += 0.25
-    if random_ok:
-        score += 0.50
-    if robust_ok:
-        score += 0.25
-    if forecast_ok:
-        score += 0.25
-    if walk_forward_supported:
-        score += 0.50
-    if "high_concentration" in concentration_warning:
-        score -= 0.75
-    if warning and warning != "none":
-        score -= 1.00
-    return float(score)
+    return float(wf_sharpe) if np.isfinite(wf_sharpe) else -1_000_000.0
 
 
 def _rejection_reason(
@@ -699,7 +866,7 @@ def _rejection_reason(
     status: str,
     eligible: bool,
     constraint_pass: bool,
-    beats_return: bool,
+    walk_forward_supported: bool,
     beats_sharpe: bool,
     drawdown_ok: bool,
     cvar_ok: bool,
@@ -708,11 +875,34 @@ def _rejection_reason(
     turnover_ok: bool,
     max_turnover: float,
     robust_ok: bool,
+    uncertainty_ok: bool,
+    uncertainty_status: str,
+    sharpe_ci_lower: float,
+    sharpe_ci_upper: float,
     forecast_ok: bool,
     min_sharpe_improvement_vs_equal_weight: float,
     sharpe_improvement: float,
     warning: str,
+    random_benchmark_scope: str,
+    random_benchmark_provenance_status: str,
+    leakage_ok: bool,
+    leakage_evidence_status: str,
 ) -> str:
+    if not walk_forward_supported:
+        return (
+            "comparable walk-forward OOS net evidence is missing or incomplete; "
+            "full-sample league metrics cannot substitute for OOS model selection"
+        )
+    if not leakage_ok:
+        return (
+            "walk-forward leakage evidence failed closed "
+            f"(status={leakage_evidence_status})"
+        )
+    if model == "Equal Weight":
+        return (
+            "benchmark self-comparison is not applicable; Equal Weight remains "
+            "eligible when active challengers fail the promotion gates"
+        )
     reasons: list[str] = []
     if not eligible:
         if model == "Random Portfolios":
@@ -724,6 +914,15 @@ def _rejection_reason(
         if not constraint_pass:
             reasons.append("constraints did not pass")
     if model != "Equal Weight":
+        if (
+            str(random_benchmark_scope) != "walk_forward_oos_net"
+            or str(random_benchmark_provenance_status)
+            != VERIFIED_RANDOM_BENCHMARK_STATUS
+        ):
+            reasons.append(
+                "random benchmark provenance does not prove same-protocol "
+                "walk-forward OOS net evidence"
+            )
         if not beats_sharpe:
             reasons.append(
                 "walk-forward Sharpe improvement "
@@ -742,7 +941,13 @@ def _rejection_reason(
                 f"{float(min_random_sharpe_percentile):.2f}"
             )
         if not robust_ok:
-            reasons.append("robustness status is fragile")
+            reasons.append("robustness evidence is missing, diagnostic, or fragile")
+        if not uncertainty_ok:
+            reasons.append(
+                "paired block-bootstrap Sharpe-difference uncertainty gate failed "
+                f"(status={uncertainty_status}; "
+                f"ci=[{sharpe_ci_lower}, {sharpe_ci_upper}])"
+            )
         if not forecast_ok:
             reasons.append("forecast validation blocks forecast-driven model promotion")
     if warning and warning != "none":
@@ -779,6 +984,7 @@ def risk_per_unit_return(risk_value: float, return_value: float) -> float:
 
 
 def _equal_weight_or_first(frame: pd.DataFrame) -> pd.Series:
+    """Return the benchmark for diagnostics, or the top row when it is absent."""
     ew = frame.loc[frame["model_name"].eq("Equal Weight")]
     if not ew.empty:
         return ew.iloc[0]
@@ -792,9 +998,253 @@ def _uses_forecast_model(model: str) -> bool:
     }
 
 
-def _fragile_robustness(status: str) -> bool:
-    text = str(status).lower()
-    return any(token in text for token in ["fragile", "unstable", "failed"])
+def assess_leakage_evidence(
+    evidence: pd.DataFrame | None,
+    *,
+    expected_run_identity: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Fail closed unless every current-run chronological leakage check passes."""
+    frame = evidence.copy() if evidence is not None else pd.DataFrame()
+    required_columns = {
+        "fold",
+        "check",
+        "passed",
+        "audit_status",
+        "evidence_scope",
+        *RUN_IDENTITY_FIELDS,
+    }
+    required_checks = {
+        "train_end_before_test_start",
+        "scores_as_of_not_after_train_end",
+        "selected_tickers_available_in_train",
+        "scores_recomputed_inside_fold",
+    }
+    if frame.empty:
+        return {
+            "evidence_status": "missing",
+            "promotion_gate_pass": False,
+            "run_id": "missing",
+        }
+    missing_columns = required_columns.difference(frame.columns)
+    if missing_columns:
+        return {
+            "evidence_status": "schema_incomplete",
+            "promotion_gate_pass": False,
+            "run_id": "missing",
+        }
+
+    identity_ok = bool(expected_run_identity)
+    for field in RUN_IDENTITY_FIELDS:
+        observed = set(frame[field].dropna().astype(str).str.strip())
+        expected = str((expected_run_identity or {}).get(field, "")).strip()
+        identity_ok = bool(identity_ok and expected and observed == {expected})
+    if not identity_ok:
+        return {
+            "evidence_status": "stale_or_mismatched_run_identity",
+            "promotion_gate_pass": False,
+            "run_id": _single_text_value(frame["run_id"]),
+        }
+
+    duplicate_checks = bool(frame.duplicated(["fold", "check"]).any())
+    fold_checks_complete = bool(
+        not duplicate_checks
+        and all(
+            set(group["check"].astype(str)) == required_checks
+            for _, group in frame.groupby("fold", sort=False)
+        )
+    )
+    checks_pass = bool(frame["passed"].map(_bool).all())
+    audit_status_pass = bool(
+        frame["audit_status"]
+        .astype(str)
+        .str.startswith("passed_with_current_universe_survivorship_limitation")
+        .all()
+    )
+    scope_valid = bool(
+        frame["evidence_scope"]
+        .astype(str)
+        .eq("current_universe_not_point_in_time")
+        .all()
+    )
+    gate_pass = bool(
+        fold_checks_complete and checks_pass and audit_status_pass and scope_valid
+    )
+    if gate_pass:
+        status = "verified_current_no_lookahead_with_survivorship_limitation"
+    elif duplicate_checks:
+        status = "duplicate_fold_checks"
+    elif not fold_checks_complete:
+        status = "incomplete_fold_check_set"
+    elif not checks_pass:
+        status = "failed_leakage_checks"
+    elif not audit_status_pass or not scope_valid:
+        status = "unrecognized_leakage_scope"
+    else:
+        status = "failed_or_unrecognized"
+    return {
+        "evidence_status": status,
+        "promotion_gate_pass": gate_pass,
+        "run_id": _single_text_value(frame["run_id"]),
+    }
+
+
+def assess_robustness_evidence(
+    evidence: Mapping[str, object] | None,
+    *,
+    expected_run_identity: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Fail closed unless nested OOS robustness is current and promotion-grade."""
+    payload = dict(evidence or {})
+    status = str(payload.get("robustness_status", "missing"))
+    method = str(payload.get("robustness_method", "missing"))
+    identity_ok, identity_status = _evidence_identity_matches(
+        payload,
+        expected_run_identity,
+    )
+    promotion_eligible = _bool(payload.get("promotion_eligible", False))
+    promotion_grade = bool(
+        status in PROMOTION_GRADE_ROBUSTNESS_STATUSES
+        and method in PROMOTION_GRADE_ROBUSTNESS_METHODS
+        and promotion_eligible
+    )
+    gate_pass = bool(promotion_grade and identity_ok)
+    if gate_pass:
+        evidence_status = "verified_current_promotion_grade"
+    elif not payload:
+        evidence_status = "missing"
+    elif not identity_ok:
+        evidence_status = identity_status
+    elif "diagnostic" in status or not promotion_eligible:
+        evidence_status = "diagnostic_not_promotion_grade"
+    elif any(token in status for token in ("fragile", "unstable", "failed")):
+        evidence_status = "fragile_or_failed"
+    else:
+        evidence_status = "unrecognized_not_promotion_grade"
+    return {
+        "robustness_status": status,
+        "robustness_method": method,
+        "evidence_status": evidence_status,
+        "promotion_gate_pass": gate_pass,
+        "run_id": str(payload.get("run_id", "missing")),
+    }
+
+
+def assess_random_benchmark_evidence(
+    random_distribution: pd.DataFrame | None,
+    provenance: Mapping[str, object] | None,
+    *,
+    expected_run_identity: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Verify that random-percentile evidence carries its actual OOS protocol."""
+    payload = dict(provenance or {})
+    frame = (
+        random_distribution.copy()
+        if random_distribution is not None
+        else pd.DataFrame()
+    )
+    identity_ok, identity_status = _evidence_identity_matches(
+        payload,
+        expected_run_identity,
+    )
+    scope = str(payload.get("benchmark_scope", "missing"))
+    provenance_status = str(payload.get("provenance_status", "missing"))
+    protocol_hash = str(payload.get("protocol_hash", "missing"))
+    required_payload = {
+        "fold_schedule_hash",
+        "selected_universe_by_fold_hash",
+        "model_oos_dates_hash",
+        "random_oos_dates_hash",
+        "constraint_policy",
+        "train_window_days",
+        "test_window_days",
+        "step_days",
+        "max_weight",
+        "transaction_cost_bps",
+        "random_portfolio_count",
+    }
+    payload_complete = required_payload.issubset(payload)
+    date_sets_match = bool(
+        payload.get("oos_dates_match", False)
+        and payload.get("model_oos_dates_hash") == payload.get("random_oos_dates_hash")
+    )
+    row_columns = {
+        "benchmark_scope",
+        "benchmark_provenance_status",
+        "protocol_hash",
+        *RUN_IDENTITY_FIELDS,
+    }
+    rows_match = bool(
+        not frame.empty
+        and row_columns.issubset(frame.columns)
+        and frame["benchmark_scope"].astype(str).eq(scope).all()
+        and frame["benchmark_provenance_status"].astype(str).eq(provenance_status).all()
+        and frame["protocol_hash"].astype(str).eq(protocol_hash).all()
+        and all(
+            frame[field].astype(str).eq(str(payload.get(field, "missing"))).all()
+            for field in RUN_IDENTITY_FIELDS
+        )
+    )
+    gate_pass = bool(
+        scope == "walk_forward_oos_net"
+        and provenance_status == VERIFIED_RANDOM_BENCHMARK_STATUS
+        and protocol_hash not in {"", "missing", "nan"}
+        and payload_complete
+        and date_sets_match
+        and rows_match
+        and identity_ok
+    )
+    if gate_pass:
+        assessment_status = VERIFIED_RANDOM_BENCHMARK_STATUS
+    elif not payload:
+        assessment_status = "missing"
+    elif not identity_ok:
+        assessment_status = identity_status
+    elif not rows_match:
+        assessment_status = "artifact_rows_do_not_match_provenance"
+    elif not date_sets_match:
+        assessment_status = "oos_dates_not_proven_equal"
+    elif not payload_complete:
+        assessment_status = "protocol_fields_missing"
+    else:
+        assessment_status = "unverified_protocol"
+    return {
+        "benchmark_scope": scope,
+        "provenance_status": assessment_status,
+        "protocol_hash": protocol_hash,
+        "promotion_gate_pass": gate_pass,
+        "run_id": str(payload.get("run_id", "missing")),
+    }
+
+
+def _evidence_identity_matches(
+    evidence: Mapping[str, object],
+    expected: Mapping[str, object] | None,
+) -> tuple[bool, str]:
+    if not evidence:
+        return False, "missing"
+    if not expected:
+        return False, "expected_run_identity_missing"
+    missing = [
+        field
+        for field in RUN_IDENTITY_FIELDS
+        if str(evidence.get(field, "")).strip().lower() in {"", "missing", "nan"}
+    ]
+    if missing:
+        return False, "evidence_identity_incomplete"
+    mismatched = [
+        field
+        for field in RUN_IDENTITY_FIELDS
+        if str(evidence.get(field)) != str(expected.get(field))
+    ]
+    if mismatched:
+        return False, "stale_or_mismatched_run_identity"
+    return True, "current_run_identity"
+
+
+def _single_text_value(series: pd.Series) -> str:
+    values = series.dropna().astype(str).str.strip()
+    unique = values.loc[values.ne("")].drop_duplicates()
+    return str(unique.iloc[0]) if len(unique) == 1 else "missing_or_mixed"
 
 
 def _warning_from_risk(risk: pd.Series) -> str:
@@ -823,9 +1273,10 @@ def _turnover_by_model(frame: pd.DataFrame | None) -> dict[str, float]:
         return {}
     grouped = frame.copy()
     grouped["turnover"] = pd.to_numeric(grouped["turnover"], errors="coerce")
-    return (
+    values = (
         grouped.groupby(grouped["model_name"].astype(str))["turnover"].mean().to_dict()
     )
+    return {str(model): _float(value) for model, value in values.items()}
 
 
 def _higher_is_better_percentile(series: pd.Series, value: float) -> float:
@@ -840,27 +1291,6 @@ def _lower_is_better_percentile(series: pd.Series, value: float) -> float:
     if clean.empty or not np.isfinite(value):
         return float("nan")
     return float((clean >= value).mean())
-
-
-def _cap_and_normalize(weights: pd.Series, max_weight: float) -> pd.Series:
-    raw = pd.Series(weights, dtype=float).replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    raw = raw.clip(lower=0.0)
-    if raw.sum() <= 0:
-        raw = pd.Series(1.0, index=raw.index)
-    remaining = list(raw.index)
-    capped = pd.Series(0.0, index=raw.index, dtype=float)
-    remaining_total = 1.0
-    while remaining:
-        base = raw.loc[remaining]
-        provisional = base / base.sum() * remaining_total
-        over = provisional[provisional > max_weight + 1e-12]
-        if over.empty:
-            capped.loc[remaining] = provisional
-            break
-        capped.loc[over.index] = max_weight
-        remaining_total -= max_weight * len(over)
-        remaining = [ticker for ticker in remaining if ticker not in set(over.index)]
-    return capped / capped.sum()
 
 
 def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:
@@ -880,14 +1310,16 @@ def _coalesce_float(*values: object) -> float:
         converted = _float(value)
         if np.isfinite(converted):
             return converted
-    return 0.0
+    return float("nan")
 
 
 def _float(value: object) -> float:
     try:
-        if value is None or pd.isna(value):
+        if value is None or value is pd.NA or value is pd.NaT:
             return float("nan")
-        return float(value)
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            return float(value)
+        return float(str(value))
     except (TypeError, ValueError):
         return float("nan")
 

@@ -1,0 +1,30 @@
+{
+  "include": [
+    "src/project/research/global_model_selection.py",
+    "src/project/research/global_walk_forward.py",
+    "src/project/research/global_portfolio_league.py",
+    "src/project/research/global_portfolio_risk.py",
+    "src/project/research/global_numerical_integrity.py",
+    "src/project/data_pipeline/security_identity.py",
+    "src/project/data_pipeline/global_returns.py",
+    "src/project/data_pipeline/processor.py",
+    "src/project/portfolio_contract.py",
+    "src/project/reporting/artifact_publication.py",
+    "src/project/reporting/quantverse_v2_publication.py",
+    "scripts/audit_quantverse_v2_missing_data_operations.py"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".pytest_cache",
+    "data",
+    "output",
+    "reports",
+    "tmp"
+  ],
+  "extraPaths": [
+    "src"
+  ],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "basic",
+  "useLibraryCodeForTypes": true
+}
