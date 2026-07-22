@@ -411,7 +411,7 @@ The table counts internal correctness findings from the baseline commit
 | P0 - core result invalidation | 12 | 12 | 0 |
 | P1 - material interpretation | 49 | 49 | 0 |
 | P2 - robustness/quality | 33 | 26 | 7 |
-| P3 - engineering/presentation | 11 | 11 | 0 |
+| P3 - engineering/presentation | 12 | 12 | 0 |
 
 P0 repairs covered missing-return arithmetic, FX/stablecoin master inputs,
 security/price identity, feature eligibility/ranking, forecast timing,
@@ -523,6 +523,14 @@ wide evidence tables now scroll only within bounded containers. Direct
 artifact-validator execution was made independent of the caller working
 directory, and final Excel QA repaired a clipped dashboard title and removed
 the visual connection between unordered risk-return scatter points.
+
+GitHub Actions then found one further P3 cross-platform portability defect:
+on Linux, `Path.name` does not treat a Windows backslash as a separator, so an
+adversarial Windows-form path could appear in validator error details. The
+helper now uses a platform-independent Windows-path parser for basename
+extraction. The previously failing Python 3.10 regression and the full
+392-test suite pass locally; the missing-data source hash and 157-check
+artifact validation were regenerated after the source change.
 
 Generated audit severity also reports 43 open evidence issues: 12 critical, 11
 high, and 20 medium. These are scoped blockers or warnings, not 43 unresolved

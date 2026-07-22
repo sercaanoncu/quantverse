@@ -13,7 +13,7 @@ import json
 import re
 import sys
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from xml.etree import ElementTree
 
 import numpy as np
@@ -2392,7 +2392,7 @@ def _float(value: object) -> float:
 
 def _portable_exception_details(exc: Exception, path: Path | None = None) -> str:
     """Describe an artifact failure without leaking a local absolute path."""
-    artifact = path.name if path is not None else "unavailable"
+    artifact = PureWindowsPath(str(path)).name if path is not None else "unavailable"
     return f"error_type={type(exc).__name__}; artifact={artifact}"
 
 
