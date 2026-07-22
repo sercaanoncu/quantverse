@@ -68,6 +68,7 @@ def verify_reference_math(
         processed / "global_walk_forward_random_benchmark_provenance.json"
     )
     uncertainty = _read_csv(processed / "global_walk_forward_uncertainty.csv")
+    risk_free_series = _read_csv(processed / "global_risk_free_series.csv")
     covariance_comparison = _read_csv(
         processed / "global_covariance_estimator_comparison.csv"
     )
@@ -81,6 +82,8 @@ def verify_reference_math(
     manifest = _read_json(processed / "quantverse_v2_run_manifest.json")
 
     final_model = str(decision.get("final_selected_model", "")).strip()
+    reported_risk = _model_row(risk_report, final_model)
+    published_annual_risk_free = _number(reported_risk.get("risk_free_rate_annual"))
     checks: list[dict[str, object]] = []
     required_inputs = {
         "prices": prices,
@@ -94,6 +97,8 @@ def verify_reference_math(
         "risk_contributions": contributions,
     }
     missing = [name for name, frame in required_inputs.items() if frame.empty]
+    if risk_free_series.empty and not np.isfinite(published_annual_risk_free):
+        missing.append("risk_free_series_or_published_annual_rate")
     _append_boolean_check(
         checks,
         "required_reference_inputs_present",
@@ -219,13 +224,13 @@ def verify_reference_math(
         ),
     )
 
-    reported_risk = _model_row(risk_report, final_model)
-    risk_free_rate_annual = _number(reported_risk.get("risk_free_rate_annual"))
-    if not np.isfinite(risk_free_rate_annual):
-        risk_free_rate_annual = 0.0
     metrics = _independent_metrics(
         portfolio_returns,
-        risk_free_rate_annual=risk_free_rate_annual,
+        daily_risk_free=_risk_free_hurdle(
+            risk_free_series,
+            portfolio_returns.index,
+            fallback_annual_rate=published_annual_risk_free,
+        ),
     )
     metric_mapping = {
         "cagr": "cagr",
@@ -304,6 +309,8 @@ def verify_reference_math(
         manifest,
         simple_usd,
         walk_windows,
+        risk_free_series,
+        published_annual_risk_free,
         absolute_tolerance,
         relative_tolerance,
     )
@@ -406,6 +413,24 @@ def _read_json(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _risk_free_hurdle(
+    frame: pd.DataFrame,
+    index: pd.Index,
+    *,
+    fallback_annual_rate: float = float("nan"),
+) -> pd.Series:
+    """Recover the published past-only daily hurdle on an exact return index."""
+    if frame.empty or not {"Date", "daily_hurdle"}.issubset(frame.columns):
+        if np.isfinite(fallback_annual_rate) and fallback_annual_rate > -1.0:
+            daily = (1.0 + float(fallback_annual_rate)) ** (1.0 / 252.0) - 1.0
+            return pd.Series(daily, index=pd.DatetimeIndex(index), dtype=float)
+        return pd.Series(np.nan, index=pd.DatetimeIndex(index), dtype=float)
+    dates = pd.to_datetime(frame["Date"], errors="coerce")
+    values = pd.to_numeric(frame["daily_hurdle"], errors="coerce")
+    series = pd.Series(values.to_numpy(), index=dates).dropna().sort_index()
+    return series.reindex(pd.DatetimeIndex(index))
 
 
 def _model_weights(weights: pd.DataFrame, model: str) -> pd.Series:
@@ -604,6 +629,7 @@ def _independent_metrics(
     returns: pd.Series,
     *,
     risk_free_rate_annual: float = 0.0,
+    daily_risk_free: pd.Series | None = None,
 ) -> dict[str, float]:
     clean = returns.dropna().astype(float)
     if clean.empty:
@@ -612,7 +638,14 @@ def _independent_metrics(
     total_return = float(wealth.iloc[-1] - 1.0)
     annualized_return = float(clean.mean() * TRADING_DAYS)
     volatility = float(clean.std(ddof=1) * np.sqrt(TRADING_DAYS))
-    daily_hurdle = (1.0 + float(risk_free_rate_annual)) ** (1.0 / TRADING_DAYS) - 1.0
+    if daily_risk_free is None:
+        daily_hurdle: float | pd.Series = (1.0 + float(risk_free_rate_annual)) ** (
+            1.0 / TRADING_DAYS
+        ) - 1.0
+    else:
+        daily_hurdle = daily_risk_free.reindex(clean.index)
+        if daily_hurdle.isna().any():
+            return {name: np.nan for name in _metric_names()}
     excess = clean - daily_hurdle
     annualized_excess = float(excess.mean() * TRADING_DAYS)
     downside = float(
@@ -1009,6 +1042,8 @@ def _append_random_benchmark_reference_checks(
     manifest: dict[str, object],
     asset_returns: pd.DataFrame,
     window_summary: pd.DataFrame,
+    risk_free_series: pd.DataFrame,
+    fallback_annual_risk_free: float,
     absolute_tolerance: float,
     relative_tolerance: float,
 ) -> None:
@@ -1369,7 +1404,6 @@ def _append_random_benchmark_reference_checks(
         invalidation="Random returns are static, gross, cost-misaligned, or unreplayable.",
     )
 
-    risk_free = _number(provenance.get("risk_free_rate_annual"))
     metric_comparisons: list[bool] = []
     metric_rows = 0
     for portfolio_id, sample in raw_returns.groupby("portfolio_id", sort=True):
@@ -1378,7 +1412,14 @@ def _append_random_benchmark_reference_checks(
             .sort_values("Date")
             .set_index("Date")["return"]
         )
-        metrics = _independent_metrics(series, risk_free_rate_annual=risk_free)
+        metrics = _independent_metrics(
+            series,
+            daily_risk_free=_risk_free_hurdle(
+                risk_free_series,
+                series.index,
+                fallback_annual_rate=fallback_annual_risk_free,
+            ),
+        )
         reported = random_distribution.loc[
             pd.to_numeric(
                 random_distribution["portfolio_id"],

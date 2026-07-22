@@ -18,6 +18,7 @@ from project.research.global_portfolio_risk import (
     write_risk_outputs,
 )  # noqa: E402
 from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.risk_free import read_risk_free_series  # noqa: E402
 from project.research.run_identity import (  # noqa: E402
     read_run_manifest,
     register_artifacts,
@@ -40,20 +41,26 @@ def main() -> int:
         return 0
     returns = _read_returns(returns_path)
     weights = pd.read_csv(weights_path)
-    universe_path = ROOT / "data" / "universe" / "current_global_equity_universe.csv"
-    metadata = pd.read_csv(universe_path) if universe_path.exists() else None
+    metadata_path = output / "global_current_selected_securities.csv"
+    risk_free_path = output / "global_risk_free_series.csv"
+    if not metadata_path.exists() or not risk_free_path.exists():
+        raise RuntimeError("Canonical metadata and risk-free evidence are required.")
+    metadata = pd.read_csv(metadata_path)
+    risk_free = read_risk_free_series(risk_free_path)
+    risk_free_daily = risk_free.set_index("Date")["daily_hurdle"]
     stock_metrics = build_stock_risk_metrics(returns)
     portfolio_report, contributions, stress, tail = build_portfolio_risk_report(
         returns,
         weights,
-        risk_free_rate_annual=float(config.get("risk_free_rate_annual", 0.0)),
+        risk_free_rate_annual=float(risk_free["annual_rate"].mean()),
         risk_free_policy=str(
             config.get(
                 "risk_free_policy",
-                "zero_rate_labeled_research_assumption",
+                "time_aligned_market_proxy_compounded_daily_hurdle",
             )
         ),
         metadata=metadata,
+        risk_free_daily=risk_free_daily,
     )
     run_metadata = read_run_manifest(output)
     stock_metrics = attach_run_metadata(stock_metrics, run_metadata)

@@ -292,6 +292,24 @@ def test_walk_forward_cli_forwards_random_seed_and_walk_forward_history_gate(
         universe_dir / "current_global_equity_universe.csv",
         index=False,
     )
+    pd.DataFrame(
+        {
+            "ticker": ["A"],
+            "issuer_key": ["issuer-a"],
+            "sector": ["Sector"],
+            "industry": ["Industry"],
+            "issuer_country": ["Country"],
+        }
+    ).to_csv(processed / "global_canonical_security_metadata.csv", index=False)
+    pd.DataFrame(
+        {
+            "Date": pd.date_range("2025-01-01", periods=3, freq="B"),
+            "annual_rate": [0.04, 0.04, 0.04],
+            "daily_hurdle": [0.0001, 0.0001, 0.0001],
+            "proxy": ["^IRX"] * 3,
+            "alignment_policy": ["past_only_forward_fill_limit_5_rows"] * 3,
+        }
+    ).to_csv(processed / "global_risk_free_series.csv", index=False)
     config = tmp_path / "walk.yaml"
     config.write_text(
         "v2:\n"

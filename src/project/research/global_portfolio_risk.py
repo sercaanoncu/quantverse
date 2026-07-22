@@ -67,6 +67,7 @@ def build_portfolio_risk_report(
     risk_free_rate_annual: float = 0.0,
     risk_free_policy: str = "zero_rate_labeled_research_assumption",
     metadata: pd.DataFrame | None = None,
+    risk_free_daily: pd.Series | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Build portfolio risk, contribution, stress and tail-risk reports."""
     clean = _clean_returns(returns)
@@ -86,6 +87,11 @@ def build_portfolio_risk_report(
         metrics = evaluate_return_series(
             portfolio_returns,
             risk_free_rate_annual=risk_free_rate_annual,
+            risk_free_daily=(
+                risk_free_daily.reindex(portfolio_returns.index)
+                if risk_free_daily is not None
+                else None
+            ),
         )
         diagnostics = return_series_diagnostics(portfolio_returns)
         risk_rows.append(
@@ -135,6 +141,7 @@ def evaluate_return_series(
     series: pd.Series,
     *,
     risk_free_rate_annual: float = 0.0,
+    risk_free_daily: pd.Series | None = None,
 ) -> dict[str, object]:
     """Evaluate a daily return series with portfolio risk metrics."""
     clean = pd.Series(series).dropna().astype(float)
@@ -147,10 +154,21 @@ def evaluate_return_series(
     cagr = float((1.0 + total_return) ** (1.0 / years) - 1.0)
     annual_return = _number(clean.mean()) * TRADING_DAYS_PER_YEAR
     volatility = _annualized_volatility(clean)
-    daily_hurdle = (1.0 + float(risk_free_rate_annual)) ** (
-        1.0 / TRADING_DAYS_PER_YEAR
-    ) - 1.0
-    excess_daily = clean - daily_hurdle
+    if risk_free_daily is None:
+        daily_hurdle: float | pd.Series = (1.0 + float(risk_free_rate_annual)) ** (
+            1.0 / TRADING_DAYS_PER_YEAR
+        ) - 1.0
+        excess_daily = clean - daily_hurdle
+    else:
+        hurdle = pd.Series(risk_free_daily, dtype=float)
+        hurdle.index = pd.to_datetime(hurdle.index, errors="coerce")
+        clean.index = pd.to_datetime(clean.index, errors="coerce")
+        hurdle = hurdle.reindex(clean.index)
+        if hurdle.isna().any() or not np.isfinite(hurdle.to_numpy(dtype=float)).all():
+            raise ValueError(
+                "Primary risk-free hurdle must cover every evaluated return date."
+            )
+        excess_daily = clean - hurdle
     annualized_excess_return = float(excess_daily.mean() * TRADING_DAYS_PER_YEAR)
     downside = _downside_volatility(excess_daily)
     max_drawdown = _max_drawdown(clean)

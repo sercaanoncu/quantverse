@@ -359,7 +359,7 @@ def build_model_selection_report(
 
 
 def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, object]:
-    """Build a conservative final-model decision from a selection report."""
+    """Build balanced, benchmark and defensive decisions from common OOS evidence."""
     if selection_report.empty:
         return _not_available_decision("No model-selection evidence was available.")
 
@@ -373,62 +373,84 @@ def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, obje
             "models cannot be selected without a valid common benchmark."
         )
 
-    if candidates.empty:
-        return _not_available_decision(
-            "No eligible actually-run or benchmark model passed constraints."
-        )
-    else:
-        active = candidates.loc[~candidates["model_name"].eq("Equal Weight")].copy()
+    active = candidates.loc[~candidates["model_name"].eq("Equal Weight")].copy()
+    if not active.empty:
         active["active_gate_pass"] = (
-            (active["sharpe_improvement_vs_equal_weight"] >= 0.0)
-            & active["beats_equal_weight_sharpe"].astype(bool)
+            active["uncertainty_status"].astype(str).eq("completed")
+            & (pd.to_numeric(active["sharpe_diff_ci_lower"], errors="coerce") > 0.0)
             & active["drawdown_not_materially_worse_than_equal_weight"].astype(bool)
             & active["cvar_not_materially_worse_than_equal_weight"].astype(bool)
             & active["turnover_within_limit"].astype(bool)
+            & active["constraint_pass"].astype(bool)
+            & active["leakage_gate_pass"].astype(bool)
             & active["random_sharpe_gate_pass"].astype(bool)
-            & active["uncertainty_gate_pass"].astype(bool)
             & active["robustness_gate_pass"].astype(bool)
             & active["forecast_validation_gate_pass"].astype(bool)
-            & active["extreme_metric_warning"]
+            & active["extreme_metric_warning"].astype(str).eq("none")
+            & active["random_benchmark_provenance_status"]
             .astype(str)
-            .str.strip()
-            .str.lower()
-            .eq("none")
+            .eq(VERIFIED_RANDOM_BENCHMARK_STATUS)
+            & (
+                pd.to_numeric(active["walk_forward_annualized_return"], errors="coerce")
+                > 0
+            )
         )
-        if active["active_gate_pass"].any():
-            final = (
-                active.loc[active["active_gate_pass"]]
-                .sort_values(
-                    [
-                        "walk_forward_sharpe",
-                        "walk_forward_annualized_return",
-                        "walk_forward_max_drawdown",
-                        "walk_forward_cvar_95",
-                        "turnover",
-                        "model_name",
-                    ],
-                    ascending=[False, False, False, False, True, True],
+    if not active.empty and active["active_gate_pass"].any():
+        final = (
+            active.loc[active["active_gate_pass"]]
+            .sort_values(
+                [
+                    "walk_forward_sharpe",
+                    "walk_forward_max_drawdown",
+                    "walk_forward_cvar_95",
+                    "turnover",
+                    "model_name",
+                ],
+                ascending=[False, False, False, True, True],
+            )
+            .iloc[0]
+        )
+        reason = (
+            f"{final['model_name']} replaces Equal Weight as the balanced research "
+            "allocation because its paired block-bootstrap Sharpe-difference lower "
+            "bound is positive and its drawdown, CVaR, turnover, constraint and "
+            "provenance gates pass on common net OOS dates."
+        )
+    else:
+        final = equal_weight.iloc[0]
+        reason = (
+            "Equal Weight remains the defensible benchmark and is the balanced "
+            "research allocation because no active "
+            "model proved a positive paired block-bootstrap Sharpe improvement while "
+            "also passing drawdown, CVaR, turnover, constraint and provenance gates."
+        )
+
+    if active.empty:
+        defensive = equal_weight.iloc[0]
+    else:
+        defensive_pool = candidates.loc[
+            (
+                pd.to_numeric(
+                    candidates["walk_forward_annualized_return"], errors="coerce"
                 )
-                .iloc[0]
+                > 0
             )
-            reason = (
-                f"{final['model_name']} is selected as the book-grounded public-data "
-                "research final model because paired block-bootstrap uncertainty, "
-                "walk-forward return per unit risk, drawdown, CVaR, turnover, "
-                "robustness, random-benchmark and metric-review gates clear the "
-                "policy limits. This is still not investment advice or "
-                "institutional PIT evidence."
-            )
-            promoted = False
-        else:
-            final = equal_weight.iloc[0]
-            reason = (
-                "Equal Weight remains the defensible benchmark; no active model is "
-                "selected because active candidates did not clear the book-grounded "
-                "walk-forward Sharpe, paired uncertainty, drawdown, CVaR, turnover, "
-                "robustness, random-benchmark and metric-review gates."
-            )
-            promoted = False
+            & candidates["constraint_pass"].astype(bool)
+            & candidates["leakage_gate_pass"].astype(bool)
+        ].copy()
+        defensive = (
+            defensive_pool.sort_values(
+                [
+                    "walk_forward_max_drawdown",
+                    "walk_forward_cvar_95",
+                    "walk_forward_sharpe",
+                    "model_name",
+                ],
+                ascending=[False, False, False, True],
+            ).iloc[0]
+            if not defensive_pool.empty
+            else equal_weight.iloc[0]
+        )
 
     final_model = str(final["model_name"])
     comparison = _final_equal_weight_comparison(final, final_model)
@@ -436,8 +458,16 @@ def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, obje
         "final_selected_model": final_model,
         "final_model_selection_method": ("paired_block_bootstrap_gate_then_oos_sharpe"),
         "final_model_selection_score": float(final["selection_score"]),
-        "final_decision": "not promoted" if not promoted else "promoted",
+        "final_decision": "balanced_research_portfolio",
         "final_decision_reason": reason,
+        "evidence_status": "research-grade with stated limitations",
+        "balanced_research_portfolio": final_model,
+        "transparent_benchmark": "Equal Weight",
+        "defensive_alternative": str(defensive["model_name"]),
+        "defensive_selection_reason": (
+            "Highest common-sample OOS max drawdown, then CVaR, among positive-return "
+            "models that pass constraints and leakage evidence."
+        ),
         "equal_weight_comparison": comparison,
         "random_portfolio_percentile": _none_if_nan(
             final.get("random_sharpe_percentile")
@@ -453,6 +483,7 @@ def build_final_model_decision(selection_report: pd.DataFrame) -> dict[str, obje
             if str(final["model_name"])
             else "not ready"
         ),
+        "institutional_live_trading_status": "blocked",
         "hard_limitations": [
             "Official exact top-100 support remains unavailable.",
             "Point-in-time historical membership remains unavailable.",
