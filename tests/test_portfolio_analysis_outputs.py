@@ -31,6 +31,24 @@ def test_report_and_workbook_derive_common_oos_observation_count():
         workbook_builder._common_oos_observations(inconsistent)
 
 
+@pytest.mark.parametrize(
+    "invalid_values",
+    [
+        [315, None],
+        [315, "not-a-number"],
+        [315, 0],
+        [315, 315.5],
+    ],
+)
+def test_report_and_workbook_reject_invalid_oos_counts(invalid_values):
+    comparison = pd.DataFrame({"oos_observations": invalid_values})
+
+    with pytest.raises(RuntimeError, match="positive integer OOS count"):
+        report_builder._common_oos_observations(comparison)
+    with pytest.raises(RuntimeError, match="positive integer OOS count"):
+        workbook_builder._common_oos_observations(comparison)
+
+
 def test_pdf_font_registration_has_portable_builtin_fallback(monkeypatch):
     def fail_font_discovery(*args, **kwargs):
         del args, kwargs

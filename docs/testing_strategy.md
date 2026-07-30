@@ -60,7 +60,7 @@ python scripts/validate_quantverse_v2_artifacts.py
 Latest validated pytest result:
 
 ```text
-407 passed
+411 passed
 ```
 
 If deterministic tests are added or removed later, update README and

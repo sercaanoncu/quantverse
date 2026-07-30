@@ -765,13 +765,20 @@ def _register_fonts() -> None:
 
 
 def _common_oos_observations(comparison: pd.DataFrame) -> int:
-    observations = (
-        pd.to_numeric(comparison["oos_observations"], errors="coerce")
-        .dropna()
-        .astype(int)
-        .unique()
-    )
-    if len(observations) != 1 or observations[0] <= 0:
+    if comparison.empty or "oos_observations" not in comparison:
+        raise RuntimeError("Canonical report requires OOS evidence for every model.")
+    numeric = pd.to_numeric(comparison["oos_observations"], errors="coerce")
+    if (
+        numeric.isna().any()
+        or not np.isfinite(numeric).all()
+        or (numeric <= 0).any()
+        or not numeric.eq(np.floor(numeric)).all()
+    ):
+        raise RuntimeError(
+            "Canonical report requires a positive integer OOS count for every model."
+        )
+    observations = numeric.astype(int).unique()
+    if len(observations) != 1:
         raise RuntimeError(
             "Canonical report requires one positive common OOS observation count."
         )
