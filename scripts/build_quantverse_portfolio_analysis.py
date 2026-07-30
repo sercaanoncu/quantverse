@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
+from matplotlib import font_manager
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -39,6 +40,8 @@ GOLD = "#B7950B"
 ORANGE = "#CA6F1E"
 GREY = "#7B7D7D"
 LIGHT = "#EEF2F3"
+PDF_FONT = "Helvetica"
+PDF_FONT_BOLD = "Helvetica-Bold"
 
 
 def main() -> int:
@@ -291,6 +294,7 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
     balanced = data["balanced"]
     defensive = data["defensive"]
     run = data["run"]
+    oos_observations = _common_oos_observations(data["comparison"])
 
     _page(
         c, 1, "QuantVerse Current Portfolio", "US-listed global-issuer equity research"
@@ -402,7 +406,10 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
         c,
         4,
         "Balanced vs Benchmark vs Defensive",
-        "All metrics use the same 882 net OOS days and time-aligned ^IRX hurdle",
+        (
+            f"All metrics use the same {oos_observations} net OOS days "
+            "and time-aligned ^IRX hurdle"
+        ),
     )
     c.drawImage(
         str(charts["risk_return"]),
@@ -629,15 +636,15 @@ figure{{margin:26px 0}} figure img{{width:100%;max-height:540px;object-fit:conta
 def _page(c: canvas.Canvas, number: int, title: str, subtitle: str) -> None:
     width, height = A4
     c.setFillColor(colors.HexColor(INK))
-    c.setFont("Arial-Bold", 19)
+    c.setFont(PDF_FONT_BOLD, 19)
     c.drawString(42, height - 48, title)
-    c.setFont("Arial", 8.5)
+    c.setFont(PDF_FONT, 8.5)
     c.setFillColor(colors.HexColor(GREY))
     c.drawString(42, height - 66, subtitle)
     c.setStrokeColor(colors.HexColor(BLUE))
     c.setLineWidth(2)
     c.line(42, height - 76, width - 42, height - 76)
-    c.setFont("Arial", 7)
+    c.setFont(PDF_FONT, 7)
     c.drawRightString(width - 42, 24, f"QuantVerse | {number}/10")
 
 
@@ -654,10 +661,10 @@ def _callout(
     c.setFillColor(colors.HexColor(LIGHT))
     c.roundRect(x, y, width, 58, 4, fill=1, stroke=0)
     c.setFillColor(colors.HexColor(color))
-    c.setFont("Arial-Bold", 8)
+    c.setFont(PDF_FONT_BOLD, 8)
     c.drawString(x + 12, y + 39, label.upper())
     c.setFillColor(colors.HexColor(INK))
-    c.setFont("Arial-Bold", 12)
+    c.setFont(PDF_FONT_BOLD, 12)
     max_characters = max(12, int(width / 7.0))
     c.drawString(x + 12, y + 17, str(value)[:max_characters])
 
@@ -673,7 +680,7 @@ def _paragraph(
     bold: bool = False,
 ) -> None:
     c.setFillColor(colors.HexColor(INK))
-    c.setFont("Arial-Bold" if bold else "Arial", size)
+    c.setFont(PDF_FONT_BOLD if bold else PDF_FONT, size)
     for line in textwrap.wrap(str(text), width=width_chars):
         c.drawString(x, y, line)
         y -= size * 1.45
@@ -692,7 +699,7 @@ def _draw_table(
 ) -> None:
     percent_columns = percent_columns or set()
     row_height = 17
-    c.setFont("Arial-Bold", size)
+    c.setFont(PDF_FONT_BOLD, size)
     c.setFillColor(colors.HexColor(INK))
     c.rect(x, y - row_height, sum(widths), row_height, fill=1, stroke=0)
     cursor = x
@@ -700,7 +707,7 @@ def _draw_table(
         c.setFillColor(colors.white)
         c.drawString(cursor + 3, y - 12, str(column)[:24])
         cursor += width
-    c.setFont("Arial", size)
+    c.setFont(PDF_FONT, size)
     for row_number, (_, row) in enumerate(frame.head(max_rows).iterrows(), 1):
         top = y - row_height * row_number
         if row_number % 2 == 0:
@@ -731,18 +738,44 @@ def _chart_note(
 
 
 def _register_fonts() -> None:
-    regular = Path("C:/Windows/Fonts/arial.ttf")
-    bold = Path("C:/Windows/Fonts/arialbd.ttf")
-    if regular.exists() and bold.exists():
-        pdfmetrics.registerFont(TTFont("Arial", str(regular)))
-        pdfmetrics.registerFont(TTFont("Arial-Bold", str(bold)))
-    else:
-        pdfmetrics.registerFont(
-            TTFont("Arial", str(Path("C:/Windows/Fonts/calibri.ttf")))
+    global PDF_FONT, PDF_FONT_BOLD
+
+    PDF_FONT = "Helvetica"
+    PDF_FONT_BOLD = "Helvetica-Bold"
+    try:
+        regular = Path(
+            font_manager.findfont(
+                font_manager.FontProperties(family="DejaVu Sans", weight="normal")
+            )
         )
-        pdfmetrics.registerFont(
-            TTFont("Arial-Bold", str(Path("C:/Windows/Fonts/calibrib.ttf")))
+        bold = Path(
+            font_manager.findfont(
+                font_manager.FontProperties(family="DejaVu Sans", weight="bold")
+            )
         )
+        if not regular.is_file() or not bold.is_file():
+            return
+        pdfmetrics.registerFont(TTFont("QuantVerseSans", str(regular)))
+        pdfmetrics.registerFont(TTFont("QuantVerseSans-Bold", str(bold)))
+        PDF_FONT = "QuantVerseSans"
+        PDF_FONT_BOLD = "QuantVerseSans-Bold"
+    except (OSError, RuntimeError):
+        # Built-in Helvetica keeps generation available if font discovery fails.
+        return
+
+
+def _common_oos_observations(comparison: pd.DataFrame) -> int:
+    observations = (
+        pd.to_numeric(comparison["oos_observations"], errors="coerce")
+        .dropna()
+        .astype(int)
+        .unique()
+    )
+    if len(observations) != 1 or observations[0] <= 0:
+        raise RuntimeError(
+            "Canonical report requires one positive common OOS observation count."
+        )
+    return int(observations[0])
 
 
 def _save(fig: plt.Figure, filename: str) -> Path:
