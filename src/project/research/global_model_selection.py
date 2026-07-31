@@ -1082,7 +1082,7 @@ def assess_leakage_evidence(
     fold_checks_complete = bool(
         not duplicate_checks
         and all(
-            set(group["check"].astype(str)) == required_checks
+            required_checks.issubset(set(group["check"].astype(str)))
             for _, group in frame.groupby("fold", sort=False)
         )
     )

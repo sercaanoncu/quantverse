@@ -10,6 +10,7 @@ from project.research.global_walk_forward import (
     _apply_transaction_costs,
     _comparison,
     _drift_weights_through_returns,
+    _fold_local_security_metadata,
     _summary,
     _two_way_turnover,
     run_public_data_walk_forward,
@@ -99,12 +100,25 @@ def test_walk_forward_uses_chronological_windows_and_writes_core_tables():
         "model_count",
         "risk_free_coverage",
         "cost_applied",
+        "representative_liquidity_policy",
         "leakage_status",
     }.issubset(fold_audit.columns)
     assert len(fold_audit) == 2
     assert fold_audit["duplicate_issuer_count"].eq(0).all()
     assert fold_audit["cost_applied"].all()
+    assert (
+        fold_audit["representative_liquidity_policy"]
+        .eq("not_applicable_without_canonical_metadata")
+        .all()
+    )
     assert fold_audit["leakage_status"].eq("passed").all()
+    representative_checks = result["leakage_audit"].loc[
+        result["leakage_audit"]["check"].eq(
+            "representative_liquidity_uses_no_current_profile_data"
+        )
+    ]
+    assert len(representative_checks) == 2
+    assert representative_checks["passed"].all()
 
 
 def test_equity_walk_forward_uses_equity_calendar_not_crypto_weekends():
@@ -290,6 +304,38 @@ def test_public_walk_forward_defaults_match_canonical_contract():
     assert parameters["step_days"].default == 21
     assert parameters["max_assets"].default == 20
     assert parameters["max_folds"].default is None
+
+
+def test_fold_metadata_excludes_current_profile_liquidity_from_history():
+    dates = pd.date_range("2024-01-02", periods=5, freq="B")
+    train = pd.DataFrame(
+        {
+            "PRIMARY": [0.01, 0.02, 0.00, -0.01, 0.01],
+            "SECONDARY": [0.01, np.nan, 0.00, -0.01, np.nan],
+        },
+        index=dates,
+    )
+    current_metadata = pd.DataFrame(
+        {
+            "ticker": ["PRIMARY", "SECONDARY"],
+            "observations": [999, 999],
+            "missing_rate": [0.0, 0.0],
+            "median_dollar_volume": [1.0, 1_000_000_000.0],
+        }
+    )
+
+    fold_metadata = _fold_local_security_metadata(current_metadata, train)
+
+    assert fold_metadata is not None
+    assert fold_metadata["median_dollar_volume"].isna().all()
+    assert fold_metadata.set_index("ticker").loc["PRIMARY", "observations"] == 5
+    assert fold_metadata.set_index("ticker").loc["SECONDARY", "observations"] == 3
+    assert fold_metadata.set_index("ticker").loc[
+        "SECONDARY", "missing_rate"
+    ] == pytest.approx(0.4)
+    assert set(fold_metadata["representative_liquidity_policy"]) == {
+        "fold_local_price_volume_required_current_profile_excluded"
+    }
 
 
 def test_transaction_cost_turnover_includes_exited_positions():

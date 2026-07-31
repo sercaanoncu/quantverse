@@ -234,6 +234,49 @@ def test_active_model_can_beat_equal_weight_on_risk_adjusted_evidence():
     assert bool(active["cvar_not_materially_worse_than_equal_weight"])
 
 
+def test_additional_passed_leakage_check_preserves_required_gate():
+    evidence = _promotion_evidence()
+    leakage = evidence["walk_forward_leakage_audit"]
+    extra = leakage.iloc[[0]].copy()
+    extra["check"] = "representative_liquidity_uses_no_current_profile_data"
+    evidence["walk_forward_leakage_audit"] = pd.concat(
+        [leakage, extra],
+        ignore_index=True,
+    )
+
+    report = build_model_selection_report(
+        _league(),
+        walk_forward=_walk(),
+        random_percentiles=_random(),
+        **evidence,
+    )
+
+    equal_weight = report.loc[report["model_name"].eq("Equal Weight")].iloc[0]
+    assert bool(equal_weight["leakage_gate_pass"])
+    assert equal_weight["leakage_evidence_status"] == (
+        "verified_current_no_lookahead_with_survivorship_limitation"
+    )
+
+
+def test_missing_required_leakage_check_still_fails_closed():
+    evidence = _promotion_evidence()
+    leakage = evidence["walk_forward_leakage_audit"]
+    evidence["walk_forward_leakage_audit"] = leakage.loc[
+        ~leakage["check"].eq("scores_recomputed_inside_fold")
+    ]
+
+    report = build_model_selection_report(
+        _league(),
+        walk_forward=_walk(),
+        random_percentiles=_random(),
+        **evidence,
+    )
+
+    equal_weight = report.loc[report["model_name"].eq("Equal Weight")].iloc[0]
+    assert not bool(equal_weight["leakage_gate_pass"])
+    assert equal_weight["leakage_evidence_status"] == "incomplete_fold_check_set"
+
+
 def test_equal_weight_wins_when_active_fails_turnover_gate():
     report = build_model_selection_report(
         _league(),

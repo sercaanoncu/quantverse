@@ -139,6 +139,10 @@ def run_public_data_walk_forward(
             security_identity_audit,
             minimum_standard_observations=minimum_standard_observations,
         )
+        fold_security_metadata = _fold_local_security_metadata(
+            security_metadata,
+            train,
+        )
         scores = build_global_stock_scores(
             train,
             universe,
@@ -149,10 +153,10 @@ def run_public_data_walk_forward(
             feature_history_eligibility=feature_eligibility,
             minimum_standard_observations=minimum_standard_observations,
         )
-        if security_metadata is not None and constraint_policy is not None:
+        if fold_security_metadata is not None and constraint_policy is not None:
             fold_selected, _ = select_canonical_securities(
                 scores,
-                security_metadata,
+                fold_security_metadata,
                 constraint_policy,
             )
             selected_for_fold = fold_selected["ticker"].astype(str).tolist()
@@ -190,6 +194,11 @@ def run_public_data_walk_forward(
                     .eq("diagnostic_short_history")
                     .sum()
                 ),
+                "representative_liquidity_policy": (
+                    "fold_local_price_volume_required_current_profile_excluded"
+                    if fold_security_metadata is not None
+                    else "not_applicable_without_canonical_metadata"
+                ),
             }
         )
         leakage_rows.extend(
@@ -199,11 +208,16 @@ def run_public_data_walk_forward(
                 test=test,
                 scores=scores,
                 selected_tickers=selected_for_fold,
+                representative_liquidity_policy=(
+                    "fold_local_price_volume_required_current_profile_excluded"
+                    if fold_security_metadata is not None
+                    else "not_applicable_without_canonical_metadata"
+                ),
             )
         )
         train_subset = train[selected_for_fold]
         metadata_source = (
-            security_metadata if security_metadata is not None else universe
+            fold_security_metadata if fold_security_metadata is not None else universe
         )
         universe_subset = metadata_source.loc[
             metadata_source["ticker"].astype(str).isin(selected_for_fold)
@@ -511,6 +525,7 @@ def _build_fold_audit(
         "risk_free_coverage_ratio",
         "cost_applied",
         "transaction_cost_bps",
+        "representative_liquidity_policy",
         "leakage_status",
     ]
     if window_summary.empty:
@@ -590,6 +605,12 @@ def _build_fold_audit(
                 "risk_free_coverage_ratio": rf_ratio,
                 "cost_applied": costs_valid,
                 "transaction_cost_bps": float(transaction_cost_bps),
+                "representative_liquidity_policy": str(
+                    window.get(
+                        "representative_liquidity_policy",
+                        "missing",
+                    )
+                ),
                 "leakage_status": "passed" if leakage_pass else "failed",
             }
         )
@@ -1594,6 +1615,7 @@ def _leakage_audit_rows(
     test: pd.DataFrame,
     scores: pd.DataFrame,
     selected_tickers: list[str],
+    representative_liquidity_policy: str,
 ) -> list[dict[str, object]]:
     train_end = train.index.max()
     test_start = test.index.min()
@@ -1627,6 +1649,16 @@ def _leakage_audit_rows(
             "passed": True,
             "evidence": "build_global_stock_scores called on train window inside fold",
         },
+        {
+            "fold": fold,
+            "check": "representative_liquidity_uses_no_current_profile_data",
+            "passed": representative_liquidity_policy
+            in {
+                "fold_local_price_volume_required_current_profile_excluded",
+                "not_applicable_without_canonical_metadata",
+            },
+            "evidence": representative_liquidity_policy,
+        },
     ]
     for row in rows:
         row.update(
@@ -1644,6 +1676,35 @@ def _leakage_audit_rows(
             }
         )
     return rows
+
+
+def _fold_local_security_metadata(
+    security_metadata: pd.DataFrame | None,
+    train: pd.DataFrame,
+) -> pd.DataFrame | None:
+    """Remove current-profile liquidity from historical representative choices.
+
+    The active returns matrix has no point-in-time volume history. Therefore a
+    current provider profile cannot be used as a historical liquidity tie-break.
+    Fold-local observations and missingness are safe to recompute from the
+    training window; dollar liquidity remains unavailable unless a future
+    point-in-time price-volume input is supplied.
+    """
+    if security_metadata is None:
+        return None
+    metadata = security_metadata.copy()
+    if metadata.empty or "ticker" not in metadata:
+        return metadata
+    metadata["ticker"] = metadata["ticker"].astype(str)
+    observation_count = train.notna().sum(axis=0)
+    missing_rate = train.isna().mean(axis=0)
+    metadata["observations"] = metadata["ticker"].map(observation_count)
+    metadata["missing_rate"] = metadata["ticker"].map(missing_rate)
+    metadata["median_dollar_volume"] = np.nan
+    metadata["representative_liquidity_policy"] = (
+        "fold_local_price_volume_required_current_profile_excluded"
+    )
+    return metadata
 
 
 def _clean_returns(returns: pd.DataFrame) -> pd.DataFrame:

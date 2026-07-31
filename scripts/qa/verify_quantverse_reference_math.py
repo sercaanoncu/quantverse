@@ -1770,7 +1770,7 @@ def _append_model_selection_reconciliation_checks(
         }.issubset(leakage_audit.columns)
         and not leakage_audit.duplicated(["fold", "check"]).any()
         and all(
-            set(group["check"].astype(str)) == required_leakage_checks
+            required_leakage_checks.issubset(set(group["check"].astype(str)))
             for _, group in leakage_audit.groupby("fold", sort=False)
         )
         and leakage_audit["passed"].map(_truthy).all()

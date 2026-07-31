@@ -48,6 +48,7 @@ REQUIRED_FOLD_AUDIT_COLUMNS = {
     "model_count",
     "risk_free_coverage",
     "cost_applied",
+    "representative_liquidity_policy",
     "leakage_status",
 }
 
@@ -318,6 +319,10 @@ def verify_working_portfolio_core(
         .eq(0)
         .all()
         and fold_audit["cost_applied"].map(_truthy).all()
+        and fold_audit["representative_liquidity_policy"]
+        .astype(str)
+        .eq("fold_local_price_volume_required_current_profile_excluded")
+        .all()
         and fold_audit["leakage_status"].astype(str).eq("passed").all(),
         {"rows": len(fold_audit), "columns": sorted(fold_audit.columns)},
         f"{expected_folds} complete passed fold-audit rows",
