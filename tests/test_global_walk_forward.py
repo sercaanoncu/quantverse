@@ -1,4 +1,5 @@
 import sys
+import inspect
 
 import numpy as np
 import pandas as pd
@@ -64,6 +65,7 @@ def test_walk_forward_uses_chronological_windows_and_writes_core_tables():
     random_distribution = result["random_distribution"]
     random_weights = result["random_weights"]
     uncertainty = result["uncertainty"]
+    fold_audit = result["fold_audit"]
 
     assert summary["walk_forward_status"] == "completed_public_data_current_universe"
     assert not validation.empty
@@ -89,6 +91,20 @@ def test_walk_forward_uses_chronological_windows_and_writes_core_tables():
     assert not uncertainty.empty
     assert set(uncertainty["uncertainty_method"]) == {"paired_circular_block_bootstrap"}
     assert validation["limitation"].str.contains("not institutional PIT").all()
+    assert {
+        "fold_id",
+        "decision_date",
+        "selected_issuer_count",
+        "duplicate_issuer_count",
+        "model_count",
+        "risk_free_coverage",
+        "cost_applied",
+        "leakage_status",
+    }.issubset(fold_audit.columns)
+    assert len(fold_audit) == 2
+    assert fold_audit["duplicate_issuer_count"].eq(0).all()
+    assert fold_audit["cost_applied"].all()
+    assert fold_audit["leakage_status"].eq("passed").all()
 
 
 def test_equity_walk_forward_uses_equity_calendar_not_crypto_weekends():
@@ -226,6 +242,54 @@ def test_walk_forward_comparison_rejects_shortened_or_nonfinite_oos_path():
         _comparison(validation, shortened, expected_dates=dates)
     with pytest.raises(ValueError, match="non-finite"):
         _comparison(validation, nonfinite, expected_dates=dates)
+
+
+def test_walk_forward_comparison_rejects_model_specific_oos_dates():
+    dates = pd.date_range("2025-01-02", periods=3, freq="B")
+    validation = pd.DataFrame(
+        [
+            {
+                "fold": 0,
+                "model_name": model,
+                "test_start": start,
+                "test_end": end,
+                "test_observations": 2,
+                "cagr": 0.1,
+                "annualized_return": 0.1,
+                "annualized_volatility": 0.2,
+                "sharpe": 0.4,
+                "sortino": 0.5,
+                "max_drawdown": -0.1,
+                "cvar_95": -0.02,
+                "turnover": 1.0,
+            }
+            for model, start, end in [
+                ("Equal Weight", dates[0], dates[1]),
+                ("GMV", dates[1], dates[2]),
+            ]
+        ]
+    )
+    returns_long = pd.DataFrame(
+        {
+            "Date": [dates[0], dates[1], dates[1], dates[2]],
+            "fold": [0, 0, 0, 0],
+            "model_name": ["Equal Weight", "Equal Weight", "GMV", "GMV"],
+            "return": [0.01, 0.02, 0.01, 0.02],
+        }
+    )
+
+    with pytest.raises(ValueError, match="identical OOS dates"):
+        _comparison(validation, returns_long, expected_dates=dates)
+
+
+def test_public_walk_forward_defaults_match_canonical_contract():
+    parameters = inspect.signature(run_public_data_walk_forward).parameters
+
+    assert parameters["train_window_days"].default == 504
+    assert parameters["test_window_days"].default == 21
+    assert parameters["step_days"].default == 21
+    assert parameters["max_assets"].default == 20
+    assert parameters["max_folds"].default is None
 
 
 def test_transaction_cost_turnover_includes_exited_positions():

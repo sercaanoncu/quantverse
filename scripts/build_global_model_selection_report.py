@@ -97,6 +97,14 @@ def main() -> int:
         robustness_evidence=robustness,
         random_benchmark_provenance=random_provenance,
         expected_run_identity=run_metadata,
+        expected_random_protocol={
+            "train_window_days": int(config.get("walk_forward_train_days", 504)),
+            "test_window_days": int(config.get("walk_forward_test_days", 21)),
+            "step_days": int(config.get("walk_forward_step_days", 21)),
+            "max_assets": int(config.get("walk_forward_max_assets", 20)),
+            "max_weight": float(config.get("max_weight", 0.10)),
+            "transaction_cost_bps": float(config.get("transaction_cost_bps", 10.0)),
+        },
     )
     decision = build_final_model_decision(selection)
     selection = attach_run_metadata(selection, run_metadata)
@@ -110,7 +118,7 @@ def main() -> int:
         random_percentiles,
         PROCESSED,
     )
-    role_outputs = _write_portfolio_role_outputs(decision, weights)
+    role_outputs = _write_portfolio_role_outputs(decision, weights, run_metadata)
     register_artifacts(
         PROCESSED,
         [
@@ -144,6 +152,7 @@ def _selected_tickers_from_weights(
 def _write_portfolio_role_outputs(
     decision: dict[str, object],
     weights: pd.DataFrame,
+    run_metadata: dict[str, object],
 ) -> list[Path]:
     roles = [
         ("balanced_research_portfolio", decision.get("balanced_research_portfolio")),
@@ -195,12 +204,14 @@ def _write_portfolio_role_outputs(
             how="left",
             validate="many_to_one",
         )
+    role_frame = attach_run_metadata(role_frame, run_metadata)
+    role_weights = attach_run_metadata(role_weights, run_metadata)
     role_path = PROCESSED / "global_portfolio_roles.csv"
     weights_path = PROCESSED / "global_current_portfolio_weights.csv"
     decision_path = PROCESSED / "global_portfolio_decision_summary.csv"
     role_frame.to_csv(role_path, index=False)
     role_weights.to_csv(weights_path, index=False)
-    pd.DataFrame(
+    decision_summary = pd.DataFrame(
         [
             {
                 "evidence_status": decision.get("evidence_status"),
@@ -218,7 +229,10 @@ def _write_portfolio_role_outputs(
                 ),
             }
         ]
-    ).to_csv(decision_path, index=False)
+    )
+    attach_run_metadata(decision_summary, run_metadata).to_csv(
+        decision_path, index=False
+    )
     return [role_path, weights_path, decision_path]
 
 

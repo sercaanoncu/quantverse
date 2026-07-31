@@ -16,6 +16,11 @@ sys.path.insert(0, str(ROOT / "src"))
 from project.research.portfolio_core_validation import (  # noqa: E402
     validate_working_portfolio_core,
 )
+from project.data_pipeline.security_identity import attach_run_metadata  # noqa: E402
+from project.research.run_identity import (  # noqa: E402
+    read_run_manifest,
+    register_artifacts,
+)
 
 
 def main() -> int:
@@ -25,12 +30,15 @@ def main() -> int:
     config = yaml.safe_load((ROOT / args.config).read_text(encoding="utf-8")) or {}
     result = validate_working_portfolio_core(ROOT, config)
     processed = ROOT / "data" / "processed"
-    pd.DataFrame(result["checks"]).to_csv(
-        processed / "global_portfolio_core_acceptance.csv", index=False
+    run_metadata = read_run_manifest(processed)
+    result.update(run_metadata)
+    checks_path = processed / "global_portfolio_core_acceptance.csv"
+    summary_path = processed / "global_portfolio_core_acceptance.json"
+    attach_run_metadata(pd.DataFrame(result["checks"]), run_metadata).to_csv(
+        checks_path, index=False
     )
-    (processed / "global_portfolio_core_acceptance.json").write_text(
-        json.dumps(result, indent=2, default=str), encoding="utf-8"
-    )
+    summary_path.write_text(json.dumps(result, indent=2, default=str), encoding="utf-8")
+    register_artifacts(processed, [checks_path, summary_path], run_metadata)
     print(
         "portfolio_core_acceptance="
         f"{result['overall_status']} ({result['check_count'] - result['failed_check_count']}/"

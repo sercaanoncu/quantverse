@@ -2,6 +2,7 @@ import pandas as pd
 
 from project.research.global_model_selection import (
     MODEL_SELECTION_DIAGNOSTIC_COLUMNS,
+    assess_random_benchmark_evidence,
     build_final_model_decision,
     build_model_selection_diagnostics,
     build_model_selection_report,
@@ -156,6 +157,14 @@ def _random_distribution(
                 "benchmark_scope": payload["benchmark_scope"],
                 "benchmark_provenance_status": payload["provenance_status"],
                 "protocol_hash": payload["protocol_hash"],
+                "fold_schedule_hash": payload["fold_schedule_hash"],
+                "selected_universe_by_fold_hash": payload[
+                    "selected_universe_by_fold_hash"
+                ],
+                "model_oos_dates_hash": payload["model_oos_dates_hash"],
+                "random_oos_dates_hash": payload["random_oos_dates_hash"],
+                "transaction_cost_bps": payload["transaction_cost_bps"],
+                "max_weight": payload["max_weight"],
                 **{
                     field: payload[field]
                     for field in [
@@ -286,6 +295,54 @@ def test_full_sample_random_distribution_cannot_pass_oos_random_gate():
         "random benchmark provenance does not prove same-protocol "
         "walk-forward OOS net evidence" in active["promotion_gate_failed_reasons"]
     )
+
+
+def test_random_benchmark_row_cost_mismatch_fails_closed():
+    provenance = _random_provenance()
+    distribution = _random_distribution(provenance)
+    distribution["transaction_cost_bps"] = 25.0
+
+    assessment = assess_random_benchmark_evidence(
+        distribution,
+        provenance,
+        expected_run_identity=_identity(),
+        expected_protocol={"transaction_cost_bps": 10.0, "max_weight": 0.10},
+    )
+
+    assert assessment["promotion_gate_pass"] is False
+    assert assessment["provenance_status"] == ("artifact_rows_do_not_match_provenance")
+
+
+def test_random_benchmark_wrong_date_hash_fails_closed():
+    provenance = _random_provenance()
+    distribution = _random_distribution(provenance)
+    distribution["random_oos_dates_hash"] = "dates-from-another-sample"
+
+    assessment = assess_random_benchmark_evidence(
+        distribution,
+        provenance,
+        expected_run_identity=_identity(),
+        expected_protocol={"transaction_cost_bps": 10.0, "max_weight": 0.10},
+    )
+
+    assert assessment["promotion_gate_pass"] is False
+    assert assessment["provenance_status"] == ("artifact_rows_do_not_match_provenance")
+
+
+def test_random_benchmark_provenance_with_wrong_configured_cost_fails_closed():
+    provenance = _random_provenance()
+    provenance["transaction_cost_bps"] = 25.0
+    distribution = _random_distribution(provenance)
+
+    assessment = assess_random_benchmark_evidence(
+        distribution,
+        provenance,
+        expected_run_identity=_identity(),
+        expected_protocol={"transaction_cost_bps": 10.0, "max_weight": 0.10},
+    )
+
+    assert assessment["promotion_gate_pass"] is False
+    assert assessment["provenance_status"] == "configured_protocol_mismatch"
 
 
 def test_sharpe_point_estimate_cannot_pass_when_block_bootstrap_crosses_zero():

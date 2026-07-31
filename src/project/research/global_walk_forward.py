@@ -36,6 +36,7 @@ class WalkForwardResult(TypedDict):
     turnover: pd.DataFrame
     leakage_audit: pd.DataFrame
     window_summary: pd.DataFrame
+    fold_audit: pd.DataFrame
     model_comparison: pd.DataFrame
     random_distribution: pd.DataFrame
     random_returns: pd.DataFrame
@@ -49,14 +50,14 @@ def run_public_data_walk_forward(
     returns: pd.DataFrame,
     universe: pd.DataFrame,
     *,
-    train_window_days: int = 252,
+    train_window_days: int = 504,
     test_window_days: int = 21,
     step_days: int = 21,
-    max_assets: int = 30,
+    max_assets: int = 20,
     max_weight: float = 0.10,
     transaction_cost_bps: float = 10.0,
     random_state: int = 42,
-    max_folds: int | None = 12,
+    max_folds: int | None = None,
     default_scope: str = "equity_only",
     include_crypto: bool = False,
     security_identity_audit: pd.DataFrame | None = None,
@@ -98,6 +99,7 @@ def run_public_data_walk_forward(
             "turnover": empty,
             "leakage_audit": empty,
             "window_summary": empty,
+            "fold_audit": empty,
             "model_comparison": empty,
             "random_distribution": empty,
             "random_returns": empty,
@@ -339,6 +341,16 @@ def run_public_data_walk_forward(
     turnover = pd.DataFrame(turnover_rows)
     leakage_audit = pd.DataFrame(leakage_rows)
     window_summary = pd.DataFrame(window_rows)
+    fold_audit = _build_fold_audit(
+        window_summary,
+        validation,
+        weights_long,
+        turnover,
+        leakage_audit,
+        security_metadata=security_metadata,
+        risk_free_daily=risk_free_daily,
+        transaction_cost_bps=transaction_cost_bps,
+    )
     comparison = _comparison(
         validation,
         returns_long,
@@ -415,6 +427,7 @@ def run_public_data_walk_forward(
         "turnover": turnover,
         "leakage_audit": leakage_audit,
         "window_summary": window_summary,
+        "fold_audit": fold_audit,
         "model_comparison": comparison,
         "random_distribution": random_distribution,
         "random_returns": random_returns_long,
@@ -444,6 +457,9 @@ def write_walk_forward_outputs(
     result["window_summary"].to_csv(
         path / "global_walk_forward_window_summary.csv", index=False
     )
+    result["fold_audit"].to_csv(
+        path / "global_walk_forward_fold_audit.csv", index=False
+    )
     result["model_comparison"].to_csv(
         path / "global_walk_forward_model_comparison.csv", index=False
     )
@@ -467,6 +483,117 @@ def write_walk_forward_outputs(
         json.dumps(result["summary"], indent=2, default=str),
         encoding="utf-8",
     )
+
+
+def _build_fold_audit(
+    window_summary: pd.DataFrame,
+    validation: pd.DataFrame,
+    weights: pd.DataFrame,
+    turnover: pd.DataFrame,
+    leakage_audit: pd.DataFrame,
+    *,
+    security_metadata: pd.DataFrame | None,
+    risk_free_daily: pd.Series | None,
+    transaction_cost_bps: float,
+) -> pd.DataFrame:
+    columns = [
+        "fold_id",
+        "train_start",
+        "train_end",
+        "decision_date",
+        "test_start",
+        "test_end",
+        "test_observations",
+        "selected_issuer_count",
+        "duplicate_issuer_count",
+        "model_count",
+        "risk_free_coverage",
+        "risk_free_coverage_ratio",
+        "cost_applied",
+        "transaction_cost_bps",
+        "leakage_status",
+    ]
+    if window_summary.empty:
+        return pd.DataFrame(columns=columns)
+    issuer_by_ticker: dict[str, str] = {}
+    if (
+        security_metadata is not None
+        and not security_metadata.empty
+        and {"ticker", "issuer_key"}.issubset(security_metadata.columns)
+    ):
+        metadata = security_metadata.drop_duplicates("ticker").copy()
+        metadata["ticker"] = metadata["ticker"].astype(str)
+        issuer_by_ticker = {
+            str(ticker): str(issuer)
+            for ticker, issuer in metadata.set_index("ticker")["issuer_key"].items()
+        }
+    rows: list[dict[str, object]] = []
+    for _, window in window_summary.sort_values("fold").iterrows():
+        fold = _integer(window["fold"])
+        test_observations = _integer(window["test_observations"])
+        selected_tickers = [
+            ticker
+            for ticker in str(window["selected_tickers"]).split(";")
+            if ticker.strip()
+        ]
+        issuer_keys = [
+            issuer_by_ticker.get(ticker, f"ticker:{ticker}")
+            for ticker in selected_tickers
+        ]
+        fold_validation = validation.loc[validation["fold"].eq(fold)]
+        fold_turnover = turnover.loc[turnover["fold"].eq(fold)]
+        fold_leakage = leakage_audit.loc[leakage_audit["fold"].eq(fold)]
+        test_dates = pd.date_range(
+            pd.Timestamp(str(window["test_start"])),
+            pd.Timestamp(str(window["test_end"])),
+            freq="B",
+        )
+        if risk_free_daily is None:
+            rf_count = 0
+            rf_ratio = 0.0
+        else:
+            expected_dates = risk_free_daily.index.intersection(test_dates)
+            rf_values = pd.to_numeric(
+                risk_free_daily.reindex(expected_dates), errors="coerce"
+            )
+            rf_count = int(rf_values.notna().sum())
+            rf_ratio = (
+                float(rf_count / test_observations) if test_observations > 0 else 0.0
+            )
+        costs_valid = bool(
+            not fold_turnover.empty
+            and pd.to_numeric(fold_turnover["transaction_cost_bps"], errors="coerce")
+            .eq(float(transaction_cost_bps))
+            .all()
+            and pd.to_numeric(
+                fold_turnover["transaction_cost_decimal"], errors="coerce"
+            )
+            .ge(0.0)
+            .all()
+        )
+        leakage_pass = bool(
+            not fold_leakage.empty and fold_leakage["passed"].map(_truthy).all()
+        )
+        rows.append(
+            {
+                "fold_id": fold,
+                "train_start": window["train_start"],
+                "train_end": window["train_end"],
+                "decision_date": window["train_end"],
+                "test_start": window["test_start"],
+                "test_end": window["test_end"],
+                "test_observations": test_observations,
+                "selected_issuer_count": int(len(set(issuer_keys))),
+                "duplicate_issuer_count": int(len(issuer_keys) - len(set(issuer_keys))),
+                "model_count": int(fold_validation["model_name"].nunique()),
+                "risk_free_coverage": f"{rf_count}/{test_observations}",
+                "risk_free_coverage_ratio": rf_ratio,
+                "cost_applied": costs_valid,
+                "transaction_cost_bps": float(transaction_cost_bps),
+                "leakage_status": "passed" if leakage_pass else "failed",
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
 
 
 def build_transaction_cost_sensitivity(
@@ -1201,6 +1328,7 @@ def _comparison(
             "Walk-forward test windows overlap; concatenated OOS metrics would "
             f"double-count {duplicate_count} model-date rows."
         )
+    _validate_common_model_oos_dates(validation_for_summary, clean_returns)
 
     metric_rows = []
     for model, group in clean_returns.groupby("model_name", sort=False):
@@ -1362,6 +1490,45 @@ def _validate_oos_path_completeness(
                 "Walk-forward OOS dates are incomplete or inconsistent for "
                 f"fold={row.fold}, model={row.model_name}."
             )
+
+
+def _validate_common_model_oos_dates(
+    validation: pd.DataFrame,
+    returns_long: pd.DataFrame,
+) -> None:
+    """Fail comparison unless every executable model has one common OOS path."""
+    date_paths: dict[str, tuple[tuple[int, str], ...]] = {}
+    for model, group in returns_long.groupby("model_name", sort=True):
+        ordered = group.sort_values(["Date", "fold"])
+        date_paths[str(model)] = tuple(
+            (int(fold), pd.Timestamp(date).isoformat())
+            for fold, date in ordered[["fold", "Date"]].itertuples(
+                index=False, name=None
+            )
+        )
+    if len(set(date_paths.values())) > 1:
+        raise ValueError(
+            "All comparable models must use identical OOS dates and fold IDs."
+        )
+
+    schedule_paths: dict[str, tuple[tuple[int, str, str, int], ...]] = {}
+    for model, group in validation.groupby("model_name", sort=True):
+        schedule = group.sort_values("fold")
+        schedule_paths[str(model)] = tuple(
+            (
+                int(fold),
+                pd.Timestamp(test_start).isoformat(),
+                pd.Timestamp(test_end).isoformat(),
+                int(observations),
+            )
+            for fold, test_start, test_end, observations in schedule[
+                ["fold", "test_start", "test_end", "test_observations"]
+            ].itertuples(index=False, name=None)
+        )
+    if len(set(schedule_paths.values())) > 1:
+        raise ValueError(
+            "All comparable models must use an identical OOS fold schedule."
+        )
 
 
 def _summary(

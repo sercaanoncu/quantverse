@@ -122,12 +122,16 @@ def build_canonical_security_metadata(
         stable_identifier = _first_verified_identifier(
             identity_row.get("stable_identifier")
         )
-        issuer_key_source = (
-            "verified_stable_identifier"
-            if stable_identifier is not None
-            else "normalized_issuer_name_fallback"
-        )
-        issuer_key = stable_identifier or normalize_issuer_name(issuer_name)
+        verified_issuer_name = _verified_issuer_name(identity_row)
+        if stable_identifier is not None:
+            issuer_key_source = "verified_stable_identifier"
+            issuer_key = stable_identifier
+        elif verified_issuer_name is not None:
+            issuer_key_source = "verified_issuer_name"
+            issuer_key = normalize_issuer_name(verified_issuer_name)
+        else:
+            issuer_key_source = "normalized_issuer_name_fallback"
+            issuer_key = normalize_issuer_name(issuer_name)
         series = numeric_returns[ticker]
         valid = series.dropna()
         observations = int(valid.shape[0])
@@ -139,6 +143,12 @@ def build_canonical_security_metadata(
                 "issuer_key": issuer_key,
                 "issuer_key_source": issuer_key_source,
                 "stable_identifier": stable_identifier or MISSING,
+                "primary_listing_verified": _truthy(
+                    identity_row.get(
+                        "primary_listing_verified",
+                        row.get("primary_listing_verified", False),
+                    )
+                ),
                 "listing_country": _first_text(row.get("country"), MISSING),
                 "issuer_country": _first_text(profile.get("country"), MISSING),
                 "currency": _first_text(
@@ -213,6 +223,7 @@ def select_canonical_securities(
         _truthy
     )
     frame["issuer_representative"] = False
+    frame["representative_selection_reason"] = ""
     frame["representative_rejection_reason"] = ""
 
     eligible_for_rep = frame.loc[
@@ -222,11 +233,17 @@ def select_canonical_securities(
         & frame["issuer_key"].notna()
     ].copy()
     for _, group in eligible_for_rep.groupby("issuer_key", sort=True):
-        representative = _choose_representative(group)
+        representative, representative_reason = _choose_representative(group)
         frame.loc[frame["ticker"].eq(representative), "issuer_representative"] = True
+        frame.loc[
+            frame["ticker"].eq(representative), "representative_selection_reason"
+        ] = representative_reason
         rejected = group.loc[~group["ticker"].eq(representative), "ticker"]
         frame.loc[frame["ticker"].isin(rejected), "representative_rejection_reason"] = (
-            "duplicate_economic_issuer; selected_representative=" + representative
+            "duplicate_economic_issuer; selected_representative="
+            + representative
+            + "; "
+            + representative_reason
         )
 
     candidates = frame.loc[frame["issuer_representative"]].copy()
@@ -460,10 +477,11 @@ def sample_constraint_feasible_weights(
 def normalize_issuer_name(value: object) -> str:
     """Return a deterministic issuer-name key used only as documented fallback."""
     text = str(value or "").lower().strip()
-    text = re.sub(
-        r"\b(class\s+[a-z]|common stock|ordinary shares?|adr|new)\b", " ", text
-    )
     text = re.sub(r"[^a-z0-9]+", " ", text)
+    suffix = re.compile(
+        r"(?:\s+(?:class\s+[a-z]|common\s+stock|ordinary\s+shares?|adr|new))+$"
+    )
+    text = suffix.sub("", text.strip())
     return " ".join(text.split()) or MISSING
 
 
@@ -507,17 +525,87 @@ def _solve_selection(
     return selected
 
 
-def _choose_representative(group: pd.DataFrame) -> str:
+def _choose_representative(group: pd.DataFrame) -> tuple[str, str]:
     ordered = group.copy()
-    ordered["_coverage"] = pd.to_numeric(
-        ordered.get("data_coverage_score"), errors="coerce"
+    primary = ordered.get(
+        "primary_listing_verified",
+        pd.Series(False, index=ordered.index),
+    )
+    ordered["_primary_listing"] = primary.map(_truthy)
+    ordered["_median_dollar_volume"] = pd.to_numeric(
+        ordered.get(
+            "median_dollar_volume",
+            pd.Series(np.nan, index=ordered.index),
+        ),
+        errors="coerce",
     ).fillna(-1.0)
+    observation_column = next(
+        (
+            column
+            for column in ["observations_x", "observations_y", "observations"]
+            if column in ordered
+        ),
+        None,
+    )
+    ordered["_observations"] = (
+        pd.to_numeric(ordered[observation_column], errors="coerce").fillna(-1.0)
+        if observation_column
+        else -1.0
+    )
+    ordered["_missing_rate"] = pd.to_numeric(
+        ordered.get("missing_rate", pd.Series(np.nan, index=ordered.index)),
+        errors="coerce",
+    ).fillna(np.inf)
     ordered = ordered.sort_values(
-        ["observations_x", "_coverage", "ticker"],
-        ascending=[False, False, True],
+        [
+            "_primary_listing",
+            "_median_dollar_volume",
+            "_observations",
+            "_missing_rate",
+            "ticker",
+        ],
+        ascending=[False, False, False, True, True],
         kind="mergesort",
     )
-    return str(ordered.iloc[0]["ticker"])
+    selected = ordered.iloc[0]
+    if len(ordered) == 1:
+        reason = "selected_representative_only_eligible_security_for_issuer"
+    elif bool(selected["_primary_listing"]) and not ordered["_primary_listing"].all():
+        reason = "selected_representative_by_verified_primary_listing"
+    elif (
+        float(selected["_median_dollar_volume"]) >= 0.0
+        and int(
+            np.isclose(
+                ordered["_median_dollar_volume"].to_numpy(dtype=float),
+                float(selected["_median_dollar_volume"]),
+            ).sum()
+        )
+        == 1
+    ):
+        reason = "selected_representative_by_highest_reliable_median_dollar_volume"
+    elif (
+        int(
+            np.isclose(
+                ordered["_observations"].to_numpy(dtype=float),
+                float(selected["_observations"]),
+            ).sum()
+        )
+        == 1
+    ):
+        reason = "selected_representative_by_longest_valid_continuous_history"
+    elif (
+        int(
+            np.isclose(
+                ordered["_missing_rate"].to_numpy(dtype=float),
+                float(selected["_missing_rate"]),
+            ).sum()
+        )
+        == 1
+    ):
+        reason = "selected_representative_by_lowest_missing_data_rate"
+    else:
+        reason = "selected_representative_by_deterministic_ticker_tiebreak"
+    return str(selected["ticker"]), reason
 
 
 def _selection_reason(
@@ -611,6 +699,14 @@ def _profile_dollar_volume(profile: dict[str, object]) -> float:
 def _first_verified_identifier(value: object) -> str | None:
     text = str(value or "").strip()
     return None if text.lower() in {"", "nan", "none", MISSING} else text
+
+
+def _verified_issuer_name(identity_row: dict[str, object]) -> str | None:
+    confidence = str(identity_row.get("evidence_confidence", "")).strip().lower()
+    if confidence not in {"verified", "high", "medium"}:
+        return None
+    value = _first_text(identity_row.get("issuer_name"))
+    return None if value == MISSING else value
 
 
 def _first_text(*values: object) -> str:

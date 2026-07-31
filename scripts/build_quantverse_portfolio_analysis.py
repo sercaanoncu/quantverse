@@ -34,6 +34,15 @@ PRIMARY_MODELS = [
     "GMV",
     "Min CVaR",
 ]
+OUTPUT_IDENTITY_FIELDS = (
+    "run_id",
+    "execution_id",
+    "data_as_of_date",
+    "universe_snapshot_id",
+    "data_snapshot_id",
+    "config_hash",
+    "input_fingerprint",
+)
 INK = "#17202A"
 BLUE = "#21618C"
 GOLD = "#B7950B"
@@ -77,6 +86,23 @@ def _load_data(config: dict, acceptance: dict) -> dict[str, object]:
     rf = _read_csv(PROCESSED / "global_risk_free_series.csv")
     windows = _read_csv(PROCESSED / "global_walk_forward_window_summary.csv")
     run = _read_json(PROCESSED / "quantverse_v2_run_manifest.json")
+    _validate_source_identity(
+        run,
+        {
+            "core_acceptance": acceptance,
+            "final_decision": decision,
+            "current_portfolio_weights": roles,
+            "model_comparison": comparison,
+            "oos_returns": oos,
+            "rejected_candidates": rejected,
+            "risk_contribution": contributions,
+            "cost_sensitivity": cost,
+            "canonical_metadata": metadata,
+            "holdings_sensitivity": sensitivity,
+            "risk_free_series": rf,
+            "walk_forward_windows": windows,
+        },
+    )
     oos["Date"] = pd.to_datetime(oos["Date"], errors="coerce")
     balanced = str(decision["balanced_research_portfolio"])
     benchmark = str(decision["transparent_benchmark"])
@@ -295,9 +321,22 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
     defensive = data["defensive"]
     run = data["run"]
     oos_observations = _common_oos_observations(data["comparison"])
+    config = data["config"]
+    target_holdings = int(config.get("target_holdings", len(current)))
+    primary_cost_bps = float(config.get("transaction_cost_bps", 10.0))
+    sector_cap = float(config.get("max_sector_weight", 0.25))
+    industry_cap = float(config.get("max_industry_weight", 0.15))
+    country_cap = float(config.get("max_issuer_country_weight", 0.60))
+    max_weight = float(config.get("max_weight", 0.10))
+    requested_cap = float(config.get("requested_max_issuer_weight", 0.05))
+    fold_count = int(data["windows"]["fold"].nunique())
+    universe_count = int(len(data["metadata"]))
 
     _page(
-        c, 1, "QuantVerse Current Portfolio", "US-listed global-issuer equity research"
+        c,
+        1,
+        "QuantVerse Current Portfolio",
+        str(config.get("declared_scope", "scope unavailable")),
     )
     _callout(
         c,
@@ -314,15 +353,40 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
     _paragraph(
         c,
         48,
-        height - 380,
-        f"As-of date: {run.get('data_as_of_date', 'unavailable')}. Investable scope: 100 current US-listed equities with usable USD returns; 20 economic issuers are selected. This is current-universe public-data research, not a point-in-time institutional backtest.",
+        height - 365,
+        (
+            f"Run ID: {run.get('run_id', 'unavailable')} | "
+            f"As-of date: {run.get('data_as_of_date', 'unavailable')}."
+        ),
+        100,
+        size=8,
+        bold=True,
+    )
+    _paragraph(
+        c,
+        48,
+        height - 405,
+        (
+            f"Investable scope: {universe_count} current US-listed equities with "
+            f"usable USD returns; {target_holdings} economic issuers are selected. "
+            "This is current-universe public-data research, not a point-in-time "
+            "institutional backtest."
+        ),
         100,
     )
     _paragraph(
         c,
         48,
-        height - 485,
-        "Operational policy: long-only, 20 holdings, 10 bps primary cost, sector <=25%, industry <=15%, issuer-country <=60%, individual weight <=10%. The requested 5% cap with exactly 20 holdings mathematically forces Equal Weight, so 10% is the disclosed non-degenerate model-comparison cap.",
+        height - 515,
+        (
+            f"Operational policy: long-only, {target_holdings} holdings, "
+            f"{primary_cost_bps:g} bps primary cost, sector <={sector_cap:.0%}, "
+            f"industry <={industry_cap:.0%}, issuer-country <={country_cap:.0%}, "
+            f"individual weight <={max_weight:.0%}. The requested "
+            f"{requested_cap:.0%} cap with exactly {target_holdings} holdings "
+            f"mathematically forces Equal Weight, so {max_weight:.0%} is the "
+            "disclosed non-degenerate model-comparison cap."
+        ),
         105,
     )
     c.showPage()
@@ -342,7 +406,16 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
             "issuer_country",
             "risk_contribution_pct",
         ]
-    ].copy()
+    ].rename(
+        columns={
+            "ticker": "Ticker",
+            "issuer_name": "Issuer",
+            "weight": "Weight",
+            "sector": "Sector",
+            "issuer_country": "Country",
+            "risk_contribution_pct": "Risk contribution",
+        }
+    )
     _draw_table(
         c,
         table,
@@ -350,7 +423,7 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
         height - 105,
         [45, 150, 55, 110, 85, 70],
         20,
-        percent_columns={"weight", "risk_contribution_pct"},
+        percent_columns={"Weight", "Risk contribution"},
     )
     _paragraph(
         c,
@@ -365,7 +438,7 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
     _page(
         c,
         3,
-        "Why Selected; Why Near-Candidates Were Rejected",
+        "Selection Rationale And Near-Candidate Rejections",
         "Selection occurs after 504-day eligibility and issuer deduplication",
     )
     selected_table = current[
@@ -377,21 +450,43 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
             "max_drawdown",
             "selection_reason",
         ]
-    ].copy()
+    ].rename(
+        columns={
+            "ticker": "Ticker",
+            "composite_quant_score": "Score",
+            "momentum_12m": "12M momentum",
+            "volatility_12m": "12M volatility",
+            "max_drawdown": "Max drawdown",
+            "selection_reason": "Selection basis",
+        }
+    )
+    selected_table["Selection basis"] = "Highest feasible score"
     _draw_table(
         c,
         selected_table,
         35,
         height - 105,
-        [42, 68, 65, 65, 65, 225],
+        [42, 58, 70, 70, 70, 220],
         20,
-        percent_columns={"momentum_12m", "volatility_12m", "max_drawdown"},
+        percent_columns={"12M momentum", "12M volatility", "Max drawdown"},
         size=6.5,
     )
-    rejected = data["rejected"][
-        ["ticker", "composite_quant_score", "selection_reason"]
-    ].head(8)
-    _draw_table(c, rejected, 45, 345, [50, 90, 380], 8, size=7)
+    rejected = (
+        data["rejected"][["ticker", "composite_quant_score", "selection_reason"]]
+        .head(8)
+        .copy()
+    )
+    rejected["selection_reason"] = rejected["selection_reason"].map(
+        _readable_rejection_reason
+    )
+    rejected = rejected.rename(
+        columns={
+            "ticker": "Ticker",
+            "composite_quant_score": "Score",
+            "selection_reason": "Rejection reason",
+        }
+    )
+    _draw_table(c, rejected, 45, 345, [50, 70, 400], 8, size=7)
     _paragraph(
         c,
         45,
@@ -459,7 +554,11 @@ def _build_pdf(data: dict[str, object], charts: dict[str, Path]) -> None:
         c,
         5,
         "Stitched OOS Cumulative Return",
-        "42 chronological 21-day folds; each net return appears once",
+        (
+            f"{fold_count} chronological "
+            f"{int(config.get('walk_forward_test_days', 21))}-day folds; "
+            "each net return appears once"
+        ),
     )
     c.drawImage(
         str(charts["cumulative"]),
@@ -602,6 +701,8 @@ def _build_html(data: dict[str, object], charts: dict[str, Path]) -> None:
     comparison = data["comparison"]
     rejected = data["rejected"].head(20)
     decision = data["decision"]
+    run = data["run"]
+    fold_count = int(data["windows"]["fold"].nunique())
     images = {key: _data_uri(path) for key, path in charts.items()}
     html_text = f"""<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -615,7 +716,7 @@ main{{max-width:1120px;margin:auto;padding:24px}} h1{{font-size:34px;margin:0 0 
 figure{{margin:26px 0}} figure img{{width:100%;max-height:540px;object-fit:contain}} figcaption{{background:var(--soft);padding:12px;border-left:4px solid var(--gold)}}
 .table-wrap{{overflow:auto}} table{{border-collapse:collapse;width:100%;font-size:12px}} th,td{{padding:7px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}} th{{background:var(--ink);color:white;position:sticky;top:0}}
 .warning{{border-left:5px solid var(--orange);background:#fdf2e9;padding:14px}} @media(max-width:720px){{.grid{{grid-template-columns:1fr}}h1{{font-size:27px}}main{{padding:16px}}}}
-</style></head><body><header><h1>QuantVerse Current Portfolio Analysis</h1><div class="status">Evidence status: Research-grade with stated limitations</div><p>{html.escape(str(data['config'].get('declared_scope')))}</p></header><main>
+</style></head><body><header><h1>QuantVerse Current Portfolio Analysis</h1><div class="status">Evidence status: Research-grade with stated limitations</div><p>{html.escape(str(data['config'].get('declared_scope')))}</p><p><b>Run ID:</b> {html.escape(str(run.get('run_id', 'unavailable')))} &nbsp; <b>As-of:</b> {html.escape(str(run.get('data_as_of_date', 'unavailable')))} &nbsp; <b>Walk-forward folds:</b> {fold_count}</p></header><main>
 <section class="grid"><div class="kpi">balanced_research_portfolio<b>{html.escape(str(data['balanced']))}</b></div><div class="kpi">transparent_benchmark<b>{html.escape(str(data['benchmark']))}</b></div><div class="kpi">defensive_alternative<b>{html.escape(str(data['defensive']))}</b></div></section>
 <p>{html.escape(str(decision['final_decision_reason']))}</p>
 <h2>Current holdings and exact weights</h2><div class="table-wrap">{_html_table(current[['ticker','issuer_name','weight','sector','issuer_country','risk_contribution_pct']], {'weight','risk_contribution_pct'})}</div>
@@ -684,6 +785,31 @@ def _paragraph(
     for line in textwrap.wrap(str(text), width=width_chars):
         c.drawString(x, y, line)
         y -= size * 1.45
+
+
+def _readable_rejection_reason(value: object) -> str:
+    reason = str(value)
+    labels = {
+        "rejected_final_history_below_504": "Fewer than 504 valid return days",
+        "rejected_sector_capacity_constraint": "Sector capacity would be breached",
+        "rejected_industry_capacity_constraint": "Industry capacity would be breached",
+        "rejected_issuer_country_capacity_constraint": (
+            "Issuer-country capacity would be breached"
+        ),
+    }
+    if reason in labels:
+        return labels[reason]
+    if reason.startswith("duplicate_economic_issuer"):
+        representative = next(
+            (
+                token.split("=", 1)[1].strip()
+                for token in reason.split(";")
+                if token.strip().startswith("selected_representative=")
+            ),
+            "another security",
+        )
+        return f"Duplicate economic issuer; {representative} retained"
+    return reason.replace("_", " ")
 
 
 def _draw_table(
@@ -783,6 +909,46 @@ def _common_oos_observations(comparison: pd.DataFrame) -> int:
             "Canonical report requires one positive common OOS observation count."
         )
     return int(observations[0])
+
+
+def _validate_source_identity(
+    manifest: dict[str, object],
+    sources: dict[str, object],
+) -> None:
+    missing_manifest = [
+        field
+        for field in OUTPUT_IDENTITY_FIELDS
+        if str(manifest.get(field, "")).strip() in {"", "missing", "nan"}
+    ]
+    if missing_manifest:
+        raise RuntimeError(
+            "Canonical report run manifest is incomplete: "
+            + ", ".join(missing_manifest)
+        )
+    failures: list[str] = []
+    for source_name, source in sources.items():
+        if isinstance(source, pd.DataFrame):
+            if source.empty:
+                failures.append(f"{source_name}=empty")
+                continue
+            for field in OUTPUT_IDENTITY_FIELDS:
+                if field not in source:
+                    failures.append(f"{source_name}.{field}=missing")
+                    continue
+                observed = source[field].dropna().astype(str).unique()
+                if len(observed) != 1 or observed[0] != str(manifest[field]):
+                    failures.append(f"{source_name}.{field}=mismatched")
+        elif isinstance(source, dict):
+            for field in OUTPUT_IDENTITY_FIELDS:
+                if str(source.get(field, "")) != str(manifest[field]):
+                    failures.append(f"{source_name}.{field}=mismatched")
+        else:
+            failures.append(f"{source_name}=unsupported")
+    if failures:
+        raise RuntimeError(
+            "Canonical report sources do not share one run identity: "
+            + "; ".join(failures)
+        )
 
 
 def _save(fig: plt.Figure, filename: str) -> Path:

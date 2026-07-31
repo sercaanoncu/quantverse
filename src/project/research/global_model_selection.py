@@ -285,6 +285,7 @@ def build_model_selection_report(
     robustness_evidence: Mapping[str, object] | None = None,
     random_benchmark_provenance: Mapping[str, object] | None = None,
     expected_run_identity: Mapping[str, object] | None = None,
+    expected_random_protocol: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
     """Score final model candidates using risk, cost and validation evidence."""
     if league.empty:
@@ -302,6 +303,7 @@ def build_model_selection_report(
         random_distribution,
         random_benchmark_provenance,
         expected_run_identity=expected_run_identity,
+        expected_protocol=expected_random_protocol,
     )
     leakage_assessment = assess_leakage_evidence(
         walk_forward_leakage_audit,
@@ -1165,6 +1167,7 @@ def assess_random_benchmark_evidence(
     provenance: Mapping[str, object] | None,
     *,
     expected_run_identity: Mapping[str, object] | None,
+    expected_protocol: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Verify that random-percentile evidence carries its actual OOS protocol."""
     payload = dict(provenance or {})
@@ -1202,6 +1205,12 @@ def assess_random_benchmark_evidence(
         "benchmark_scope",
         "benchmark_provenance_status",
         "protocol_hash",
+        "fold_schedule_hash",
+        "selected_universe_by_fold_hash",
+        "model_oos_dates_hash",
+        "random_oos_dates_hash",
+        "transaction_cost_bps",
+        "max_weight",
         *RUN_IDENTITY_FIELDS,
     }
     rows_match = bool(
@@ -1211,9 +1220,24 @@ def assess_random_benchmark_evidence(
         and frame["benchmark_provenance_status"].astype(str).eq(provenance_status).all()
         and frame["protocol_hash"].astype(str).eq(protocol_hash).all()
         and all(
+            _series_matches_protocol_value(frame[field], payload.get(field))
+            for field in [
+                "fold_schedule_hash",
+                "selected_universe_by_fold_hash",
+                "model_oos_dates_hash",
+                "random_oos_dates_hash",
+                "transaction_cost_bps",
+                "max_weight",
+            ]
+        )
+        and all(
             frame[field].astype(str).eq(str(payload.get(field, "missing"))).all()
             for field in RUN_IDENTITY_FIELDS
         )
+    )
+    configured_protocol_matches = all(
+        _protocol_values_equal(payload.get(field), expected)
+        for field, expected in dict(expected_protocol or {}).items()
     )
     gate_pass = bool(
         scope == "walk_forward_oos_net"
@@ -1223,6 +1247,7 @@ def assess_random_benchmark_evidence(
         and date_sets_match
         and rows_match
         and identity_ok
+        and configured_protocol_matches
     )
     if gate_pass:
         assessment_status = VERIFIED_RANDOM_BENCHMARK_STATUS
@@ -1232,6 +1257,8 @@ def assess_random_benchmark_evidence(
         assessment_status = identity_status
     elif not rows_match:
         assessment_status = "artifact_rows_do_not_match_provenance"
+    elif not configured_protocol_matches:
+        assessment_status = "configured_protocol_mismatch"
     elif not date_sets_match:
         assessment_status = "oos_dates_not_proven_equal"
     elif not payload_complete:
@@ -1245,6 +1272,27 @@ def assess_random_benchmark_evidence(
         "promotion_gate_pass": gate_pass,
         "run_id": str(payload.get("run_id", "missing")),
     }
+
+
+def _series_matches_protocol_value(
+    series: pd.Series,
+    expected: object,
+) -> bool:
+    return bool(
+        not series.empty
+        and series.map(lambda value: _protocol_values_equal(value, expected)).all()
+    )
+
+
+def _protocol_values_equal(left: object, right: object) -> bool:
+    try:
+        left_number = float(str(left))
+        right_number = float(str(right))
+    except (TypeError, ValueError):
+        return str(left) == str(right)
+    if not np.isfinite(left_number) or not np.isfinite(right_number):
+        return False
+    return bool(np.isclose(left_number, right_number, atol=1e-12, rtol=0.0))
 
 
 def _evidence_identity_matches(

@@ -1,3 +1,5 @@
+import inspect
+
 import numpy as np
 import pandas as pd
 
@@ -7,6 +9,11 @@ from project.research.global_portfolio_league import (
 )
 from project.research.global_return_forecasting import build_return_forecasts
 from project.research.global_stock_scoring import build_global_stock_scores
+
+
+def test_portfolio_league_default_holdings_count_matches_canonical_contract():
+    parameters = inspect.signature(build_portfolio_league).parameters
+    assert parameters["max_assets"].default == 20
 
 
 def _returns(n_assets: int = 8) -> pd.DataFrame:

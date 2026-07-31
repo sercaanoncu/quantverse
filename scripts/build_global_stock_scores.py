@@ -55,7 +55,7 @@ def main() -> int:
         returns,
         pd.read_csv(paths["universe"]),
         _read_optional_csv(paths["coverage"]),
-        max_selected=int(v2.get("max_selected_stocks", 40)),
+        max_selected=int(v2.get("max_selected_stocks", v2.get("target_holdings", 20))),
         default_scope=str(v2.get("default_scope", "equity_only")),
         include_crypto=bool(v2.get("include_crypto", False)),
         feature_history_eligibility=feature_eligibility,
