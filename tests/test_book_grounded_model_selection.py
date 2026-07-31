@@ -2,6 +2,7 @@ import pandas as pd
 
 from project.research.global_model_selection import (
     MODEL_SELECTION_DIAGNOSTIC_COLUMNS,
+    assess_random_benchmark_evidence,
     build_final_model_decision,
     build_model_selection_diagnostics,
     build_model_selection_report,
@@ -156,6 +157,14 @@ def _random_distribution(
                 "benchmark_scope": payload["benchmark_scope"],
                 "benchmark_provenance_status": payload["provenance_status"],
                 "protocol_hash": payload["protocol_hash"],
+                "fold_schedule_hash": payload["fold_schedule_hash"],
+                "selected_universe_by_fold_hash": payload[
+                    "selected_universe_by_fold_hash"
+                ],
+                "model_oos_dates_hash": payload["model_oos_dates_hash"],
+                "random_oos_dates_hash": payload["random_oos_dates_hash"],
+                "transaction_cost_bps": payload["transaction_cost_bps"],
+                "max_weight": payload["max_weight"],
                 **{
                     field: payload[field]
                     for field in [
@@ -225,6 +234,49 @@ def test_active_model_can_beat_equal_weight_on_risk_adjusted_evidence():
     assert bool(active["cvar_not_materially_worse_than_equal_weight"])
 
 
+def test_additional_passed_leakage_check_preserves_required_gate():
+    evidence = _promotion_evidence()
+    leakage = evidence["walk_forward_leakage_audit"]
+    extra = leakage.iloc[[0]].copy()
+    extra["check"] = "representative_liquidity_uses_no_current_profile_data"
+    evidence["walk_forward_leakage_audit"] = pd.concat(
+        [leakage, extra],
+        ignore_index=True,
+    )
+
+    report = build_model_selection_report(
+        _league(),
+        walk_forward=_walk(),
+        random_percentiles=_random(),
+        **evidence,
+    )
+
+    equal_weight = report.loc[report["model_name"].eq("Equal Weight")].iloc[0]
+    assert bool(equal_weight["leakage_gate_pass"])
+    assert equal_weight["leakage_evidence_status"] == (
+        "verified_current_no_lookahead_with_survivorship_limitation"
+    )
+
+
+def test_missing_required_leakage_check_still_fails_closed():
+    evidence = _promotion_evidence()
+    leakage = evidence["walk_forward_leakage_audit"]
+    evidence["walk_forward_leakage_audit"] = leakage.loc[
+        ~leakage["check"].eq("scores_recomputed_inside_fold")
+    ]
+
+    report = build_model_selection_report(
+        _league(),
+        walk_forward=_walk(),
+        random_percentiles=_random(),
+        **evidence,
+    )
+
+    equal_weight = report.loc[report["model_name"].eq("Equal Weight")].iloc[0]
+    assert not bool(equal_weight["leakage_gate_pass"])
+    assert equal_weight["leakage_evidence_status"] == "incomplete_fold_check_set"
+
+
 def test_equal_weight_wins_when_active_fails_turnover_gate():
     report = build_model_selection_report(
         _league(),
@@ -286,6 +338,54 @@ def test_full_sample_random_distribution_cannot_pass_oos_random_gate():
         "random benchmark provenance does not prove same-protocol "
         "walk-forward OOS net evidence" in active["promotion_gate_failed_reasons"]
     )
+
+
+def test_random_benchmark_row_cost_mismatch_fails_closed():
+    provenance = _random_provenance()
+    distribution = _random_distribution(provenance)
+    distribution["transaction_cost_bps"] = 25.0
+
+    assessment = assess_random_benchmark_evidence(
+        distribution,
+        provenance,
+        expected_run_identity=_identity(),
+        expected_protocol={"transaction_cost_bps": 10.0, "max_weight": 0.10},
+    )
+
+    assert assessment["promotion_gate_pass"] is False
+    assert assessment["provenance_status"] == ("artifact_rows_do_not_match_provenance")
+
+
+def test_random_benchmark_wrong_date_hash_fails_closed():
+    provenance = _random_provenance()
+    distribution = _random_distribution(provenance)
+    distribution["random_oos_dates_hash"] = "dates-from-another-sample"
+
+    assessment = assess_random_benchmark_evidence(
+        distribution,
+        provenance,
+        expected_run_identity=_identity(),
+        expected_protocol={"transaction_cost_bps": 10.0, "max_weight": 0.10},
+    )
+
+    assert assessment["promotion_gate_pass"] is False
+    assert assessment["provenance_status"] == ("artifact_rows_do_not_match_provenance")
+
+
+def test_random_benchmark_provenance_with_wrong_configured_cost_fails_closed():
+    provenance = _random_provenance()
+    provenance["transaction_cost_bps"] = 25.0
+    distribution = _random_distribution(provenance)
+
+    assessment = assess_random_benchmark_evidence(
+        distribution,
+        provenance,
+        expected_run_identity=_identity(),
+        expected_protocol={"transaction_cost_bps": 10.0, "max_weight": 0.10},
+    )
+
+    assert assessment["promotion_gate_pass"] is False
+    assert assessment["provenance_status"] == "configured_protocol_mismatch"
 
 
 def test_sharpe_point_estimate_cannot_pass_when_block_bootstrap_crosses_zero():

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 import scripts.run_global_robustness_analysis as robustness_cli
 from project.research.global_portfolio_core import (
@@ -32,7 +35,7 @@ def _metadata_and_scores() -> tuple[pd.DataFrame, pd.DataFrame]:
                 "issuer_country": f"Country {index % 4}",
                 "observations": 700,
                 "missing_rate": 0.0,
-                "median_dollar_volume": np.nan,
+                "median_dollar_volume": 1_000_000.0,
                 "constraint_metadata_complete": True,
             }
         )
@@ -49,14 +52,15 @@ def _metadata_and_scores() -> tuple[pd.DataFrame, pd.DataFrame]:
         {
             **rows[0],
             "ticker": "T00B",
-            "observations": 650,
+            "observations": 700,
+            "median_dollar_volume": 50_000_000.0,
         }
     )
     score_rows.append(
         {
             **score_rows[0],
             "ticker": "T00B",
-            "observations": 650,
+            "observations": 700,
             "composite_quant_score": 101.0,
         }
     )
@@ -69,15 +73,32 @@ def test_requested_five_percent_cap_is_explicitly_model_degenerate():
     assert policy.target_holdings * policy.requested_max_issuer_weight == 1.0
 
 
+def test_canonical_config_has_one_active_holdings_count():
+    root = Path(__file__).resolve().parents[1]
+    config = yaml.safe_load(
+        (root / "configs" / "global_equity_research.yaml").read_text(encoding="utf-8")
+    )["v2"]
+
+    assert {
+        int(config["target_holdings"]),
+        int(config["max_selected_stocks"]),
+        int(config["walk_forward_max_assets"]),
+    } == {20}
+
+
 def test_canonical_selection_has_twenty_unique_issuers_and_group_caps():
     metadata, scores = _metadata_and_scores()
     policy = CanonicalPortfolioPolicy()
     selected, audit = select_canonical_securities(scores, metadata, policy)
     assert len(selected) == 20
     assert selected["issuer_key"].nunique() == 20
-    assert "T00" in selected["ticker"].tolist()
-    duplicate = audit.loc[audit["ticker"].eq("T00B")].iloc[0]
+    assert "T00B" in selected["ticker"].tolist()
+    duplicate = audit.loc[audit["ticker"].eq("T00")].iloc[0]
     assert duplicate["selection_reason"].startswith("duplicate_economic_issuer")
+    representative = audit.loc[audit["ticker"].eq("T00B")].iloc[0]
+    assert representative["representative_selection_reason"].startswith(
+        "selected_representative_by_highest_reliable_median_dollar_volume"
+    )
     assert selected["sector"].value_counts().max() <= 5
     assert selected["industry"].value_counts().max() <= 3
     assert selected["issuer_country"].value_counts().max() <= 12
@@ -136,6 +157,12 @@ def test_time_aligned_daily_risk_free_hurdle_changes_primary_sharpe():
 def test_normalized_issuer_name_collapses_share_class_suffixes():
     assert normalize_issuer_name("Example Corp Class A") == normalize_issuer_name(
         "Example Corp Class B"
+    )
+
+
+def test_normalized_issuer_name_does_not_strip_nonterminal_class_words():
+    assert normalize_issuer_name("Example Class A Holdings") != normalize_issuer_name(
+        "Example Holdings"
     )
 
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 PROCESSED = ROOT / "data" / "processed"
@@ -29,16 +31,25 @@ CANONICAL_SHEET_NAMES = (
     "RAW_WEIGHTS",
     "RAW_OOS_RETURNS",
 )
+OUTPUT_IDENTITY_FIELDS = (
+    "run_id",
+    "execution_id",
+    "data_as_of_date",
+    "universe_snapshot_id",
+    "data_snapshot_id",
+    "config_hash",
+    "input_fingerprint",
+)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="configs/global_equity_research.yaml")
     args = parser.parse_args()
-    del args
+    config = yaml.safe_load((ROOT / args.config).read_text(encoding="utf-8")) or {}
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    payload = _payload()
+    payload = _payload(config)
     sheet_names = tuple(sheet["name"] for sheet in payload["sheets"])
     if sheet_names != CANONICAL_SHEET_NAMES:
         raise RuntimeError(f"Canonical workbook sheet contract changed: {sheet_names}")
@@ -47,7 +58,8 @@ def main() -> int:
     return 0
 
 
-def _payload() -> dict[str, Any]:
+def _payload(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    v2 = dict((config or {}).get("v2", {}))
     decision = _csv("global_portfolio_decision_summary.csv")
     roles = _csv("global_portfolio_roles.csv")
     weights = _csv("global_current_portfolio_weights.csv")
@@ -65,6 +77,28 @@ def _payload() -> dict[str, Any]:
     industry = _csv("global_industry_exposure.csv")
     acceptance = _csv("global_portfolio_core_acceptance.csv")
     rf = _csv("global_risk_free_series.csv")
+    run = _json("quantverse_v2_run_manifest.json")
+    _validate_source_identity(
+        run,
+        {
+            "portfolio_decision": decision,
+            "portfolio_roles": roles,
+            "current_weights": weights,
+            "selected_securities": selected,
+            "rejected_candidates": rejected_source,
+            "portfolio_league": league,
+            "model_comparison": comparison,
+            "oos_returns": oos,
+            "risk_report": risk,
+            "risk_contribution": risk_contribution,
+            "cost_sensitivity": costs,
+            "sector_exposure": sector,
+            "country_exposure": country,
+            "industry_exposure": industry,
+            "core_acceptance": acceptance,
+            "risk_free_series": rf,
+        },
+    )
 
     balanced = _decision_value(decision, "balanced_research_portfolio")
     benchmark = _decision_value(decision, "transparent_benchmark")
@@ -128,8 +162,18 @@ def _payload() -> dict[str, Any]:
     summary = comparison[
         comparison["model_name"].isin({balanced, benchmark, defensive})
     ]
+    oos_performance = _calendar_year_oos_summary(
+        oos,
+        [balanced, benchmark, defensive],
+    )
+    oos_risk = _oos_risk_summary(oos, comparison)
     start_rows = [
-        ["KANONİK KAPSAM", "US-listed global-issuer equity research"],
+        [
+            "KANONİK KAPSAM",
+            str(v2.get("declared_scope", "US-listed global-issuer equity research")),
+        ],
+        ["RUN ID", str(run["run_id"])],
+        ["AS-OF TARİHİ", str(run["data_as_of_date"])],
         ["KANIT DURUMU", _decision_value(decision, "evidence_status")],
         ["DENGELİ ARAŞTIRMA PORTFÖYÜ", balanced],
         ["ŞEFFAF BENCHMARK", benchmark],
@@ -205,7 +249,12 @@ def _payload() -> dict[str, Any]:
     )
     data_quality = pd.DataFrame(
         [
-            ["target_holdings", len(current), 20, len(current) == 20],
+            [
+                "target_holdings",
+                len(current),
+                int(v2.get("target_holdings", 20)),
+                len(current) == int(v2.get("target_holdings", 20)),
+            ],
             [
                 "duplicate_economic_issuer_count",
                 current["issuer_key"].duplicated().sum(),
@@ -221,20 +270,23 @@ def _payload() -> dict[str, Any]:
             [
                 "sector_max",
                 current.groupby("sector")["weight"].sum().max(),
-                0.25,
-                current.groupby("sector")["weight"].sum().max() <= 0.25 + 1e-8,
+                float(v2.get("max_sector_weight", 0.25)),
+                current.groupby("sector")["weight"].sum().max()
+                <= float(v2.get("max_sector_weight", 0.25)) + 1e-8,
             ],
             [
                 "industry_max",
                 current.groupby("industry")["weight"].sum().max(),
-                0.15,
-                current.groupby("industry")["weight"].sum().max() <= 0.15 + 1e-8,
+                float(v2.get("max_industry_weight", 0.15)),
+                current.groupby("industry")["weight"].sum().max()
+                <= float(v2.get("max_industry_weight", 0.15)) + 1e-8,
             ],
             [
                 "issuer_country_max",
                 current.groupby("issuer_country")["weight"].sum().max(),
-                0.60,
-                current.groupby("issuer_country")["weight"].sum().max() <= 0.60 + 1e-8,
+                float(v2.get("max_issuer_country_weight", 0.60)),
+                current.groupby("issuer_country")["weight"].sum().max()
+                <= float(v2.get("max_issuer_country_weight", 0.60)) + 1e-8,
             ],
             [
                 "nonzero_rf_observations",
@@ -343,13 +395,19 @@ def _payload() -> dict[str, Any]:
             ),
             _sheet(
                 "OOS_PERFORMANCE",
-                _rows(oos[["Date", "model_name", "return"]]),
-                "Stitched net OOS günlük getiri; her gün bir kez kullanılır.",
+                _rows(oos_performance),
+                (
+                    "Stitched net OOS serinin takvim yılı bazında bileşik özeti; "
+                    "ham günlük kanıt RAW_OOS_RETURNS sayfasındadır."
+                ),
             ),
             _sheet(
                 "RISK",
-                _rows(risk),
-                "Tam örneklem tanısal risk ile model kararında kullanılan OOS risk ayrıdır.",
+                _rows(oos_risk),
+                (
+                    "Aynı stitched net OOS örneklemindeki karar-uyumlu risk özeti; "
+                    "tam örneklem tanı tablosu CSV kanıtında tutulur."
+                ),
             ),
             _sheet(
                 "TURNOVER_COSTS",
@@ -403,6 +461,131 @@ def _payload() -> dict[str, Any]:
             "cost_sheet": "TURNOVER_COSTS",
         },
     }
+
+
+def _calendar_year_oos_summary(
+    oos_returns: pd.DataFrame,
+    model_names: list[str],
+) -> pd.DataFrame:
+    required = {"Date", "model_name", "return"}
+    missing = sorted(required - set(oos_returns.columns))
+    if missing:
+        raise RuntimeError(
+            "OOS performance summary is missing columns: " + ", ".join(missing)
+        )
+    models = list(dict.fromkeys(str(model) for model in model_names))
+    if not models:
+        raise RuntimeError("OOS performance summary requires at least one model.")
+
+    frame = oos_returns.loc[
+        oos_returns["model_name"].astype(str).isin(models),
+        ["Date", "model_name", "return"],
+    ].copy()
+    frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
+    frame["return"] = pd.to_numeric(frame["return"], errors="coerce")
+    if frame["Date"].isna().any() or frame["return"].isna().any():
+        raise RuntimeError("OOS performance summary contains invalid dates or returns.")
+    if not np.isfinite(frame["return"]).all() or (frame["return"] <= -1.0).any():
+        raise RuntimeError("OOS performance summary contains invalid simple returns.")
+    if frame.duplicated(["Date", "model_name"]).any():
+        raise RuntimeError("OOS performance summary contains duplicate model dates.")
+
+    daily = frame.pivot(index="Date", columns="model_name", values="return")
+    missing_models = [model for model in models if model not in daily.columns]
+    if missing_models:
+        raise RuntimeError(
+            "OOS performance summary is missing models: " + ", ".join(missing_models)
+        )
+    daily = daily[models].sort_index()
+    if daily.isna().any().any():
+        raise RuntimeError("OOS performance models do not share identical dates.")
+
+    calendar_year = pd.Series(daily.index.year, index=daily.index, name="calendar_year")
+    compounded = (1.0 + daily).groupby(calendar_year).prod() - 1.0
+    compounded = compounded.rename(
+        columns={model: f"{model} net_return" for model in models}
+    )
+    compounded.insert(0, "observations", daily.groupby(calendar_year).size())
+    return compounded.reset_index()
+
+
+def _oos_risk_summary(
+    oos_returns: pd.DataFrame,
+    comparison: pd.DataFrame,
+) -> pd.DataFrame:
+    comparison_columns = {
+        "model_name",
+        "oos_observations",
+        "oos_volatility",
+        "oos_max_drawdown",
+        "oos_cvar_95",
+        "risk_free_policy",
+    }
+    missing_comparison = sorted(comparison_columns - set(comparison.columns))
+    if missing_comparison:
+        raise RuntimeError(
+            "OOS risk summary is missing comparison columns: "
+            + ", ".join(missing_comparison)
+        )
+    if comparison["model_name"].astype(str).duplicated().any():
+        raise RuntimeError("OOS risk summary has duplicate comparison models.")
+
+    models = comparison["model_name"].astype(str).tolist()
+    frame = oos_returns.loc[
+        oos_returns["model_name"].astype(str).isin(models),
+        ["Date", "model_name", "return"],
+    ].copy()
+    frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
+    frame["return"] = pd.to_numeric(frame["return"], errors="coerce")
+    if frame["Date"].isna().any() or frame["return"].isna().any():
+        raise RuntimeError("OOS risk summary contains invalid dates or returns.")
+    if not np.isfinite(frame["return"]).all() or (frame["return"] <= -1.0).any():
+        raise RuntimeError("OOS risk summary contains invalid simple returns.")
+    if frame.duplicated(["Date", "model_name"]).any():
+        raise RuntimeError("OOS risk summary contains duplicate model dates.")
+
+    daily = frame.pivot(index="Date", columns="model_name", values="return")
+    missing_models = [model for model in models if model not in daily.columns]
+    if missing_models:
+        raise RuntimeError(
+            "OOS risk summary is missing models: " + ", ".join(missing_models)
+        )
+    daily = daily[models].sort_index()
+    if daily.isna().any().any():
+        raise RuntimeError("OOS risk models do not share identical dates.")
+    expected_observations = _common_oos_observations(comparison)
+    if len(daily) != expected_observations:
+        raise RuntimeError(
+            "OOS risk observations do not match the comparison evidence."
+        )
+
+    var_95 = daily.quantile(0.05)
+    worst_daily = daily.min()
+    summary = comparison[
+        [
+            "model_name",
+            "oos_observations",
+            "oos_volatility",
+            "oos_max_drawdown",
+            "oos_cvar_95",
+            "risk_free_policy",
+        ]
+    ].copy()
+    summary.insert(
+        4,
+        "oos_var_95",
+        summary["model_name"].astype(str).map(var_95),
+    )
+    summary.insert(
+        6,
+        "worst_daily_return",
+        summary["model_name"].astype(str).map(worst_daily),
+    )
+    summary["risk_free_policy"] = summary["risk_free_policy"].replace(
+        {"time_aligned_market_proxy_compounded_daily_hurdle": ("^IRX time-aligned")}
+    )
+    summary["evidence_sample"] = "stitched net OOS; identical dates"
+    return summary
 
 
 def _write_workbook(payload: dict[str, Any], output: Path) -> None:
@@ -565,6 +748,49 @@ def _add_workbook_charts(
         model_chart.set_legend({"position": "bottom"})
         model_sheet.insert_chart("N5", model_chart, {"x_scale": 1.25, "y_scale": 1.2})
 
+    oos_performance = frames["OOS_PERFORMANCE"]
+    return_columns = [
+        column
+        for column in oos_performance.columns
+        if str(column).endswith(" net_return")
+    ]
+    if (
+        not oos_performance.empty
+        and "calendar_year" in oos_performance
+        and return_columns
+    ):
+        performance_sheet = worksheets["OOS_PERFORMANCE"]
+        performance_chart = workbook.add_chart({"type": "column"})
+        year_column = oos_performance.columns.get_loc("calendar_year")
+        for column_name in return_columns:
+            value_column = oos_performance.columns.get_loc(column_name)
+            performance_chart.add_series(
+                {
+                    "name": ["OOS_PERFORMANCE", 4, value_column],
+                    "categories": [
+                        "OOS_PERFORMANCE",
+                        5,
+                        year_column,
+                        4 + len(oos_performance),
+                        year_column,
+                    ],
+                    "values": [
+                        "OOS_PERFORMANCE",
+                        5,
+                        value_column,
+                        4 + len(oos_performance),
+                        value_column,
+                    ],
+                }
+            )
+        performance_chart.set_title({"name": "Calendar-Year Net OOS Return"})
+        performance_chart.set_x_axis({"name": "Calendar year"})
+        performance_chart.set_y_axis({"name": "Net return", "num_format": "0%"})
+        performance_chart.set_legend({"position": "bottom"})
+        performance_sheet.insert_chart(
+            "F5", performance_chart, {"x_scale": 1.2, "y_scale": 1.15}
+        )
+
     exposure = frames["EXPOSURE"]
     sector = exposure.loc[exposure["exposure_type"].astype(str).eq("sector")]
     if not sector.empty:
@@ -719,6 +945,39 @@ def _csv(name: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Required canonical workbook input missing: {path}")
     return pd.read_csv(path)
+
+
+def _json(name: str) -> dict[str, object]:
+    path = PROCESSED / name
+    if not path.exists():
+        raise FileNotFoundError(f"Required canonical workbook input missing: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _validate_source_identity(
+    manifest: dict[str, object],
+    sources: dict[str, pd.DataFrame],
+) -> None:
+    failures: list[str] = []
+    for field in OUTPUT_IDENTITY_FIELDS:
+        if str(manifest.get(field, "")).strip() in {"", "missing", "nan"}:
+            failures.append(f"manifest.{field}=missing")
+    for source_name, frame in sources.items():
+        if frame.empty:
+            failures.append(f"{source_name}=empty")
+            continue
+        for field in OUTPUT_IDENTITY_FIELDS:
+            if field not in frame:
+                failures.append(f"{source_name}.{field}=missing")
+                continue
+            observed = frame[field].dropna().astype(str).unique()
+            if len(observed) != 1 or observed[0] != str(manifest.get(field)):
+                failures.append(f"{source_name}.{field}=mismatched")
+    if failures:
+        raise RuntimeError(
+            "Canonical workbook sources do not share one run identity: "
+            + "; ".join(failures)
+        )
 
 
 def _decision_value(frame: pd.DataFrame, column: str) -> str:

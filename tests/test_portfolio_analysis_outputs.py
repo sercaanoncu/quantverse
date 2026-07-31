@@ -11,11 +11,95 @@ from scripts.build_quantverse_portfolio_excel import CANONICAL_SHEET_NAMES
 from scripts.validate_quantverse_v2_artifacts import _excel_sheet_names
 
 
-def test_canonical_workbook_has_exactly_fifteen_user_facing_sheets():
+def test_canonical_workbook_has_thirteen_user_sheets_and_two_raw_sheets():
     assert len(CANONICAL_SHEET_NAMES) == 15
     assert len(set(CANONICAL_SHEET_NAMES)) == 15
     assert CANONICAL_SHEET_NAMES[0] == "START_HERE"
     assert CANONICAL_SHEET_NAMES[-2:] == ("RAW_WEIGHTS", "RAW_OOS_RETURNS")
+
+
+def test_oos_performance_sheet_compounds_to_compact_calendar_year_summary():
+    dates = pd.to_datetime(["2024-12-30", "2024-12-31", "2025-01-02"])
+    oos = pd.DataFrame(
+        [
+            {"Date": date, "model_name": model, "return": daily_return}
+            for model, returns in {
+                "Equal Weight": [0.10, -0.10, 0.05],
+                "GMV": [0.02, 0.01, 0.03],
+            }.items()
+            for date, daily_return in zip(dates, returns, strict=True)
+        ]
+    )
+
+    summary = workbook_builder._calendar_year_oos_summary(
+        oos,
+        ["Equal Weight", "Equal Weight", "GMV"],
+    )
+
+    assert summary.columns.tolist() == [
+        "calendar_year",
+        "observations",
+        "Equal Weight net_return",
+        "GMV net_return",
+    ]
+    assert summary["observations"].tolist() == [2, 1]
+    assert summary.loc[0, "Equal Weight net_return"] == pytest.approx(-0.01)
+    assert summary.loc[0, "GMV net_return"] == pytest.approx(0.0302)
+    assert len(summary) == 2
+
+
+def test_oos_performance_sheet_rejects_non_common_model_dates():
+    oos = pd.DataFrame(
+        {
+            "Date": ["2025-01-02", "2025-01-03", "2025-01-02"],
+            "model_name": ["Equal Weight", "Equal Weight", "GMV"],
+            "return": [0.01, 0.02, 0.01],
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="identical dates"):
+        workbook_builder._calendar_year_oos_summary(oos, ["Equal Weight", "GMV"])
+
+
+def test_risk_sheet_is_a_compact_common_oos_summary():
+    dates = pd.to_datetime(["2025-01-02", "2025-01-03", "2025-01-06"])
+    oos = pd.DataFrame(
+        [
+            {"Date": date, "model_name": model, "return": daily_return}
+            for model, returns in {
+                "Equal Weight": [0.01, -0.02, 0.03],
+                "GMV": [0.005, -0.01, 0.015],
+            }.items()
+            for date, daily_return in zip(dates, returns, strict=True)
+        ]
+    )
+    comparison = pd.DataFrame(
+        {
+            "model_name": ["Equal Weight", "GMV"],
+            "oos_observations": [3, 3],
+            "oos_volatility": [0.20, 0.10],
+            "oos_max_drawdown": [-0.02, -0.01],
+            "oos_cvar_95": [-0.02, -0.01],
+            "risk_free_policy": ["time_aligned_market_proxy"] * 2,
+        }
+    )
+
+    summary = workbook_builder._oos_risk_summary(oos, comparison)
+
+    assert len(summary) == 2
+    assert summary.columns.tolist() == [
+        "model_name",
+        "oos_observations",
+        "oos_volatility",
+        "oos_max_drawdown",
+        "oos_var_95",
+        "oos_cvar_95",
+        "worst_daily_return",
+        "risk_free_policy",
+        "evidence_sample",
+    ]
+    assert summary.loc[0, "worst_daily_return"] == pytest.approx(-0.02)
+    assert summary["evidence_sample"].eq("stitched net OOS; identical dates").all()
 
 
 def test_report_and_workbook_derive_common_oos_observation_count():
@@ -29,6 +113,24 @@ def test_report_and_workbook_derive_common_oos_observation_count():
         report_builder._common_oos_observations(inconsistent)
     with pytest.raises(RuntimeError, match="one positive common OOS"):
         workbook_builder._common_oos_observations(inconsistent)
+
+
+def test_report_and_workbook_reject_stale_source_identity():
+    manifest = {
+        field: f"current-{field}" for field in report_builder.OUTPUT_IDENTITY_FIELDS
+    }
+    current = pd.DataFrame(
+        {field: [manifest[field]] for field in report_builder.OUTPUT_IDENTITY_FIELDS}
+    )
+    stale = current.copy()
+    stale["run_id"] = "stale-run"
+
+    report_builder._validate_source_identity(manifest, {"current": current})
+    workbook_builder._validate_source_identity(manifest, {"current": current})
+    with pytest.raises(RuntimeError, match="one run identity"):
+        report_builder._validate_source_identity(manifest, {"stale": stale})
+    with pytest.raises(RuntimeError, match="one run identity"):
+        workbook_builder._validate_source_identity(manifest, {"stale": stale})
 
 
 @pytest.mark.parametrize(
@@ -140,6 +242,11 @@ def test_html_report_publishes_three_explicit_roles_without_not_promoted_headlin
             "rejected": rejected,
             "decision": {"final_decision_reason": "Paired OOS evidence rule."},
             "config": {"declared_scope": "US-listed global-issuer equity research"},
+            "run": {
+                "run_id": "qv2-unit-run",
+                "data_as_of_date": "2026-07-21",
+            },
+            "windows": pd.DataFrame({"fold": [0, 1]}),
             "balanced": "Equal Weight",
             "benchmark": "Equal Weight",
             "defensive": "GMV",
@@ -162,5 +269,7 @@ def test_html_report_publishes_three_explicit_roles_without_not_promoted_headlin
     assert "transparent_benchmark" in text
     assert "defensive_alternative" in text
     assert "US-listed global-issuer equity research" in text
+    assert "qv2-unit-run" in text
+    assert "2026-07-21" in text
     assert text.count("<figure>") == 7
     assert "NOT PROMOTED" not in text

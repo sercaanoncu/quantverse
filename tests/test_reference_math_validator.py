@@ -128,6 +128,23 @@ def test_reference_math_validator_recalculates_and_detects_adversarial_tampering
     ].iloc[0]
     assert "compounded_daily_risk_free_hurdle" in sharpe_formula
 
+    leakage_path = processed / "global_walk_forward_leakage_audit.csv"
+    original_leakage = pd.read_csv(leakage_path)
+    additional_check = original_leakage.iloc[[0]].copy()
+    additional_check["check"] = "representative_liquidity_uses_no_current_profile_data"
+    pd.concat([original_leakage, additional_check], ignore_index=True).to_csv(
+        leakage_path,
+        index=False,
+    )
+
+    additive_leakage_checks = verify_reference_math(tmp_path)
+
+    assert _check_passed(
+        additive_leakage_checks,
+        "model_selection_evidence_reconciles",
+    )
+    original_leakage.to_csv(leakage_path, index=False)
+
     random_weights_path = processed / "global_walk_forward_random_weights.csv"
     original_random_weights = pd.read_csv(random_weights_path)
     tampered_random_weights = original_random_weights.copy()

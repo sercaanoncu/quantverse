@@ -90,7 +90,7 @@ def build_portfolio_league(
     forecasts: pd.DataFrame | None = None,
     metadata: pd.DataFrame | None = None,
     *,
-    max_assets: int = 40,
+    max_assets: int = 20,
     max_weight: float = 0.10,
     random_state: int = 42,
     risk_free_rate_annual: float = 0.0,
